@@ -9,7 +9,8 @@
     "dev": "tsx watch src/index.ts --mock",
     "start": "node dist/index.js",
     "start:mock": "node dist/index.js --mock",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "test": "tsc -p tsconfig.test.json && tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@hpath/contract": "workspace:*",
