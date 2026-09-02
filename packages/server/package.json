@@ -9,15 +9,19 @@
     "dev": "tsx watch src/index.ts --mock",
     "start": "node dist/index.js",
     "start:mock": "node dist/index.js --mock",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "test": "tsx --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@hpath/contract": "workspace:*",
     "@bufbuild/protobuf": "^2.14.1",
+    "@earendil-works/pi-agent-core": "^0.84.4",
+    "@earendil-works/pi-ai": "^0.84.4",
     "@grpc/grpc-js": "1.14.4",
     "@grpc/proto-loader": "0.7.15",
     "@grpc/reflection": "1.0.4",
     "fflate": "0.8.3",
-    "protobufjs": "7.6.6"
+    "protobufjs": "7.6.6",
+    "typebox": "1.3.7"
   }
 }
