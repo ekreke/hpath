@@ -1,0 +1,6 @@
+{
+  "name": "@hpath/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Placeholder. Tauri 2 desktop client implemented in T10 (see docs/1.0/SPEC.md)."
+}

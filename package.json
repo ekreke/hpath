@@ -1,0 +1,20 @@
+{
+  "name": "hpath-monorepo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "gen:proto": "./scripts/gen-proto.sh",
+    "mock": "pnpm --filter @hpath/server dev",
+    "smoke": "pnpm --filter @hpath/server smoke"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "ts-proto": "^2.12.1",
+    "tsx": "^4.23.13",
+    "typescript": "5.9.3"
+  }
+}

@@ -21,8 +21,8 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
 
 ## A. Contract & Mock Foundation
 
-- [ ] **T1 Workspace skeleton + gRPC contract + server skeleton with mock mode**
-  pnpm workspace; `proto/hpath.proto` defining all 1.0 services (ListProjects, CreateProject, ListEnvs, UpsertEnv, DeleteEnv, ParsePRD, ListCases, GetCase, ReviewCase, RunCase, ListRuns, GetRun, DownloadArtifact); generated TS types; server skeleton serving echo impls plus `--mock` mode: in-memory seed data (1 demo project with metadata repo_url, envs `dev`+`staging`, 2 approved example cases, 1 finished sample run), scripted RunCase event stream, synthetic artifacts (small generated video/screenshot/trace placeholders).
+- [x] **T1 Workspace skeleton + gRPC contract + server skeleton with mock mode**
+  pnpm workspace; `proto/hpath.proto` defining all 1.0 services (ListProjects, CreateProject, ListEnvs, UpsertEnv, DeleteEnv, ParsePRD, ListCases, GetCase, ReviewCase, RunCase, ListRuns, GetRun, DownloadArtifact); generated TS types; server skeleton serving echo impls plus `--mock` mode: in-memory seed data (1 demo project with metadata repo_url, envs `dev`+`staging`, 3 example cases: 2 approved + 1 pending agent draft, 2 finished sample runs: 1 passed + 1 failed), scripted RunCase event stream, synthetic artifacts (small generated video/screenshot/trace placeholders).
   *Verify: `pnpm -r build` passes; grpcurl reflection lists services; `--mock` server answers ListProjects/RunCase with seed data and a scripted event stream.*
 
 ## B. Desktop First (built and verified against mock)
@@ -64,7 +64,7 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
   *Verify: repository unit tests; foreign-key namespace checks (project/env/run).*
 
 - [ ] **T3 Seed data (SQLite-backed)**
-  On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 2 example cases (approved), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
+  On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 3 example cases (2 approved + 1 pending agent draft), 2 finished sample runs (1 passed + 1 failed), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
   *Verify: fresh boot -> ListProjects/ListEnvs/ListCases return seed data from SQLite.*
 
 - [ ] **T6 SeaweedFS artifact client**
