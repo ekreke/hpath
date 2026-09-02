@@ -114,6 +114,18 @@
     "colDuration": "耗时",
     "colTokens": "Tokens"
   },
+  "runPanel": {
+    "title": "实时运行",
+    "steps": "步数",
+    "elapsed": "已用时",
+    "duration": "总时长",
+    "tokens": "Tokens",
+    "events": "事件",
+    "empty": "等待事件…",
+    "loadingShot": "截图加载中…",
+    "toolFailed": "失败",
+    "showJson": "请求 / 响应"
+  },
   "envs": {
     "title": "环境",
     "subtitle": "每个环境绑定一套 SUT 地址与注入变量",

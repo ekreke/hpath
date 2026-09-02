@@ -1,29 +1,23 @@
 # TODO — Current Iteration
 
-Iteration target: **T17 Chat / system status view (default home)**
+Iteration target: **T13 Run detail (replay)**
 
 ## Working notes
 
-- T11 views implemented against the mock (working tree): cases list/detail/review + minimal run trigger, env CRUD, PRD upload + live parse trace; shared `@hpath/contract` package extracted for TS types.
-- T16 packaging + release CI added on top:
-  - Tauri bundler enabled (macOS `.app`/`.dmg`, unsigned); full icon set generated via `tauri icon`; `make dist` builds the bundle.
-  - `.github/workflows/release.yml` builds the macOS dmg on release publish and attaches it to the release; `workflow_dispatch` is a dry run (artifacts on the workflow run).
-  - `set_server_addr` IPC command now actually exists (earlier T10 notes listed it as delivered, but it was missing): the address is validated and held Rust-side (`AppState`); the TopBar input + Apply persists it client-side (localStorage, default input value `127.0.0.1:50051`); all 10 gRPC commands read the address from state instead of taking an `addr` argument.
-- T17 Chat / system status view (default home):
-  - New `ChatView` as the default landing view (Sidebar first item, `ViewId` gains `chat`); renders a system overview + quick queries (running tasks, recent runs, case health, env overview) as chat messages.
-  - Client-side only: aggregates existing IPC (list_projects/list_cases/list_runs/list_envs); free-text input maps common phrases to the same queries. No new gRPC contract, no Rust changes.
-  - The server-side `status-agent` (natural-language answers + a `Chat` streaming endpoint) is reserved for 1.1 in SPEC Out of Scope.
+- T12 Live run panel checkpointed (branch `feat/t12-live-run-panel`):
+  - `run_case` now forwards every stream event to the webview on the fixed `run-event` channel (`RunEventDto`, tagged by kind, carries `runId`/`seq`/`timestamp`); the command still resolves with the final `RunResultDto` (invoke end = run end).
+  - New `download_artifact` IPC command: collects the gRPC byte stream and returns base64 — screenshot events render inline in the panel with click-to-zoom (progress events deferred to T13's replay work).
+  - New `RunPanel` component (replaces the old result modal; embedded inline in the case detail view between the header and the info grid): per-kind event feed (thinking/text/tool started-finished/request records with expandable JSON/errors/status changes), steps + elapsed status bar, final verdict via the extracted shared `VerdictPanel`. CasesView subscribes to `run-event` before invoking and filters events by the triggered run's id.
+  - Status bar shows max/budget columns only as duration/token cost after completion — the proto carries no limit-budget fields; revisit when T8 wires real limits.
+  - Mock: live run outcome follows a title-keyword convention (`outcomeForTitle` in handlers.ts): seeded probe cases `Limit probe hits the hard step budget` (limit script) and `Balance drift fails the alignment check` (fail script) demo the hard-limit and fail paths; other titles (incl. the smoke suite's Login case) pass on any env.
+  - The panel's close does not cancel the server-side run (Tauri invoke has no cancellation in 1.0); replay of finished runs is T13.
 - Automated gates (all green):
   - `pnpm build` (root) — contract + server + desktop build.
   - `cargo check` (src-tauri) — Rust side compiles, command macros resolve.
   - `make test` — full server smoke suite still green.
-  - `make dist` — produces `.app`/`.dmg` locally.
 - Manual gate (requires a macOS desktop session):
-  - `make run` — window opens on the Chat view; quick queries render mock data; switching project re-queries.
-  - First launch of a bundled (unsigned) build: right-click -> Open, or `xattr -cr` the app.
-- Known follow-ups for T12+:
-  - `run_case` currently collects the whole event stream and returns the final result; the live feed arrives in T12 (spawn task + `app.emit("run-event/<runId>", event)`); no contract change needed.
-- Next up: T12 live run panel (mock-backed).
+  - `make run` — trigger the Login case: panel streams 20 events over ~8s and ends PASS; the drift probe ends FAILED with mismatch evidence; the limit probe ends FAILED on `limit:max_steps`.
+- Next up: T13 run detail (replay) — webm player + screenshot timeline + transcript, trace.zip download, re-run.
 
 ## Blockers
 

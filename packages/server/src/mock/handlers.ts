@@ -47,7 +47,7 @@ import {
 } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
-import { simulateRun } from "./run-script.js";
+import { simulateRun, type RunOutcome } from "./run-script.js";
 
 function grpcError(code: status, message: string): ServiceError {
   return { code, details: message, message, name: "ServiceError" } as ServiceError;
@@ -63,6 +63,17 @@ function requireProject(store: MockStore, projectId: string): Project {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Title-keyword convention for live mock runs (T12): seeded probe cases opt
+// into scripted outcomes by title so every panel path is demoable — "limit"
+// hits the step budget, "fail"/"drift" break alignment; everything else
+// (incl. the smoke suite's Login case) passes on any env.
+function outcomeForTitle(title: string): RunOutcome {
+  const t = title.toLowerCase();
+  if (t.includes("limit")) return "limit";
+  if (t.includes("fail") || t.includes("drift")) return "fail";
+  return "pass";
 }
 
 const CHUNK_SIZE = 64 * 1024;
@@ -326,7 +337,9 @@ export function createMockHandlers(store: MockStore): HpathServer {
             env,
             kase,
             trigger: req.trigger === RunTrigger.RUN_TRIGGER_UNSPECIFIED ? RunTrigger.RUN_TRIGGER_MANUAL : req.trigger,
-            outcome: "pass",
+            // Title-keyword convention so the desktop run panel (T12) can
+            // demo every scripted outcome; see outcomeForTitle.
+            outcome: outcomeForTitle(kase.title),
             delayMs: 400,
             onEvent: (event) => {
               if (!call.cancelled) {

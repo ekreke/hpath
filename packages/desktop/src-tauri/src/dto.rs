@@ -379,3 +379,96 @@ pub struct RunResultDto {
     pub fail_reason: String,
     pub verdict: Option<VerdictDto>,
 }
+
+/// Tagged run event for the webview (T12): `kind` selects which optional
+/// fields carry data (mirrors the proto Event oneof). Streamed to the webview
+/// on the `run-event` channel while `run_case` is in flight.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEventDto {
+    pub run_id: String,
+    pub seq: i32,
+    pub timestamp: String,
+    pub kind: String, // agentText | agentThinking | toolStarted | toolFinished | screenshot | requestRecord | verdict | error | runStatus
+    pub text: Option<String>,
+    pub tool: Option<String>,
+    pub args_json: Option<String>,
+    pub ok: Option<bool>,
+    pub result_summary: Option<String>,
+    pub artifact_id: Option<String>,
+    pub caption: Option<String>,
+    pub direction: Option<String>,
+    pub method: Option<String>,
+    pub target: Option<String>,
+    pub request_json: Option<String>,
+    pub response_json: Option<String>,
+    pub verdict: Option<VerdictDto>,
+    pub error_kind: Option<String>,
+    pub error_message: Option<String>,
+    pub status: Option<i32>,
+    pub reason: Option<String>,
+}
+
+impl From<&pb::Event> for RunEventDto {
+    fn from(e: &pb::Event) -> Self {
+        use pb::event::Payload;
+
+        let mut dto = RunEventDto {
+            run_id: e.run_id.clone(),
+            seq: e.seq,
+            timestamp: e.timestamp.clone(),
+            ..Default::default()
+        };
+        match &e.payload {
+            Some(Payload::AgentText(t)) => {
+                dto.kind = "agentText".into();
+                dto.text = Some(t.text.clone());
+            }
+            Some(Payload::AgentThinking(t)) => {
+                dto.kind = "agentThinking".into();
+                dto.text = Some(t.text.clone());
+            }
+            Some(Payload::ToolStarted(t)) => {
+                dto.kind = "toolStarted".into();
+                dto.tool = Some(t.tool.clone());
+                dto.args_json = Some(t.args_json.clone());
+            }
+            Some(Payload::ToolFinished(t)) => {
+                dto.kind = "toolFinished".into();
+                dto.tool = Some(t.tool.clone());
+                dto.ok = Some(t.ok);
+                dto.result_summary = Some(t.result_summary.clone());
+                dto.artifact_id = Some(t.artifact_id.clone());
+            }
+            Some(Payload::Screenshot(s)) => {
+                dto.kind = "screenshot".into();
+                dto.artifact_id = Some(s.artifact_id.clone());
+                dto.caption = Some(s.caption.clone());
+            }
+            Some(Payload::RequestRecord(r)) => {
+                dto.kind = "requestRecord".into();
+                dto.direction = Some(r.direction.clone());
+                dto.method = Some(r.method.clone());
+                dto.target = Some(r.target.clone());
+                dto.request_json = Some(r.request_json.clone());
+                dto.response_json = Some(r.response_json.clone());
+            }
+            Some(Payload::Verdict(v)) => {
+                dto.kind = "verdict".into();
+                dto.verdict = Some(VerdictDto::from(v));
+            }
+            Some(Payload::Error(err)) => {
+                dto.kind = "error".into();
+                dto.error_kind = Some(err.kind.clone());
+                dto.error_message = Some(err.message.clone());
+            }
+            Some(Payload::RunStatus(s)) => {
+                dto.kind = "runStatus".into();
+                dto.status = Some(s.status);
+                dto.reason = Some(s.reason.clone());
+            }
+            None => dto.kind = "runStatus".into(),
+        }
+        dto
+    }
+}

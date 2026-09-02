@@ -44,6 +44,41 @@ export type RunResult = {
   verdict: Verdict | null;
 };
 
+// Tagged run event streamed from the Rust side on the `run-event` channel
+// while run_case is in flight; `kind` selects which optional fields carry data.
+export type RunEvent = {
+  runId: string;
+  seq: number;
+  timestamp: string;
+  kind:
+    | 'agentText'
+    | 'agentThinking'
+    | 'toolStarted'
+    | 'toolFinished'
+    | 'screenshot'
+    | 'requestRecord'
+    | 'verdict'
+    | 'error'
+    | 'runStatus';
+  text?: string;
+  tool?: string;
+  argsJson?: string;
+  ok?: boolean;
+  resultSummary?: string;
+  artifactId?: string;
+  caption?: string;
+  direction?: string;
+  method?: string;
+  target?: string;
+  requestJson?: string;
+  responseJson?: string;
+  verdict?: Verdict | null;
+  errorKind?: string;
+  errorMessage?: string;
+  status?: number;
+  reason?: string;
+};
+
 export type ListRunsFilter = {
   envId?: string;
   caseId?: string;
@@ -131,4 +166,9 @@ export function invokeRunCase(
   caseId: string,
 ): Promise<RunResult> {
   return invoke<RunResult>('run_case', { projectId, envId, caseId });
+}
+
+// Base64-encoded artifact bytes (screenshots in the run panel).
+export function invokeDownloadArtifact(artifactId: string): Promise<string> {
+  return invoke<string>('download_artifact', { artifactId });
 }

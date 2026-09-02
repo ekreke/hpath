@@ -11,7 +11,8 @@ pub mod hpath {
 pub mod grpc;
 
 use dto::{
-    CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunResultDto, VerdictDto,
+    CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunEventDto, RunResultDto,
+    VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -244,10 +245,12 @@ async fn parse_prd(
     Ok(result)
 }
 
-/// Minimal run trigger (T11): collects the event stream to the end and
-/// reduces it to the final outcome. The live event feed arrives in T12.
+/// Run trigger (T12): forwards every stream event to the webview on the
+/// `run-event` channel while reducing the stream to the final outcome, which
+/// is returned when the command resolves (invoke end = run end).
 #[tauri::command]
 async fn run_case(
+    app: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
     env_id: String,
@@ -277,6 +280,8 @@ async fn run_case(
 
     while let Some(event) = stream.message().await.map_err(|e| e.to_string())? {
         result.run_id = event.run_id.clone();
+        let dto = RunEventDto::from(&event);
+        let _ = app.emit("run-event", &dto);
         match &event.payload {
             Some(hpath::event::Payload::RunStatus(s)) => {
                 result.status = s.status;
@@ -290,6 +295,32 @@ async fn run_case(
     }
 
     Ok(result)
+}
+
+/// Collect an artifact's bytes and return them base64-encoded (T12: inline
+/// screenshot thumbnails in the run panel; progress events arrive with the
+/// replay view in T13).
+#[tauri::command]
+async fn download_artifact(
+    state: State<'_, AppState>,
+    artifact_id: String,
+) -> Result<String, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut stream = client
+        .download_artifact(Request::new(hpath::DownloadArtifactRequest { artifact_id }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.message().await.map_err(|e| e.to_string())? {
+        bytes.extend_from_slice(&chunk.data);
+    }
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -308,6 +339,7 @@ pub fn run() {
             list_runs,
             parse_prd,
             run_case,
+            download_artifact,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -36,6 +36,7 @@ body {
 ::selection { background: #fff; color: #000; }
 
 .mono { font-family: var(--mono); font-size: 12.5px; }
+.dim { color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; }
 
 /* ── app shell ──────────────────────────── */

@@ -1,6 +1,9 @@
-// Seed data for the mock store: one demo project, two envs, three cases
-// (two approved, one pending agent draft) and two finished runs (one passed,
-// one failed) so the desktop history/replay views have data on first boot.
+// Seed data for the mock store: one demo project, two envs, five cases
+// (four approved — including two scripted-outcome probes: a hard-limit case
+// and an alignment-drift case — plus one pending agent draft) and two
+// finished runs (one passed, one failed) so the desktop history/replay views
+// have data on first boot. Live run outcomes follow the title-keyword
+// convention in handlers.ts (outcomeForTitle).
 
 import { randomUUID } from "node:crypto";
 import type { Case, Env, Project } from "@hpath/contract";
@@ -111,8 +114,56 @@ export function seedMockStore(store: MockStore): void {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
+  // Scripted-outcome probes (T12): titles drive outcomeForTitle so the live
+  // run panel can demo the hard-limit and alignment-fail paths on demand.
+  const limitProbeCase: Case = {
+    id: randomUUID(),
+    projectId: project.id,
+    title: "Limit probe hits the hard step budget",
+    goal: "Exercise the executor's hard step limit: the run must stop with a limit breach and preserve the evidence collected so far.",
+    alignments: [
+      {
+        apiPath: "/api/balance",
+        uiAnchor: "Dashboard balance card",
+        rule: "Any drift between the sides must be reported before the budget is exhausted.",
+      },
+    ],
+    creator: { type: CreatorType.CREATOR_TYPE_HUMAN, name: "john", runRef: "" },
+    status: CaseStatus.CASE_STATUS_APPROVED,
+    sourcePrdRef: "",
+    version: 1,
+    changelog: [
+      { version: 1, author: "john", comment: "Hard-limit probe", changedAt: nowIso() },
+    ],
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  const driftCase: Case = {
+    id: randomUUID(),
+    projectId: project.id,
+    title: "Balance drift fails the alignment check",
+    goal: "Detect seeded data drift between the UI and the backend balance so the mismatch verdict path is exercised.",
+    alignments: [
+      {
+        apiPath: "/api/balance",
+        uiAnchor: "Dashboard balance card",
+        rule: "Values are equal and rendered with two decimal places.",
+      },
+    ],
+    creator: { type: CreatorType.CREATOR_TYPE_HUMAN, name: "alice", runRef: "" },
+    status: CaseStatus.CASE_STATUS_APPROVED,
+    sourcePrdRef: "prds/payment.md#balance-display",
+    version: 1,
+    changelog: [
+      { version: 1, author: "alice", comment: "Drift probe", changedAt: nowIso() },
+    ],
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
   store.cases.set(loginCase.id, loginCase);
   store.cases.set(transferCase.id, transferCase);
+  store.cases.set(limitProbeCase.id, limitProbeCase);
+  store.cases.set(driftCase.id, driftCase);
   store.cases.set(ordersDraft.id, ordersDraft);
 
   // Seed history: one passed run on dev, one failed run on staging.

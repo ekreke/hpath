@@ -36,7 +36,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 ## A. Contract & Mock Foundation
 
 - [x] **T1 Workspace skeleton + gRPC contract + server skeleton with mock mode**
-  pnpm workspace; `proto/hpath.proto` defining all 1.0 services (ListProjects, CreateProject, ListEnvs, UpsertEnv, DeleteEnv, ParsePRD, ListCases, GetCase, ReviewCase, RunCase, ListRuns, GetRun, DownloadArtifact); generated TS types; server skeleton serving echo impls plus `--mock` mode: in-memory seed data (1 demo project with metadata repo_url, envs `dev`+`staging`, 3 example cases: 2 approved + 1 pending agent draft, 2 finished sample runs: 1 passed + 1 failed), scripted RunCase event stream, synthetic artifacts (small generated video/screenshot/trace placeholders).
+  pnpm workspace; `proto/hpath.proto` defining all 1.0 services (ListProjects, CreateProject, ListEnvs, UpsertEnv, DeleteEnv, ParsePRD, ListCases, GetCase, ReviewCase, RunCase, ListRuns, GetRun, DownloadArtifact); generated TS types; server skeleton serving echo impls plus `--mock` mode: in-memory seed data (1 demo project with metadata repo_url, envs `dev`+`staging`, 5 example cases: 4 approved (two scripted-outcome probes: hard-limit, alignment-drift) + 1 pending agent draft, 2 finished sample runs: 1 passed + 1 failed), scripted RunCase event stream, synthetic artifacts (small generated video/screenshot/trace placeholders).
   *Verify: `pnpm -r build` passes; grpcurl reflection lists services; `--mock` server answers ListProjects/RunCase with seed data and a scripted event stream.*
 
 ## B. Desktop First (built and verified against mock)
@@ -49,9 +49,9 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   PRD management (upload/trigger/trace), case list (creator/status/last-run columns), case detail (info + review actions approve/reject/disable, env strip, run history), env management (CRUD), run trigger (approved only).
   *Verify: review a pending mock draft -> approved -> appears runnable; env CRUD works against mock.*
 
-- [ ] **T12 Live run panel**
-  Streaming event feed (thinking/tool calls/screenshots/request records), hard-limit status bar, trigger from case detail.
-  *Verify: trigger mock run from UI; panel renders scripted events live; final verdict shown.*
+- [x] **T12 Live run panel**
+  Streaming event feed (thinking/tool calls/screenshots/request records), hard-limit status bar, trigger from case detail. `run_case` forwards every stream event to the webview on the `run-event` channel (`RunEventDto`, tagged by kind) while still resolving with the final outcome; `download_artifact` IPC fetches artifact bytes (base64) so screenshot events render inline with click-to-zoom; the status bar shows live steps (tool starts) and elapsed time, plus the finished run's duration/token cost (max/budget columns wait for T8's real limits — the proto carries no budget fields). Mock live-run outcomes follow a title-keyword convention (`outcomeForTitle` in handlers.ts): the seeded probe cases demo the hard-limit and alignment-fail paths on any env.
+  *Verify: trigger mock run from UI; panel renders scripted events live (20 events over ~8s); final verdict shown; the seeded drift case ends FAILED with mismatch evidence; the limit probe ends FAILED on `limit:max_steps`.*
 
 - [ ] **T13 Run detail (replay)**
   Inline webm player + screenshot timeline + agent transcript; trace.zip download with one-click `playwright show-trace`; re-run button.
@@ -86,7 +86,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   *Verify: repository unit tests; foreign-key namespace checks (project/env/run).*
 
 - [ ] **T3 Seed data (SQLite-backed)**
-  On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 3 example cases (2 approved + 1 pending agent draft), 2 finished sample runs (1 passed + 1 failed), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
+  On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 5 example cases (4 approved + 1 pending agent draft), 2 finished sample runs (1 passed + 1 failed), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
   *Verify: fresh boot -> ListProjects/ListEnvs/ListCases return seed data from SQLite.*
 
 - [ ] **T6 Artifact storage client (local first, S3 optional)**

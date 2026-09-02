@@ -114,6 +114,18 @@
     "colDuration": "Duration",
     "colTokens": "Tokens"
   },
+  "runPanel": {
+    "title": "Live run",
+    "steps": "Steps",
+    "elapsed": "Elapsed",
+    "duration": "Total",
+    "tokens": "Tokens",
+    "events": "Events",
+    "empty": "Waiting for events…",
+    "loadingShot": "loading screenshot…",
+    "toolFailed": "failed",
+    "showJson": "request / response"
+  },
   "envs": {
     "title": "Environments",
     "subtitle": "Each env binds one SUT address set plus injected variables",

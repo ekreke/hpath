@@ -57,7 +57,7 @@ Per project: list envs, create/edit (name, web URL, gRPC address, variables, cre
 | list_runs / get_run | ListRuns / GetRun |
 | download_artifact (progress events) | DownloadArtifact |
 
-Streaming: Rust side forwards tonic response streams as Tauri events (`run-event/<runId>`, `parse-event/<jobId>`); fallback polling if event delivery fails.
+Streaming: Rust side forwards tonic response streams as Tauri events on fixed channels — `parse-prd-event` for PRD parsing and `run-event` for runs (the server assigns the run id, so the webview cannot subscribe per-id before the first event arrives; consumers filter by the payload's `runId`). Fallback polling if event delivery fails.
 
 Plus `set_server_addr` — a client settings command with no gRPC counterpart: it validates the address and holds it Rust-side (AppState); every IPC command reads the address from that state. The UI (TopBar input + Apply) persists it client-side in localStorage.
 

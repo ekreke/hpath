@@ -1,21 +1,23 @@
 // Cases view: case list (creator/status/last-run) + case detail with review
-// actions, env strip, run history, and the minimal run trigger (T11).
+// actions, env strip, run history, and the run trigger with the live panel
+// (T12).
 import { useCallback, useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
-import type { Case, Env, Run, Verdict } from '@hpath/contract';
+import type { Case, Env, Run } from '@hpath/contract';
 import {
   invokeGetCase,
   invokeListCases,
   invokeListRuns,
   invokeReviewCase,
   invokeRunCase,
+  type RunEvent,
   type RunResult,
 } from '../lib/ipc';
 import {
   CASE_STATUS,
   REVIEW_ACTION,
   RUN_STATUS,
-  VERDICT_STATUS,
   caseStatusKey,
   formatDateTime,
   formatDuration,
@@ -25,6 +27,7 @@ import {
   sortRunsDesc,
 } from '../lib/status';
 import { CaseStatusBadge, RunStatusTag } from '../components/Ui';
+import RunPanel from '../components/RunPanel';
 
 type CasesViewProps = {
   appliedServerAddr: string;
@@ -49,56 +52,6 @@ function lastRunOf(runs: Run[], caseId: string): Run | undefined {
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
 }
 
-function VerdictPanel({ verdict }: { verdict: Verdict }) {
-  const { t } = useTranslation();
-  const key =
-    verdict.status === VERDICT_STATUS.PASSED
-      ? 'status.verdictPassed'
-      : verdict.status === VERDICT_STATUS.FAILED
-        ? 'status.verdictFailed'
-        : 'status.verdictInconclusive';
-  return (
-    <div>
-      <div className="panelh">
-        <span>{t('cases.verdict')}</span>
-        <b>{t(key)}</b>
-      </div>
-      <div className="mono-block">
-        <div className="t">{verdict.summary}</div>
-      </div>
-      {verdict.evidence.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>{t('cases.evApiPath')}</th>
-              <th>{t('cases.evApiObserved')}</th>
-              <th>{t('cases.evUiAnchor')}</th>
-              <th>{t('cases.evUiObserved')}</th>
-              <th>{t('cases.evMatch')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {verdict.evidence.map((e, i) => (
-              <tr key={i}>
-                <td className="mono">{e.apiPath}</td>
-                <td className="mono dim" style={{ whiteSpace: 'normal' }}>{e.apiObserved}</td>
-                <td className="dim">{e.uiAnchor}</td>
-                <td className="mono dim" style={{ whiteSpace: 'normal' }}>{e.uiObserved}</td>
-                <td>
-                  <span className={e.match ? 'tag pass' : 'tag fail'}>
-                    <i />
-                    {e.match ? 'MATCH' : 'MISMATCH'}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
 function CasesView({
   appliedServerAddr,
   projectId,
@@ -118,6 +71,9 @@ function CasesView({
   const [busy, setBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
+  const [runOpen, setRunOpen] = useState(false);
+  const [runFinal, setRunFinal] = useState<Run | null>(null);
 
   const selectedEnv = envs.find((e) => e.id === selectedEnvId) ?? null;
 
@@ -126,6 +82,9 @@ function CasesView({
     setDetail(null);
     setDetailRuns([]);
     setRunResult(null);
+    setRunOpen(false);
+    setRunEvents([]);
+    setRunFinal(null);
     if (!projectId) {
       setCases([]);
       setRuns([]);
@@ -197,16 +156,31 @@ function CasesView({
     if (!detail || !projectId || !selectedEnvId) return;
     setRunBusy(true);
     setRunResult(null);
+    setRunFinal(null);
+    setRunEvents([]);
+    setRunOpen(true);
+    // Subscribe before invoking so the stream's early events are not missed;
+    // events are filtered to the run this trigger started.
+    let activeRunId: string | null = null;
+    const unlisten = await listen<RunEvent>('run-event', (e) => {
+      if (!activeRunId) activeRunId = e.payload.runId;
+      if (e.payload.runId === activeRunId) {
+        setRunEvents((prev) => [...prev, e.payload]);
+      }
+    });
     try {
       const result = await invokeRunCase(projectId, selectedEnvId, detail.id);
       setRunResult(result);
       const runList = await invokeListRuns(projectId, { caseId: detail.id });
       setDetailRuns(sortRunsDesc(runList));
       setRuns(await invokeListRuns(projectId));
+      setRunFinal(sortRunsDesc(runList).find((r) => r.id === result.runId) ?? null);
     } catch (err) {
       onToast(String(err), true);
+      setRunOpen(false);
     } finally {
       setRunBusy(false);
+      unlisten();
     }
   };
 
@@ -298,6 +272,18 @@ function CasesView({
 
           {detail && (
             <>
+              {runOpen && (
+                <RunPanel
+                  caseTitle={detail.title}
+                  envName={selectedEnv?.name ?? null}
+                  events={runEvents}
+                  running={runBusy}
+                  result={runResult}
+                  finalRun={runFinal}
+                  onClose={() => setRunOpen(false)}
+                  onToast={onToast}
+                />
+              )}
               <div className="grid2">
                 <div>
                   <section className="sec">
@@ -484,34 +470,6 @@ function CasesView({
             </>
           )}
         </>
-      )}
-
-      {runResult && (
-        <div className="overlay" onClick={() => setRunResult(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>
-              {t('cases.runResult')} · <span className="mono">{runResult.runId.slice(0, 8)}</span>
-            </h3>
-            <div className="panelbox" style={{ marginBottom: 16 }}>
-              <div className="panelh">
-                <span>{t('cases.runStatus')}</span>
-                <RunStatusTag status={runResult.status} />
-              </div>
-              {runResult.verdict ? (
-                <VerdictPanel verdict={runResult.verdict} />
-              ) : (
-                <div className="mono-block">
-                  {runResult.failReason || t('cases.noVerdict')}
-                </div>
-              )}
-            </div>
-            <div className="mfoot">
-              <button className="btn" onClick={() => setRunResult(null)}>
-                {t('common.close')}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
