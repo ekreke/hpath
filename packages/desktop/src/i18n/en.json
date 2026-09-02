@@ -9,8 +9,7 @@
     "delete": "Delete",
     "edit": "Edit",
     "close": "Close",
-    "selectProjectFirst": "Select a project in the sidebar first",
-    "comingSoon": "Arrives in T14"
+    "selectProjectFirst": "Select a project in the sidebar first"
   },
   "topbar": {
     "connected": "Connected",
@@ -111,10 +110,25 @@
     "colTime": "Time",
     "colEnv": "Env",
     "colResult": "Result",
+    "colTrigger": "Trigger",
+    "triggerManual": "manual",
+    "triggerAgent": "agent",
     "colDuration": "Duration",
     "colTokens": "Tokens",
     "colReplay": "Replay",
     "replay": "Replay"
+  },
+  "history": {
+    "title": "Run history",
+    "subtitle": "Every recorded run of the project — filter by env, case, status and date",
+    "refresh": "Refresh",
+    "allCases": "All cases",
+    "allStatuses": "All statuses",
+    "from": "From",
+    "to": "To",
+    "empty": "No runs match the current filters",
+    "health": "Case health",
+    "healthLast": "last {{n}} results per case"
   },
   "runPanel": {
     "title": "Live run",

@@ -5,6 +5,7 @@ import { Toast } from './components/Ui';
 import CasesView from './views/CasesView';
 import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
+import HistoryView from './views/HistoryView';
 import PrdView from './views/PrdView';
 import {
   invokeListEnvs,
@@ -95,7 +96,7 @@ function App() {
   }, []);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
-  const viewLabel = t(`sidebar.${view === 'prd' ? 'prdDocs' : view}`);
+  const viewLabel = t(`sidebar.${view === 'prd' ? 'prdDocs' : view === 'history' ? 'runHistory' : view}`);
 
   return (
     <div className="shell">
@@ -142,6 +143,14 @@ function App() {
               onToast={onToast}
               onCountChange={setCaseCount}
               onOpenEnvs={() => setView('envs')}
+            />
+          )}
+          {view === 'history' && (
+            <HistoryView
+              appliedServerAddr={appliedServerAddr}
+              projectId={selectedProjectId}
+              envs={envs}
+              onToast={onToast}
             />
           )}
           {view === 'envs' && (

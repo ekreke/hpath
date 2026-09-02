@@ -9,8 +9,7 @@
     "delete": "删除",
     "edit": "编辑",
     "close": "关闭",
-    "selectProjectFirst": "请先在侧边栏选择一个项目",
-    "comingSoon": "T14 提供"
+    "selectProjectFirst": "请先在侧边栏选择一个项目"
   },
   "topbar": {
     "connected": "已连接",
@@ -111,10 +110,25 @@
     "colTime": "时间",
     "colEnv": "环境",
     "colResult": "结果",
+    "colTrigger": "触发方式",
+    "triggerManual": "手动",
+    "triggerAgent": "agent",
     "colDuration": "耗时",
     "colTokens": "Tokens",
     "colReplay": "回放",
     "replay": "回放"
+  },
+  "history": {
+    "title": "运行历史",
+    "subtitle": "项目内全部运行记录 — 可按环境、用例、状态与日期筛选",
+    "refresh": "刷新",
+    "allCases": "全部用例",
+    "allStatuses": "全部状态",
+    "from": "开始日期",
+    "to": "结束日期",
+    "empty": "没有符合当前筛选条件的运行",
+    "health": "Case 健康度",
+    "healthLast": "每条用例最近 {{n}} 次结果"
   },
   "runPanel": {
     "title": "实时运行",

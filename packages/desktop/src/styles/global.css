@@ -405,3 +405,32 @@ td.num, th.num { text-align: right; color: var(--muted); }
 }
 .chat-input input:focus { border-color: #5a5a5a; }
 .chat-input input::placeholder { color: var(--faint2); }
+
+/* ── history (T14) ───────────────────────── */
+.filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 16px; }
+.filters label { display: flex; flex-direction: column; gap: 5px; }
+.filters label span {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.filters select,
+.filters input {
+  height: 30px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--txt);
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.filters select { min-width: 150px; }
+.filters select:focus, .filters input:focus { border-color: #5a5a5a; }
+.hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.dot.pass { background: var(--w); }
+.dot.fail { background: transparent; border: 1px solid var(--w); }
+.dot.muted { background: var(--faint2); }
