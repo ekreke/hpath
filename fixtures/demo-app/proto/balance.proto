@@ -1,0 +1,25 @@
+// Balance service for the HPath demo SUT (SPEC T4).
+// The same seeded value is exposed over HTTP GET /api/balance and rendered
+// on the dashboard, so the three channels can be cross-checked.
+syntax = "proto3";
+
+package demo.v1;
+
+service BalanceService {
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
+
+message GetBalanceRequest {
+  // Reserved for per-account balances. The demo serves one seeded account,
+  // so this field is currently ignored.
+  string account_id = 1;
+}
+
+message GetBalanceResponse {
+  // Environment identifier of the serving instance (dev / staging).
+  string env = 1;
+  string currency = 2;
+  // Decimal string, e.g. "238.00", to avoid float drift across channels.
+  string balance = 3;
+  int64 balance_cents = 4;
+}
