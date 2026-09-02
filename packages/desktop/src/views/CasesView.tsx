@@ -1,16 +1,18 @@
 // Cases view: case list (creator/status/last-run) + case detail with review
-// actions, env strip, run history, and the run trigger with the live panel
-// (T12).
+// actions, env strip, run history (with T13 replay), and the run trigger with
+// the live panel (T12).
 import { useCallback, useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
 import {
   invokeGetCase,
+  invokeGetRun,
   invokeListCases,
   invokeListRuns,
   invokeReviewCase,
   invokeRunCase,
+  type RunDetailResult,
   type RunEvent,
   type RunResult,
 } from '../lib/ipc';
@@ -74,6 +76,9 @@ function CasesView({
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const [runOpen, setRunOpen] = useState(false);
   const [runFinal, setRunFinal] = useState<Run | null>(null);
+  // Replay of a finished run (T13): panel + fetched run detail.
+  const [replayRun, setReplayRun] = useState<Run | null>(null);
+  const [replayDetail, setReplayDetail] = useState<RunDetailResult | null>(null);
 
   const selectedEnv = envs.find((e) => e.id === selectedEnvId) ?? null;
 
@@ -85,6 +90,8 @@ function CasesView({
     setRunOpen(false);
     setRunEvents([]);
     setRunFinal(null);
+    setReplayRun(null);
+    setReplayDetail(null);
     if (!projectId) {
       setCases([]);
       setRuns([]);
@@ -116,6 +123,8 @@ function CasesView({
     async (caseId: string) => {
       setSelectedCaseId(caseId);
       setRunResult(null);
+      setReplayRun(null);
+      setReplayDetail(null);
       setBusy(true);
       try {
         const [caseDetail, runList] = await Promise.all([
@@ -152,12 +161,17 @@ function CasesView({
     }
   };
 
-  const triggerRun = async () => {
-    if (!detail || !projectId || !selectedEnvId) return;
+  // Live run trigger; `envIdOverride` re-runs a replayed run on its original
+  // env (T13 re-run button) instead of the currently selected one.
+  const triggerRun = async (envIdOverride?: string) => {
+    const targetEnvId = envIdOverride ?? selectedEnvId;
+    if (!detail || !projectId || !targetEnvId) return;
     setRunBusy(true);
     setRunResult(null);
     setRunFinal(null);
     setRunEvents([]);
+    setReplayRun(null);
+    setReplayDetail(null);
     setRunOpen(true);
     // Subscribe before invoking so the stream's early events are not missed;
     // events are filtered to the run this trigger started.
@@ -169,7 +183,7 @@ function CasesView({
       }
     });
     try {
-      const result = await invokeRunCase(projectId, selectedEnvId, detail.id);
+      const result = await invokeRunCase(projectId, targetEnvId, detail.id);
       setRunResult(result);
       const runList = await invokeListRuns(projectId, { caseId: detail.id });
       setDetailRuns(sortRunsDesc(runList));
@@ -181,6 +195,22 @@ function CasesView({
     } finally {
       setRunBusy(false);
       unlisten();
+    }
+  };
+
+  // Replay a finished run through all three layers (T13): session video,
+  // screenshot timeline and the recorded agent transcript.
+  const openReplay = async (run: Run) => {
+    setRunOpen(false);
+    setRunEvents([]);
+    setRunResult(null);
+    setReplayRun(run);
+    setReplayDetail(null);
+    try {
+      setReplayDetail(await invokeGetRun(run.id));
+    } catch (err) {
+      onToast(String(err), true);
+      setReplayRun(null);
     }
   };
 
@@ -284,6 +314,34 @@ function CasesView({
                   onToast={onToast}
                 />
               )}
+              {replayRun && (
+                <RunPanel
+                  replay
+                  caseTitle={detail.title}
+                  envName={envs.find((e) => e.id === replayRun.envId)?.name ?? null}
+                  runId={replayRun.id}
+                  events={replayDetail?.events ?? []}
+                  running={false}
+                  result={{
+                    runId: replayRun.id,
+                    status: replayRun.status,
+                    failReason: replayRun.failReason,
+                    verdict: replayRun.verdict ?? null,
+                  }}
+                  finalRun={replayRun}
+                  artifacts={replayDetail?.artifacts ?? []}
+                  onRerun={
+                    detail.status === CASE_STATUS.APPROVED && !runBusy
+                      ? () => void triggerRun(replayRun.envId)
+                      : undefined
+                  }
+                  onClose={() => {
+                    setReplayRun(null);
+                    setReplayDetail(null);
+                  }}
+                  onToast={onToast}
+                />
+              )}
               <div className="grid2">
                 <div>
                   <section className="sec">
@@ -347,23 +405,36 @@ function CasesView({
                           <th>{t('runs.colResult')}</th>
                           <th className="num">{t('runs.colDuration')}</th>
                           <th className="num">{t('runs.colTokens')}</th>
+                          <th>{t('runs.colReplay')}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detailRuns.map((r) => (
-                          <tr key={r.id}>
-                            <td className="dim num">{formatDateTime(r.startedAt)}</td>
-                            <td className="dim">{envs.find((e) => e.id === r.envId)?.name ?? r.envId.slice(0, 8)}</td>
-                            <td>
-                              <RunStatusTag status={r.status} />
-                            </td>
-                            <td className="num">{formatDuration(r.durationMs)}</td>
-                            <td className="num">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
-                          </tr>
-                        ))}
+                        {detailRuns.map((r) => {
+                          const finished = r.status === RUN_STATUS.PASSED || r.status === RUN_STATUS.FAILED;
+                          return (
+                            <tr key={r.id}>
+                              <td className="dim num">{formatDateTime(r.startedAt)}</td>
+                              <td className="dim">{envs.find((e) => e.id === r.envId)?.name ?? r.envId.slice(0, 8)}</td>
+                              <td>
+                                <RunStatusTag status={r.status} />
+                              </td>
+                              <td className="num">{formatDuration(r.durationMs)}</td>
+                              <td className="num">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
+                              <td>
+                                {finished ? (
+                                  <button className="btn ghost sm" onClick={() => void openReplay(r)}>
+                                    ▶ {t('runs.replay')}
+                                  </button>
+                                ) : (
+                                  <span className="dim">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                         {detailRuns.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="empty">{t('cases.noRuns')}</td>
+                            <td colSpan={6} className="empty">{t('cases.noRuns')}</td>
                           </tr>
                         )}
                       </tbody>

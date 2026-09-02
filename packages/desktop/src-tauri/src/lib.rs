@@ -11,8 +11,8 @@ pub mod hpath {
 pub mod grpc;
 
 use dto::{
-    CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunEventDto, RunResultDto,
-    VerdictDto,
+    ArtifactDto, ArtifactProgressDto, CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto,
+    ProjectDto, RunDetailDto, RunEventDto, RunResultDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -297,30 +297,149 @@ async fn run_case(
     Ok(result)
 }
 
-/// Collect an artifact's bytes and return them base64-encoded (T12: inline
-/// screenshot thumbnails in the run panel; progress events arrive with the
-/// replay view in T13).
-#[tauri::command]
-async fn download_artifact(
-    state: State<'_, AppState>,
-    artifact_id: String,
-) -> Result<String, String> {
-    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+/// Collect an artifact's bytes over the gRPC byte stream, emitting a progress
+/// tick per chunk when a channel is supplied (T13: the replay view fetches
+/// video / trace bytes and surfaces download progress).
+async fn fetch_artifact_bytes(
+    state: &State<'_, AppState>,
+    artifact_id: &str,
+    on_progress: Option<tauri::ipc::Channel<ArtifactProgressDto>>,
+) -> Result<Vec<u8>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(state)?)
         .await
         .map_err(|e| e.to_string())?;
 
     let mut stream = client
-        .download_artifact(Request::new(hpath::DownloadArtifactRequest { artifact_id }))
+        .download_artifact(Request::new(hpath::DownloadArtifactRequest {
+            artifact_id: artifact_id.to_string(),
+        }))
         .await
         .map_err(|e| e.to_string())?
         .into_inner();
 
     let mut bytes = Vec::new();
+    let mut received: i64 = 0;
     while let Some(chunk) = stream.message().await.map_err(|e| e.to_string())? {
+        received += chunk.data.len() as i64;
         bytes.extend_from_slice(&chunk.data);
+        if let Some(channel) = &on_progress {
+            let _ = channel.send(ArtifactProgressDto {
+                bytes_received: received,
+            });
+        }
     }
 
+    Ok(bytes)
+}
+
+/// Collect an artifact's bytes and return them base64-encoded (T12: inline
+/// screenshot thumbnails in the run panel; T13: the replay view also fetches
+/// video / trace bytes here and receives a progress tick per streamed chunk
+/// on the `onProgress` channel).
+#[tauri::command]
+async fn download_artifact(
+    state: State<'_, AppState>,
+    artifact_id: String,
+    on_progress: tauri::ipc::Channel<ArtifactProgressDto>,
+) -> Result<String, String> {
+    let bytes = fetch_artifact_bytes(&state, &artifact_id, Some(on_progress)).await?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Full run payload for the replay view (T13): run entity + recorded events +
+/// artifact index, exactly what GetRun returns on the wire.
+#[tauri::command]
+async fn get_run(state: State<'_, AppState>, run_id: String) -> Result<RunDetailDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get_run(Request::new(hpath::GetRunRequest { run_id }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+
+    let run = response
+        .run
+        .ok_or_else(|| "run detail is missing the run entity".to_string())?;
+    Ok(RunDetailDto {
+        run: crate::dto::RunDto::from(&run),
+        events: response.events.iter().map(RunEventDto::from).collect(),
+        artifacts: response.artifacts.iter().map(ArtifactDto::from).collect(),
+    })
+}
+
+/// Artifact bytes written into the user's download directory (T13: trace.zip
+/// download). Returns the absolute path of the written file.
+#[tauri::command]
+async fn save_artifact(
+    state: State<'_, AppState>,
+    artifact_id: String,
+    filename: String,
+) -> Result<String, String> {
+    let bytes = fetch_artifact_bytes(&state, &artifact_id, None).await?;
+
+    // Only ever write into our own download dir, under a plain file name.
+    let safe_name = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("invalid filename: {filename}"))?
+        .to_string();
+
+    let dir = download_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(safe_name);
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// One-click trace inspection (T13): caches the trace.zip under the system
+/// temp dir and launches `playwright show-trace` on it. A global `playwright`
+/// binary is tried first, then `npx playwright` (which resolves or
+/// auto-installs the package). Returns the cached trace path; the viewer
+/// opens in the default browser.
+#[tauri::command]
+async fn show_trace(
+    state: State<'_, AppState>,
+    artifact_id: String,
+    run_id: String,
+) -> Result<String, String> {
+    let bytes = fetch_artifact_bytes(&state, &artifact_id, None).await?;
+
+    let dir = std::env::temp_dir().join("hpath-traces");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let safe_run: String = run_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(16)
+        .collect();
+    let path = dir.join(format!(
+        "{}-trace.zip",
+        if safe_run.is_empty() { "run".to_string() } else { safe_run }
+    ));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+
+    let spawned = std::process::Command::new("playwright")
+        .args(["show-trace"])
+        .arg(&path)
+        .spawn()
+        .or_else(|_| {
+            std::process::Command::new("npx")
+                .args(["--yes", "playwright", "show-trace"])
+                .arg(&path)
+                .spawn()
+        });
+    spawned.map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed?): {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// ~/Downloads/hpath when a home dir is set, otherwise the system temp dir.
+fn download_dir() -> std::path::PathBuf {
+    match std::env::var("HOME") {
+        Ok(home) => std::path::PathBuf::from(home).join("Downloads").join("hpath"),
+        Err(_) => std::env::temp_dir().join("hpath"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -340,6 +459,9 @@ pub fn run() {
             parse_prd,
             run_case,
             download_artifact,
+            get_run,
+            save_artifact,
+            show_trace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
