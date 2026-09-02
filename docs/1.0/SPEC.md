@@ -27,7 +27,7 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
 
 ## B. Desktop First (built and verified against mock)
 
-- [ ] **T10 Desktop skeleton**
+- [x] **T10 Desktop skeleton**
   Tauri 2 project (src-tauri Rust tonic client + IPC commands; React shell); project/env switchers wired; connection status.
   *Verify: `tauri dev` on macOS lists mock project/envs via Rust gRPC.*
 

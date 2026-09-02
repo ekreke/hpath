@@ -1,0 +1,12 @@
+{
+  "topbar": {
+    "project": "Project",
+    "env": "Env",
+    "connected": "Connected",
+    "connecting": "Connecting",
+    "offline": "Offline",
+    "serverAddress": "Server Address",
+    "apply": "Apply",
+    "language": "EN"
+  }
+}

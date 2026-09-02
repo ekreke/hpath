@@ -1,0 +1,12 @@
+{
+  "topbar": {
+    "project": "项目",
+    "env": "环境",
+    "connected": "已连接",
+    "connecting": "连接中",
+    "offline": "离线",
+    "serverAddress": "服务器地址",
+    "apply": "应用",
+    "language": "中文"
+  }
+}

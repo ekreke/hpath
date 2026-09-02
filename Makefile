@@ -5,7 +5,7 @@ PORT ?= 50051
 LOG  ?= /tmp/hpath-server.log
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build mock real dev smoke test restart stop clean verify
+.PHONY: help install proto build mock real dev run smoke test restart stop clean verify
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -37,6 +37,14 @@ real: ## Start real-mode skeleton in background (all RPCs UNIMPLEMENTED)
 
 dev: ## Run mock server in foreground with watch (tsx)
 	cd packages/server && npx tsx watch src/index.ts --mock --port $(PORT)
+
+run: ## Start mock server (bg) + Tauri desktop dev together (Ctrl+C stops both)
+	@if [ ! -f packages/server/dist/index.js ]; then \
+		echo "server not built yet, building..."; \
+		pnpm --filter @hpath/server build; \
+	fi
+	@$(MAKE) mock
+	@trap '$(MAKE) -C $(CURDIR) stop' EXIT; cd packages/desktop && pnpm tauri dev
 
 smoke: ## Run the smoke client against a running server (default $(PORT))
 	pnpm --filter @hpath/server smoke
