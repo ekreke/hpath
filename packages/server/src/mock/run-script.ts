@@ -14,8 +14,8 @@ import type {
   Run,
   RunTrigger,
   Verdict,
-} from "../gen/hpath/v1/hpath.js";
-import { ArtifactKind, RunStatus, VerdictStatus } from "../gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
+import { ArtifactKind, RunStatus, VerdictStatus } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 import {

@@ -35,7 +35,7 @@ import type {
   ReviewCaseRequest,
   RunCaseRequest,
   Env,
-} from "../gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
 import {
   ArtifactKind,
   CaseStatus,
@@ -44,7 +44,7 @@ import {
   PrdFormat,
   ReviewAction,
   RunTrigger,
-} from "../gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 import { simulateRun } from "./run-script.js";

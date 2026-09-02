@@ -3,8 +3,8 @@
 // one failed) so the desktop history/replay views have data on first boot.
 
 import { randomUUID } from "node:crypto";
-import type { Case, Env, Project } from "../gen/hpath/v1/hpath.js";
-import { CaseStatus, CreatorType, RunTrigger } from "../gen/hpath/v1/hpath.js";
+import type { Case, Env, Project } from "@hpath/contract";
+import { CaseStatus, CreatorType, RunTrigger } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 import { simulateRun } from "./run-script.js";

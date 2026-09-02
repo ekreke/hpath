@@ -36,12 +36,13 @@ real: ## Start real-mode skeleton in background (all RPCs UNIMPLEMENTED)
 	@tail -2 $(LOG)
 
 dev: ## Run mock server in foreground with watch (tsx)
+	pnpm --filter @hpath/contract build
 	cd packages/server && npx tsx watch src/index.ts --mock --port $(PORT)
 
 run: ## Start mock server (bg) + Tauri desktop dev together (Ctrl+C stops both)
-	@if [ ! -f packages/server/dist/index.js ]; then \
-		echo "server not built yet, building..."; \
-		pnpm --filter @hpath/server build; \
+	@if [ ! -f packages/contract/dist/index.js ] || [ ! -f packages/server/dist/index.js ]; then \
+		echo "building contract + server..."; \
+		pnpm --filter @hpath/contract build && pnpm --filter @hpath/server build; \
 	fi
 	@$(MAKE) mock
 	@trap '$(MAKE) -C $(CURDIR) stop' EXIT; cd packages/desktop && pnpm tauri dev

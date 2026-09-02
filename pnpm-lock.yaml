@@ -21,8 +21,27 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/contract:
+    dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.14.1
+        version: 2.14.1
+      '@grpc/grpc-js':
+        specifier: 1.14.4
+        version: 1.14.4
+      protobufjs:
+        specifier: 7.6.6
+        version: 7.6.6
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/desktop:
     dependencies:
+      '@hpath/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@tauri-apps/api':
         specifier: ^2.0.0
         version: 2.11.1
@@ -72,6 +91,9 @@ importers:
       '@grpc/reflection':
         specifier: 1.0.4
         version: 1.0.4(@grpc/grpc-js@1.14.4)
+      '@hpath/contract':
+        specifier: workspace:*
+        version: link:../contract
       fflate:
         specifier: 0.8.3
         version: 0.8.3

@@ -12,7 +12,7 @@ import {
   RunStatus,
   RunTrigger,
   VerdictStatus,
-} from "../src/gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
 import type {
   Case,
   Event,
@@ -27,7 +27,7 @@ import type {
   RunCaseRequest,
   UpsertEnvRequest,
   Env,
-} from "../src/gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
 
 type HpathClient = makeClientConstructor.ClientConstructor<HpathServer>;
 

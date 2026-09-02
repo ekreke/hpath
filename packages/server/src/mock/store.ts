@@ -9,7 +9,7 @@ import type {
   Project,
   Prd,
   Run,
-} from "../gen/hpath/v1/hpath.js";
+} from "@hpath/contract";
 
 export interface MockStore {
   projects: Map<string, Project>;

@@ -13,7 +13,7 @@ import * as grpc from "@grpc/grpc-js";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { ReflectionService } from "@grpc/reflection";
-import { HpathService } from "../gen/hpath/v1/hpath.js";
+import { HpathService, descriptorPath } from "@hpath/contract";
 import type { ServerMode } from "./hpath.js";
 import { createHpathService } from "./hpath.js";
 import type { MockStore } from "../mock/store.js";
@@ -38,14 +38,10 @@ function loadDescriptorTypes(): {
   }
 }
 
-function descriptorSetPath(): string {
-  // src/grpc/server.ts -> src/gen/hpath-descriptor.pb (same layout in dist/)
-  return new URL("../gen/hpath-descriptor.pb", import.meta.url).pathname;
-}
-
 function buildReflectionService(): ReflectionService {
   const descriptor = loadDescriptorTypes();
-  const set = descriptor.FileDescriptorSet.decode(readFileSync(descriptorSetPath()));
+  // Descriptor set ships inside the @hpath/contract package (see descriptorPath()).
+  const set = descriptor.FileDescriptorSet.decode(readFileSync(descriptorPath()));
   const fileDescriptorProtos = set.file.map((file) =>
     descriptor.FileDescriptorProto.encode(file).finish(),
   );

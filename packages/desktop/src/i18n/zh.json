@@ -1,12 +1,150 @@
 {
+  "app": {
+    "mock": "mock"
+  },
+  "common": {
+    "back": "返回",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "selectProjectFirst": "请先在侧边栏选择一个项目",
+    "comingSoon": "T14 提供"
+  },
   "topbar": {
-    "project": "项目",
-    "env": "环境",
     "connected": "已连接",
     "connecting": "连接中",
     "offline": "离线",
     "serverAddress": "服务器地址",
     "apply": "应用",
-    "language": "中文"
+    "language": "EN",
+    "allEnvs": "全部环境",
+    "noProject": "未选项目"
+  },
+  "sidebar": {
+    "project": "项目",
+    "selectProject": "选择项目",
+    "groupWorkbench": "工作台",
+    "groupConfig": "配置",
+    "cases": "用例 Cases",
+    "runHistory": "运行历史",
+    "prdDocs": "PRD 文档",
+    "envs": "环境 Environments",
+    "casesView": "用例",
+    "envsView": "环境"
+  },
+  "status": {
+    "unspecified": "未知",
+    "draft": "draft",
+    "pending": "pending",
+    "approved": "approved",
+    "disabled": "disabled",
+    "pendingRun": "PENDING",
+    "running": "RUNNING",
+    "passed": "PASS",
+    "failed": "FAIL",
+    "cancelled": "CANCELLED",
+    "verdictPassed": "VERDICT PASS",
+    "verdictFailed": "VERDICT FAIL",
+    "verdictInconclusive": "INCONCLUSIVE"
+  },
+  "cases": {
+    "title": "用例",
+    "subtitle": "三方对齐:PRD 逻辑 ↔ 前端展示 ↔ 后端输出",
+    "colCase": "用例",
+    "colStatus": "状态",
+    "colCreator": "创建者",
+    "colLastRun": "最近运行",
+    "colRuns": "次数",
+    "colRule": "对齐规则",
+    "creatorHuman": "人工",
+    "creatorAgent": "agent",
+    "empty": "暂无用例 — 上传 PRD 生成草稿",
+    "info": "基本信息",
+    "goal": "目标",
+    "sourcePrd": "来源 PRD",
+    "creator": "创建者",
+    "version": "版本",
+    "updatedAt": "更新时间",
+    "alignments": "对齐项",
+    "noAlignments": "未声明对齐项",
+    "runHistory": "运行历史",
+    "noRuns": "尚未运行",
+    "review": "评审",
+    "noReviewActions": "当前状态无可执行操作",
+    "reviewAction": {
+      "approve": "✓ 通过",
+      "reject": "✗ 驳回",
+      "disable": "禁用"
+    },
+    "reviewLog": {
+      "approve": "Approve via review",
+      "reject": "Reject via review",
+      "disable": "Disable via review"
+    },
+    "reviewDone": {
+      "approve": "已通过评审,用例可运行",
+      "reject": "已驳回,回到草稿态",
+      "disable": "已禁用"
+    },
+    "runTitle": "运行",
+    "runEnv": "环境",
+    "pickEnv": "选择环境",
+    "runNow": "运行",
+    "running": "运行中…",
+    "onlyApproved": "仅 approved 状态的用例可运行",
+    "lastRun": "最近一次运行",
+    "changelog": "变更历史",
+    "runResult": "运行结果",
+    "runStatus": "状态",
+    "noVerdict": "运行结束时未产出 verdict",
+    "verdict": "三方对齐结论",
+    "evApiPath": "API",
+    "evApiObserved": "后端输出",
+    "evUiAnchor": "UI 元素",
+    "evUiObserved": "前端展示",
+    "evMatch": "一致"
+  },
+  "runs": {
+    "colTime": "时间",
+    "colEnv": "环境",
+    "colResult": "结果",
+    "colDuration": "耗时",
+    "colTokens": "Tokens"
+  },
+  "envs": {
+    "title": "环境",
+    "subtitle": "每个环境绑定一套 SUT 地址与注入变量",
+    "new": "新建环境",
+    "createTitle": "新建环境",
+    "editTitle": "编辑环境",
+    "colName": "名称",
+    "colWeb": "Web Base URL",
+    "colGrpc": "gRPC Address",
+    "colVars": "变量",
+    "vars": "变量(每行 K=V)",
+    "credentials": "凭据(每行 K=V,1.0 明文)",
+    "nameRequired": "名称必填",
+    "created": "环境已创建",
+    "saved": "环境已保存",
+    "deleted": "已删除环境 {{name}}",
+    "empty": "暂无环境 — 点击右上角新建"
+  },
+  "prd": {
+    "title": "PRD 文档",
+    "subtitle": "上传 PRD,analyze-agent 解析生成待评审用例草稿",
+    "upload": "上传 PRD",
+    "parsing": "解析中…",
+    "traceTitle": "解析事件",
+    "traceEmpty": "上传文件后此处显示 agent 解析事件流",
+    "draftsTitle": "生成草稿",
+    "draftsEmpty": "尚未生成草稿",
+    "parsed": "解析完成,生成 {{count}} 份草稿",
+    "reviewHint": "已进入待评审队列,在用例视图中审核",
+    "formatsHint": "支持 .md / .docx / .pdf,文件在本地上传后发送至服务端解析"
+  },
+  "format": {
+    "locale": "zh-CN"
   }
 }

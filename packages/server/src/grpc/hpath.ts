@@ -4,7 +4,7 @@
 
 import { status } from "@grpc/grpc-js";
 import type { ServiceError } from "@grpc/grpc-js";
-import type { HpathServer } from "../gen/hpath/v1/hpath.js";
+import type { HpathServer } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
 

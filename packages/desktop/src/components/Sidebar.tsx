@@ -1,0 +1,130 @@
+// Left sidebar: brand, project switcher, view navigation, connection footer.
+import { useTranslation } from 'react-i18next';
+import type { Project } from '../lib/ipc';
+
+export type ViewId = 'cases' | 'envs' | 'prd';
+
+type SidebarProps = {
+  projects: Project[];
+  selectedProjectId: string | null;
+  view: ViewId;
+  connectionStatus: 'connected' | 'connecting' | 'offline';
+  serverAddr: string;
+  caseCount: number;
+  envCount: number;
+  onSelectProject: (id: string | null) => void;
+  onSelectView: (view: ViewId) => void;
+};
+
+function IconCases() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M5 3.5h9M5 8h9M5 12.5h9" />
+      <circle cx="2.2" cy="3.5" r="1" />
+      <circle cx="2.2" cy="8" r="1" />
+      <circle cx="2.2" cy="12.5" r="1" />
+    </svg>
+  );
+}
+
+function IconEnvs() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="2" y="3" width="12" height="4.5" rx="1" />
+      <rect x="2" y="9" width="12" height="4.5" rx="1" />
+      <circle cx="4.6" cy="5.2" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="4.6" cy="11.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconPrd() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M4 1.5h5.5L13 5v9.5H4z" />
+      <path d="M9.5 1.5V5H13" />
+    </svg>
+  );
+}
+
+function IconRuns() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
+  );
+}
+
+function Sidebar({
+  projects,
+  selectedProjectId,
+  view,
+  connectionStatus,
+  serverAddr,
+  caseCount,
+  envCount,
+  onSelectProject,
+  onSelectView,
+}: SidebarProps) {
+  const { t } = useTranslation();
+  const selected = projects.find((p) => p.id === selectedProjectId);
+
+  return (
+    <aside className="sb">
+      <div className="brand">
+        <span style={{ fontSize: 12, transform: 'translateY(-1px)' }}>▲</span>
+        HPath
+        <em>desktop</em>
+      </div>
+
+      <div className="proj">
+        <select
+          aria-label={t('sidebar.project')}
+          value={selectedProjectId ?? ''}
+          onChange={(e) => onSelectProject(e.target.value || null)}
+        >
+          <option value="">{t('sidebar.selectProject')}</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <div className="s">
+          {selected ? selected.repoUrl || selected.id.slice(0, 8) : serverAddr}
+        </div>
+      </div>
+
+      <nav className="nav">
+        <div className="g">{t('sidebar.groupWorkbench')}</div>
+        <button className={view === 'cases' ? 'itm on' : 'itm'} onClick={() => onSelectView('cases')}>
+          <IconCases />
+          {t('sidebar.cases')}
+          <span className="ct">{caseCount}</span>
+        </button>
+        <button className="itm" disabled title={t('common.comingSoon')}>
+          <IconRuns />
+          {t('sidebar.runHistory')}
+        </button>
+        <button className={view === 'prd' ? 'itm on' : 'itm'} onClick={() => onSelectView('prd')}>
+          <IconPrd />
+          {t('sidebar.prdDocs')}
+        </button>
+        <div className="g">{t('sidebar.groupConfig')}</div>
+        <button className={view === 'envs' ? 'itm on' : 'itm'} onClick={() => onSelectView('envs')}>
+          <IconEnvs />
+          {t('sidebar.envs')}
+          <span className="ct">{envCount}</span>
+        </button>
+      </nav>
+
+      <div className="sbfoot">
+        <i className={connectionStatus === 'connected' ? 'ok' : connectionStatus === 'connecting' ? 'warn' : 'err'} />
+        {t(`topbar.${connectionStatus}`)} · {serverAddr}
+      </div>
+    </aside>
+  );
+}
+
+export default Sidebar;

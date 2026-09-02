@@ -1,12 +1,150 @@
 {
+  "app": {
+    "mock": "mock"
+  },
+  "common": {
+    "back": "Back",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "selectProjectFirst": "Select a project in the sidebar first",
+    "comingSoon": "Arrives in T14"
+  },
   "topbar": {
-    "project": "Project",
-    "env": "Env",
     "connected": "Connected",
     "connecting": "Connecting",
     "offline": "Offline",
-    "serverAddress": "Server Address",
+    "serverAddress": "Server address",
     "apply": "Apply",
-    "language": "EN"
+    "language": "中文",
+    "allEnvs": "All envs",
+    "noProject": "No project"
+  },
+  "sidebar": {
+    "project": "Project",
+    "selectProject": "Select project",
+    "groupWorkbench": "Workbench",
+    "groupConfig": "Configuration",
+    "cases": "Cases",
+    "runHistory": "Run history",
+    "prdDocs": "PRD documents",
+    "envs": "Environments",
+    "casesView": "Cases",
+    "envsView": "Environments"
+  },
+  "status": {
+    "unspecified": "unknown",
+    "draft": "draft",
+    "pending": "pending",
+    "approved": "approved",
+    "disabled": "disabled",
+    "pendingRun": "PENDING",
+    "running": "RUNNING",
+    "passed": "PASS",
+    "failed": "FAIL",
+    "cancelled": "CANCELLED",
+    "verdictPassed": "VERDICT PASS",
+    "verdictFailed": "VERDICT FAIL",
+    "verdictInconclusive": "INCONCLUSIVE"
+  },
+  "cases": {
+    "title": "Cases",
+    "subtitle": "Three-way alignment: PRD logic ↔ frontend display ↔ backend output",
+    "colCase": "Case",
+    "colStatus": "Status",
+    "colCreator": "Creator",
+    "colLastRun": "Last run",
+    "colRuns": "Runs",
+    "colRule": "Alignment rule",
+    "creatorHuman": "human",
+    "creatorAgent": "agent",
+    "empty": "No cases yet — upload a PRD to draft some",
+    "info": "Info",
+    "goal": "Goal",
+    "sourcePrd": "Source PRD",
+    "creator": "Creator",
+    "version": "Version",
+    "updatedAt": "Updated",
+    "alignments": "Alignments",
+    "noAlignments": "No alignment entries declared",
+    "runHistory": "Run history",
+    "noRuns": "Never run",
+    "review": "Review",
+    "noReviewActions": "No actions available in this status",
+    "reviewAction": {
+      "approve": "✓ Approve",
+      "reject": "✗ Reject",
+      "disable": "Disable"
+    },
+    "reviewLog": {
+      "approve": "Approve via review",
+      "reject": "Reject via review",
+      "disable": "Disable via review"
+    },
+    "reviewDone": {
+      "approve": "Approved — case is now runnable",
+      "reject": "Rejected — back to draft",
+      "disable": "Disabled"
+    },
+    "runTitle": "Run",
+    "runEnv": "Env",
+    "pickEnv": "Pick an env",
+    "runNow": "Run",
+    "running": "Running…",
+    "onlyApproved": "Only APPROVED cases can run",
+    "lastRun": "Last run",
+    "changelog": "Changelog",
+    "runResult": "Run result",
+    "runStatus": "Status",
+    "noVerdict": "No verdict produced at stream end",
+    "verdict": "Three-way alignment verdict",
+    "evApiPath": "API",
+    "evApiObserved": "Backend output",
+    "evUiAnchor": "UI anchor",
+    "evUiObserved": "Frontend display",
+    "evMatch": "Match"
+  },
+  "runs": {
+    "colTime": "Time",
+    "colEnv": "Env",
+    "colResult": "Result",
+    "colDuration": "Duration",
+    "colTokens": "Tokens"
+  },
+  "envs": {
+    "title": "Environments",
+    "subtitle": "Each env binds one SUT address set plus injected variables",
+    "new": "New env",
+    "createTitle": "New environment",
+    "editTitle": "Edit environment",
+    "colName": "Name",
+    "colWeb": "Web Base URL",
+    "colGrpc": "gRPC Address",
+    "colVars": "Vars",
+    "vars": "Vars (K=V per line)",
+    "credentials": "Credentials (K=V per line, plaintext in 1.0)",
+    "nameRequired": "Name is required",
+    "created": "Env created",
+    "saved": "Env saved",
+    "deleted": "Deleted env {{name}}",
+    "empty": "No envs yet — create one top-right"
+  },
+  "prd": {
+    "title": "PRD documents",
+    "subtitle": "Upload a PRD; the analyze agent drafts cases for review",
+    "upload": "Upload PRD",
+    "parsing": "Parsing…",
+    "traceTitle": "Parse events",
+    "traceEmpty": "Agent parse events appear here after you upload a file",
+    "draftsTitle": "Created drafts",
+    "draftsEmpty": "No drafts yet",
+    "parsed": "Parsed — {{count}} draft(s) created",
+    "reviewHint": "Queued as pending; review them in the Cases view",
+    "formatsHint": "Supports .md / .docx / .pdf; files are uploaded and parsed server-side"
+  },
+  "format": {
+    "locale": "en-US"
   }
 }

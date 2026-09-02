@@ -1,38 +1,24 @@
+// Top bar: breadcrumb, env segment switcher, server address, language toggle.
 import { useTranslation } from 'react-i18next';
-
-type Project = {
-  id: string;
-  name: string;
-};
-
-type Env = {
-  id: string;
-  name: string;
-};
-
-type ConnectionStatus = 'connected' | 'connecting' | 'offline';
+import type { Env } from '../lib/ipc';
 
 type TopBarProps = {
-  projects: Project[];
+  projectName: string | null;
+  viewLabel: string;
   envs: Env[];
-  selectedProjectId: string | null;
   selectedEnvId: string | null;
-  connectionStatus: ConnectionStatus;
   serverAddr: string;
-  onSelectProject: (id: string | null) => void;
   onSelectEnv: (id: string | null) => void;
   onServerAddrChange: (addr: string) => void;
   onApply: () => void;
 };
 
 function TopBar({
-  projects,
+  projectName,
+  viewLabel,
   envs,
-  selectedProjectId,
   selectedEnvId,
-  connectionStatus,
   serverAddr,
-  onSelectProject,
   onSelectEnv,
   onServerAddrChange,
   onApply,
@@ -46,97 +32,46 @@ function TopBar({
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-        padding: '0.5rem 1rem',
-        borderBottom: '1px solid #e5e7eb',
-        background: '#f9fafb',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <label htmlFor="project-select">{t('topbar.project')}</label>
-        <select
-          id="project-select"
-          value={selectedProjectId ?? ''}
-          onChange={(e) => onSelectProject(e.target.value || null)}
-        >
-          <option value="">--</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="env-select">{t('topbar.env')}</label>
-        <select
-          id="env-select"
-          value={selectedEnvId ?? ''}
-          onChange={(e) => onSelectEnv(e.target.value || null)}
-          disabled={!selectedProjectId}
-        >
-          <option value="">--</option>
+    <header className="tb">
+      <div className="crumb">
+        {projectName ?? t('topbar.noProject')} <span>/</span> <b>{viewLabel}</b>
+      </div>
+      <div className="right">
+        <div className="seg" aria-label={t('sidebar.env')}>
+          <button
+            className={!selectedEnvId ? 'on' : ''}
+            onClick={() => onSelectEnv(null)}
+          >
+            {t('topbar.allEnvs')}
+          </button>
           {envs.map((env) => (
-            <option key={env.id} value={env.id}>
+            <button
+              key={env.id}
+              className={selectedEnvId === env.id ? 'on' : ''}
+              onClick={() => onSelectEnv(env.id)}
+            >
               {env.name}
-            </option>
+            </button>
           ))}
-        </select>
-      </div>
-
-      <div style={{ flex: 1 }} />
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-            padding: '0.25rem 0.5rem',
-            borderRadius: '9999px',
-            fontSize: '0.75rem',
-            fontWeight: 500,
-            background:
-              connectionStatus === 'connected'
-                ? '#dcfce7'
-                : connectionStatus === 'connecting'
-                  ? '#fef9c3'
-                  : '#fee2e2',
-            color:
-              connectionStatus === 'connected'
-                ? '#166534'
-                : connectionStatus === 'connecting'
-                  ? '#854d0e'
-                  : '#991b1b',
-          }}
-        >
-          {connectionStatus === 'connected'
-            ? t('topbar.connected')
-            : connectionStatus === 'connecting'
-              ? t('topbar.connecting')
-              : t('topbar.offline')}
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <button onClick={toggleLanguage} style={{ cursor: 'pointer' }}>
-          {t('topbar.language')}
-        </button>
-
-        <label htmlFor="server-addr" style={{ marginLeft: '0.5rem' }}>
-          {t('topbar.serverAddress')}
-        </label>
+        </div>
         <input
-          id="server-addr"
+          className="inline-input"
+          style={{ width: 170 }}
+          aria-label={t('topbar.serverAddress')}
           value={serverAddr}
           onChange={(e) => onServerAddrChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onApply();
+          }}
         />
-        <button onClick={onApply}>{t('topbar.apply')}</button>
+        <button className="btn sm ghost" onClick={onApply}>
+          {t('topbar.apply')}
+        </button>
+        <button className="btn sm ghost" onClick={toggleLanguage}>
+          {t('topbar.language')}
+        </button>
       </div>
-    </div>
+    </header>
   );
 }
 

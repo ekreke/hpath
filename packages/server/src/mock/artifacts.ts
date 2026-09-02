@@ -8,7 +8,7 @@ import { deflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { strToU8, zipSync } from "fflate";
-import type { Artifact, ArtifactKind, Env, Project, Run } from "../gen/hpath/v1/hpath.js";
+import type { Artifact, ArtifactKind, Env, Project, Run } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 

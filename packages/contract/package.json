@@ -1,0 +1,19 @@
+{
+  "name": "@hpath/contract",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/gen/hpath-descriptor.pb dist/gen/hpath-descriptor.pb"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.14.1",
+    "@grpc/grpc-js": "1.14.4",
+    "protobufjs": "7.6.6"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

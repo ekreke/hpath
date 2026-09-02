@@ -1,74 +1,158 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Sidebar, { type ViewId } from './components/Sidebar';
 import TopBar from './components/TopBar';
-import { invoke_list_projects, invoke_list_envs } from './lib/ipc';
-
-type ListEnv = {
-  id: string;
-  name: string;
-};
+import { Toast } from './components/Ui';
+import CasesView from './views/CasesView';
+import EnvsView from './views/EnvsView';
+import PrdView from './views/PrdView';
+import {
+  invokeListEnvs,
+  invokeListProjects,
+  type Env,
+  type Project,
+} from './lib/ipc';
+import { useTranslation } from 'react-i18next';
 
 function App() {
-  const [serverAddr, setServerAddr] = useState(() => {
-    return localStorage.getItem('hpath.serverAddr') || '127.0.0.1:50051';
-  });
+  const { t } = useTranslation();
+  const [serverAddr, setServerAddr] = useState(
+    () => localStorage.getItem('hpath.serverAddr') || '127.0.0.1:50051',
+  );
   const [appliedServerAddr, setAppliedServerAddr] = useState(serverAddr);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [envs, setEnvs] = useState<Env[]>([]);
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
-  const [envs, setEnvs] = useState<ListEnv[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'offline'>('offline');
+  const [view, setView] = useState<ViewId>('cases');
+  const [connectionStatus, setConnectionStatus] = useState<
+    'connected' | 'connecting' | 'offline'
+  >('offline');
+  const [caseCount, setCaseCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
+
+  const onToast = useCallback((text: string, error?: boolean) => {
+    setToast({ text, error });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     setConnectionStatus('connecting');
     setEnvs([]);
+    setSelectedEnvId(null);
     (async () => {
       try {
-        await invoke_list_projects(appliedServerAddr);
+        const list = await invokeListProjects(appliedServerAddr);
         if (cancelled) return;
+        setProjects(list);
         setConnectionStatus('connected');
+        setSelectedProjectId((prev) =>
+          prev && list.some((p) => p.id === prev) ? prev : (list[0]?.id ?? null),
+        );
       } catch {
-        if (!cancelled) setConnectionStatus('offline');
-        return;
+        if (!cancelled) {
+          setProjects([]);
+          setSelectedProjectId(null);
+          setConnectionStatus('offline');
+        }
       }
-      if (!selectedProjectId) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedServerAddr]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setEnvs([]);
+      setSelectedEnvId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
       try {
-        const envList = await invoke_list_envs(appliedServerAddr, selectedProjectId);
-        if (!cancelled) setEnvs(envList);
+        const list = await invokeListEnvs(appliedServerAddr, selectedProjectId);
+        if (cancelled) return;
+        setEnvs(list);
+        setSelectedEnvId((prev) =>
+          prev && list.some((e) => e.id === prev) ? prev : null,
+        );
       } catch {
         if (!cancelled) setEnvs([]);
       }
-    })().finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => { cancelled = true; };
-  }, [appliedServerAddr, selectedProjectId]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedServerAddr, selectedProjectId, refreshKey]);
 
-  useEffect(() => {
-    setSelectedEnvId(null);
-  }, [selectedProjectId]);
+  const refreshEnvs = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
+  const viewLabel = t(`sidebar.${view === 'prd' ? 'prdDocs' : view}`);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <TopBar
-        projects={[]}
-        envs={envs}
+    <div className="shell">
+      <Sidebar
+        projects={projects}
         selectedProjectId={selectedProjectId}
-        selectedEnvId={selectedEnvId}
+        view={view}
         connectionStatus={connectionStatus}
-        serverAddr={serverAddr}
+        serverAddr={appliedServerAddr}
+        caseCount={caseCount}
+        envCount={envs.length}
         onSelectProject={setSelectedProjectId}
-        onSelectEnv={setSelectedEnvId}
-        onServerAddrChange={setServerAddr}
-        onApply={() => {
-          localStorage.setItem('hpath.serverAddr', serverAddr);
-          setAppliedServerAddr(serverAddr);
-        }}
+        onSelectView={setView}
       />
-      <main style={{ flex: 1, padding: '1rem' }}>
-        <p>Views land in T11+</p>
-      </main>
+      <div className="main">
+        <TopBar
+          projectName={selectedProject?.name ?? null}
+          viewLabel={viewLabel}
+          envs={envs}
+          selectedEnvId={selectedEnvId}
+          serverAddr={serverAddr}
+          onSelectEnv={setSelectedEnvId}
+          onServerAddrChange={setServerAddr}
+          onApply={() => {
+            localStorage.setItem('hpath.serverAddr', serverAddr);
+            setAppliedServerAddr(serverAddr);
+          }}
+        />
+        <div className="page">
+          {view === 'cases' && (
+            <CasesView
+              addr={appliedServerAddr}
+              projectId={selectedProjectId}
+              envs={envs}
+              selectedEnvId={selectedEnvId}
+              refreshKey={refreshKey}
+              onToast={onToast}
+              onCountChange={setCaseCount}
+              onOpenEnvs={() => setView('envs')}
+            />
+          )}
+          {view === 'envs' && (
+            <EnvsView
+              addr={appliedServerAddr}
+              projectId={selectedProjectId}
+              envs={envs}
+              onChanged={refreshEnvs}
+              onToast={onToast}
+            />
+          )}
+          {view === 'prd' && (
+            <PrdView
+              addr={appliedServerAddr}
+              projectId={selectedProjectId}
+              onDraftsCreated={refreshEnvs}
+              onToast={onToast}
+            />
+          )}
+        </div>
+      </div>
+      {toast && <Toast text={toast.text} error={toast.error} onDone={() => setToast(null)} />}
     </div>
   );
 }
