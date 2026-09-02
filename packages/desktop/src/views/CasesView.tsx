@@ -22,11 +22,12 @@ import {
   formatTime,
   reviewActionsFor,
   runStatusKey,
+  sortRunsDesc,
 } from '../lib/status';
 import { CaseStatusBadge, RunStatusTag } from '../components/Ui';
 
 type CasesViewProps = {
-  addr: string;
+  appliedServerAddr: string;
   projectId: string | null;
   envs: Env[];
   selectedEnvId: string | null;
@@ -46,10 +47,6 @@ function lastRunOf(runs: Run[], caseId: string): Run | undefined {
   return runs
     .filter((r) => r.caseId === caseId && (r.status === RUN_STATUS.PASSED || r.status === RUN_STATUS.FAILED))
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
-}
-
-function sortRunsDesc(runs: Run[]): Run[] {
-  return [...runs].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 }
 
 function VerdictPanel({ verdict }: { verdict: Verdict }) {
@@ -103,7 +100,7 @@ function VerdictPanel({ verdict }: { verdict: Verdict }) {
 }
 
 function CasesView({
-  addr,
+  appliedServerAddr,
   projectId,
   envs,
   selectedEnvId,
@@ -139,8 +136,8 @@ function CasesView({
     (async () => {
       try {
         const [caseList, runList] = await Promise.all([
-          invokeListCases(addr, projectId),
-          invokeListRuns(addr, projectId),
+          invokeListCases(projectId),
+          invokeListRuns(projectId),
         ]);
         if (cancelled) return;
         setCases(caseList);
@@ -154,7 +151,7 @@ function CasesView({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addr, projectId, refreshKey]);
+  }, [appliedServerAddr, projectId, refreshKey]);
 
   const openCase = useCallback(
     async (caseId: string) => {
@@ -163,8 +160,8 @@ function CasesView({
       setBusy(true);
       try {
         const [caseDetail, runList] = await Promise.all([
-          invokeGetCase(addr, caseId),
-          invokeListRuns(addr, projectId ?? '', { caseId }),
+          invokeGetCase(caseId),
+          invokeListRuns(projectId ?? '', { caseId }),
         ]);
         setDetail(caseDetail);
         setDetailRuns(sortRunsDesc(runList));
@@ -174,7 +171,7 @@ function CasesView({
         setBusy(false);
       }
     },
-    [addr, projectId, onToast],
+    [projectId, onToast],
   );
 
   const applyReview = async (action: number) => {
@@ -182,7 +179,6 @@ function CasesView({
     setBusy(true);
     try {
       const updated = await invokeReviewCase(
-        addr,
         detail.id,
         action,
         t(`cases.reviewLog.${action === REVIEW_ACTION.APPROVE ? 'approve' : action === REVIEW_ACTION.REJECT ? 'reject' : 'disable'}`),
@@ -202,11 +198,11 @@ function CasesView({
     setRunBusy(true);
     setRunResult(null);
     try {
-      const result = await invokeRunCase(addr, projectId, selectedEnvId, detail.id);
+      const result = await invokeRunCase(projectId, selectedEnvId, detail.id);
       setRunResult(result);
-      const runList = await invokeListRuns(addr, projectId, { caseId: detail.id });
+      const runList = await invokeListRuns(projectId, { caseId: detail.id });
       setDetailRuns(sortRunsDesc(runList));
-      setRuns(await invokeListRuns(addr, projectId));
+      setRuns(await invokeListRuns(projectId));
     } catch (err) {
       onToast(String(err), true);
     } finally {

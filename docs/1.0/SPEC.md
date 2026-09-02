@@ -15,7 +15,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T16 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15.**
 
 ---
 
@@ -64,6 +64,10 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 - [x] **T16 Desktop packaging + release CI**
   Tauri bundler enabled (macOS `.app` + `.dmg`, unsigned); `make dist` builds the bundle locally. GitHub Actions workflow (`.github/workflows/release.yml`) builds the macOS dmg on release publish and attaches it to the release assets (workflow_dispatch runs the same build as a dry run). Server address is runtime-configurable: a `set_server_addr` IPC command validates and holds the address Rust-side (AppState); the TopBar input + Apply persists it client-side (localStorage) and no command hardcodes it.
   *Verify: `make dist` produces `.app`/`.dmg` under `src-tauri/target/release/bundle/`; publishing a release attaches the dmg; `tauri dev` smoke connects with a custom server address applied from the TopBar.*
+
+- [ ] **T17 Chat / system status view (default home)**
+  A conversational landing page (default view on launch). Shows a system overview (projects / cases by status / envs / run summary), live-ish answers to quick queries — "what is running now" (ListRuns with RUNNING), "recent runs" (ListRuns sorted by started_at), "case health" (per-case last-N results), "env overview" (ListEnvs) — rendered as chat messages (text + tables + status tags). 1.0 is client-side only: the view aggregates existing gRPC endpoints via the existing IPC surface; no NLP, no new contract. A free-text input maps common phrases to the same queries and falls back to a help hint. The server-side `status-agent` (natural-language answers over the same data) is reserved for 1.1 (see Out of Scope).
+  *Verify: `tauri dev` launches into the Chat view; each quick query renders correct mock data; switching project re-queries.*
 
 ## C. Real Server Topology
 
@@ -117,13 +121,15 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 
 MCP facade, external MCP/skills ToolProviders, extra agents via registry, container-per-run, credential injection via env vars, scheduled runs, SUT source-aware agents.
 
+**status-agent (reserved for 1.1):** a registered `AgentDefinition` that answers natural-language questions about system state ("what is running?", "case health?", "env overview"). It reads the same data T17 surfaces client-side (projects/envs/cases/runs) via new `read_*` tools and a new gRPC endpoint `Chat(ChatRequest) returns (stream ChatResponse)`. The T17 chat UI is the future client for it; 1.0 keeps the UI client-side with no agent and no contract change.
+
 ## Verification Matrix (per testing-stage)
 
 | Task type | Verification |
 |-----------|--------------|
 | Docs (Phase 0) | Read-through, terminology consistency with this SPEC |
 | Contract/mock (T1) | pnpm build, grpcurl reflection, mock endpoint probes |
-| Desktop (T10-T14) | `tauri dev` smoke against mock + manual checklist per view |
+| Desktop (T10-T14, T17) | `tauri dev` smoke against mock + manual checklist per view |
 | Infra (T2, T4) | compose health checks, port probes, curl/grpcurl checks |
 | Server code (T5-T9) | pnpm build + unit/integration tests listed per task |
 | E2E (T15) | demo script green run |

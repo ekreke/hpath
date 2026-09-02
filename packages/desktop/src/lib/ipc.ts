@@ -1,6 +1,7 @@
 // Typed Tauri IPC bindings. Payloads are serialized by the Rust side with
 // camelCase field names, so types come straight from the generated protobuf
-// definitions in @hpath/contract.
+// definitions in @hpath/contract. The server address is not passed per call:
+// it lives Rust-side (see set_server_addr) and is set once from the UI.
 import type {
   Case,
   Env,
@@ -63,42 +64,44 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return window.__TAURI__.invoke(cmd, args) as Promise<T>;
 }
 
-export function invokeListProjects(addr: string): Promise<Project[]> {
-  return invoke<Project[]>('list_projects', { addr });
+export function invokeSetServerAddr(addr: string): Promise<void> {
+  return invoke<void>('set_server_addr', { addr });
 }
 
-export function invokeListEnvs(addr: string, projectId: string): Promise<Env[]> {
-  return invoke<Env[]>('list_envs', { addr, projectId });
+export function invokeListProjects(): Promise<Project[]> {
+  return invoke<Project[]>('list_projects');
 }
 
-export function invokeUpsertEnv(addr: string, env: Env): Promise<Env> {
-  return invoke<Env>('upsert_env', { addr, env });
+export function invokeListEnvs(projectId: string): Promise<Env[]> {
+  return invoke<Env[]>('list_envs', { projectId });
 }
 
-export function invokeDeleteEnv(addr: string, envId: string): Promise<void> {
-  return invoke<void>('delete_env', { addr, envId });
+export function invokeUpsertEnv(env: Env): Promise<Env> {
+  return invoke<Env>('upsert_env', { env });
 }
 
-export function invokeListCases(addr: string, projectId: string, status = 0): Promise<Case[]> {
-  return invoke<Case[]>('list_cases', { addr, projectId, status });
+export function invokeDeleteEnv(envId: string): Promise<void> {
+  return invoke<void>('delete_env', { envId });
 }
 
-export function invokeGetCase(addr: string, caseId: string): Promise<Case> {
-  return invoke<Case>('get_case', { addr, caseId });
+export function invokeListCases(projectId: string, status = 0): Promise<Case[]> {
+  return invoke<Case[]>('list_cases', { projectId, status });
+}
+
+export function invokeGetCase(caseId: string): Promise<Case> {
+  return invoke<Case>('get_case', { caseId });
 }
 
 export function invokeReviewCase(
-  addr: string,
   caseId: string,
   action: number,
   comment: string,
 ): Promise<Case> {
-  return invoke<Case>('review_case', { addr, caseId, action, comment });
+  return invoke<Case>('review_case', { caseId, action, comment });
 }
 
-export function invokeListRuns(addr: string, projectId: string, filter: ListRunsFilter = {}): Promise<Run[]> {
+export function invokeListRuns(projectId: string, filter: ListRunsFilter = {}): Promise<Run[]> {
   return invoke<Run[]>('list_runs', {
-    addr,
     projectId,
     envId: filter.envId ?? '',
     caseId: filter.caseId ?? '',
@@ -109,14 +112,12 @@ export function invokeListRuns(addr: string, projectId: string, filter: ListRuns
 }
 
 export function invokeParsePrd(
-  addr: string,
   projectId: string,
   filename: string,
   format: number,
   contentBase64: string,
 ): Promise<ParsePrdResult> {
   return invoke<ParsePrdResult>('parse_prd', {
-    addr,
     projectId,
     filename,
     format,
@@ -125,10 +126,9 @@ export function invokeParsePrd(
 }
 
 export function invokeRunCase(
-  addr: string,
   projectId: string,
   envId: string,
   caseId: string,
 ): Promise<RunResult> {
-  return invoke<RunResult>('run_case', { addr, projectId, envId, caseId });
+  return invoke<RunResult>('run_case', { projectId, envId, caseId });
 }

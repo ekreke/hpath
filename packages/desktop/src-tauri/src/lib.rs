@@ -1,5 +1,6 @@
 use base64::Engine as _;
-use tauri::{AppHandle, Emitter};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
 use tonic::Request;
 
 pub mod dto;
@@ -13,9 +14,35 @@ use dto::{
     CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunResultDto, VerdictDto,
 };
 
+/// Server address held Rust-side. The UI sets it once per apply via
+/// `set_server_addr`; every gRPC command reads it from here.
+#[derive(Default)]
+pub struct AppState {
+    server_addr: Mutex<Option<String>>,
+}
+
+fn current_addr(state: &State<'_, AppState>) -> Result<String, String> {
+    state
+        .server_addr
+        .lock()
+        .expect("server_addr mutex poisoned")
+        .clone()
+        .ok_or_else(|| "server address is not set".to_string())
+}
+
 #[tauri::command]
-async fn list_projects(addr: String) -> Result<Vec<ProjectDto>, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+fn set_server_addr(state: State<'_, AppState>, addr: String) -> Result<(), String> {
+    let normalized = crate::grpc::client::normalize_addr(&addr)?;
+    *state
+        .server_addr
+        .lock()
+        .expect("server_addr mutex poisoned") = Some(normalized);
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectDto>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -33,8 +60,8 @@ async fn list_projects(addr: String) -> Result<Vec<ProjectDto>, String> {
 }
 
 #[tauri::command]
-async fn list_envs(addr: String, project_id: String) -> Result<Vec<EnvDto>, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+async fn list_envs(state: State<'_, AppState>, project_id: String) -> Result<Vec<EnvDto>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -47,8 +74,8 @@ async fn list_envs(addr: String, project_id: String) -> Result<Vec<EnvDto>, Stri
 }
 
 #[tauri::command]
-async fn upsert_env(addr: String, env: EnvDto) -> Result<EnvDto, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+async fn upsert_env(state: State<'_, AppState>, env: EnvDto) -> Result<EnvDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -63,8 +90,8 @@ async fn upsert_env(addr: String, env: EnvDto) -> Result<EnvDto, String> {
 }
 
 #[tauri::command]
-async fn delete_env(addr: String, env_id: String) -> Result<(), String> {
-    let mut client = crate::grpc::client::build_client(addr)
+async fn delete_env(state: State<'_, AppState>, env_id: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -78,11 +105,11 @@ async fn delete_env(addr: String, env_id: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn list_cases(
-    addr: String,
+    state: State<'_, AppState>,
     project_id: String,
     status: i32,
 ) -> Result<Vec<CaseDto>, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -95,8 +122,8 @@ async fn list_cases(
 }
 
 #[tauri::command]
-async fn get_case(addr: String, case_id: String) -> Result<CaseDto, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+async fn get_case(state: State<'_, AppState>, case_id: String) -> Result<CaseDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -110,12 +137,12 @@ async fn get_case(addr: String, case_id: String) -> Result<CaseDto, String> {
 
 #[tauri::command]
 async fn review_case(
-    addr: String,
+    state: State<'_, AppState>,
     case_id: String,
     action: i32,
     comment: String,
 ) -> Result<CaseDto, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -133,7 +160,7 @@ async fn review_case(
 
 #[tauri::command]
 async fn list_runs(
-    addr: String,
+    state: State<'_, AppState>,
     project_id: String,
     env_id: String,
     case_id: String,
@@ -141,7 +168,7 @@ async fn list_runs(
     from: String,
     to: String,
 ) -> Result<Vec<crate::dto::RunDto>, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -170,7 +197,7 @@ async fn list_runs(
 #[tauri::command]
 async fn parse_prd(
     app: AppHandle,
-    addr: String,
+    state: State<'_, AppState>,
     project_id: String,
     filename: String,
     format: i32,
@@ -180,7 +207,7 @@ async fn parse_prd(
         .decode(content_base64)
         .map_err(|e| e.to_string())?;
 
-    let mut client = crate::grpc::client::build_client(addr)
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -221,12 +248,12 @@ async fn parse_prd(
 /// reduces it to the final outcome. The live event feed arrives in T12.
 #[tauri::command]
 async fn run_case(
-    addr: String,
+    state: State<'_, AppState>,
     project_id: String,
     env_id: String,
     case_id: String,
 ) -> Result<RunResultDto, String> {
-    let mut client = crate::grpc::client::build_client(addr)
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -268,7 +295,9 @@ async fn run_case(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            set_server_addr,
             list_projects,
             list_envs,
             upsert_env,

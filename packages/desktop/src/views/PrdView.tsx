@@ -7,7 +7,6 @@ import { PRD_FORMAT } from '../lib/status';
 import { CaseStatusBadge } from '../components/Ui';
 
 type PrdViewProps = {
-  addr: string;
   projectId: string | null;
   onDraftsCreated: () => void;
   onToast: (text: string, error?: boolean) => void;
@@ -34,7 +33,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function PrdView({ addr, projectId, onDraftsCreated, onToast }: PrdViewProps) {
+function PrdView({ projectId, onDraftsCreated, onToast }: PrdViewProps) {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [events, setEvents] = useState<ParseEvent[]>([]);
@@ -66,7 +65,6 @@ function PrdView({ addr, projectId, onDraftsCreated, onToast }: PrdViewProps) {
     try {
       const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
       const res = await invokeParsePrd(
-        addr,
         projectId,
         file.name,
         detectFormat(file.name),

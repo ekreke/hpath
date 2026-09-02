@@ -3,11 +3,13 @@ import Sidebar, { type ViewId } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { Toast } from './components/Ui';
 import CasesView from './views/CasesView';
+import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
 import PrdView from './views/PrdView';
 import {
   invokeListEnvs,
   invokeListProjects,
+  invokeSetServerAddr,
   type Env,
   type Project,
 } from './lib/ipc';
@@ -23,7 +25,7 @@ function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [envs, setEnvs] = useState<Env[]>([]);
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
-  const [view, setView] = useState<ViewId>('cases');
+  const [view, setView] = useState<ViewId>('chat');
   const [connectionStatus, setConnectionStatus] = useState<
     'connected' | 'connecting' | 'offline'
   >('offline');
@@ -42,25 +44,27 @@ function App() {
     setSelectedEnvId(null);
     (async () => {
       try {
-        const list = await invokeListProjects(appliedServerAddr);
+        await invokeSetServerAddr(appliedServerAddr);
+        const list = await invokeListProjects();
         if (cancelled) return;
         setProjects(list);
         setConnectionStatus('connected');
         setSelectedProjectId((prev) =>
           prev && list.some((p) => p.id === prev) ? prev : (list[0]?.id ?? null),
         );
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setProjects([]);
           setSelectedProjectId(null);
           setConnectionStatus('offline');
+          onToast(String(err), true);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [appliedServerAddr]);
+  }, [appliedServerAddr, onToast]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -71,7 +75,7 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const list = await invokeListEnvs(appliedServerAddr, selectedProjectId);
+        const list = await invokeListEnvs(selectedProjectId);
         if (cancelled) return;
         setEnvs(list);
         setSelectedEnvId((prev) =>
@@ -121,9 +125,16 @@ function App() {
           }}
         />
         <div className="page">
+          {view === 'chat' && (
+            <ChatView
+              projectId={selectedProjectId}
+              envs={envs}
+              onToast={onToast}
+            />
+          )}
           {view === 'cases' && (
             <CasesView
-              addr={appliedServerAddr}
+              appliedServerAddr={appliedServerAddr}
               projectId={selectedProjectId}
               envs={envs}
               selectedEnvId={selectedEnvId}
@@ -135,7 +146,6 @@ function App() {
           )}
           {view === 'envs' && (
             <EnvsView
-              addr={appliedServerAddr}
               projectId={selectedProjectId}
               envs={envs}
               onChanged={refreshEnvs}
@@ -144,7 +154,6 @@ function App() {
           )}
           {view === 'prd' && (
             <PrdView
-              addr={appliedServerAddr}
               projectId={selectedProjectId}
               onDraftsCreated={refreshEnvs}
               onToast={onToast}

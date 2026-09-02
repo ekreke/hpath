@@ -12,6 +12,9 @@ Top bar, always visible:
 
 ## Views
 
+### 0. Chat / System Status (default home)
+Conversational landing page launched on startup. Renders a system overview (projects, cases by status, envs, run summary) and answers quick queries as chat messages: what is running now (RUNNING runs), recent runs, per-case health (last-N results), env overview. 1.0 aggregates existing gRPC endpoints client-side via the IPC surface (no NLP, no new contract); a free-text input maps common phrases to the same queries. The server-side `status-agent` (natural-language answers over the same data) is reserved for 1.1.
+
 ### 1. PRD Management
 - Upload PRD files (md / docx / pdf), list PRDs of the current project.
 - Trigger analyze-agent; watch parse progress (streaming events).
@@ -55,6 +58,8 @@ Per project: list envs, create/edit (name, web URL, gRPC address, variables, cre
 | download_artifact (progress events) | DownloadArtifact |
 
 Streaming: Rust side forwards tonic response streams as Tauri events (`run-event/<runId>`, `parse-event/<jobId>`); fallback polling if event delivery fails.
+
+Plus `set_server_addr` — a client settings command with no gRPC counterpart: it validates the address and holds it Rust-side (AppState); every IPC command reads the address from that state. The UI (TopBar input + Apply) persists it client-side in localStorage.
 
 ## Design Constraints
 

@@ -5,7 +5,6 @@ import type { Env } from '@hpath/contract';
 import { invokeDeleteEnv, invokeUpsertEnv } from '../lib/ipc';
 
 type EnvsViewProps = {
-  addr: string;
   projectId: string | null;
   envs: Env[];
   onChanged: () => void;
@@ -48,7 +47,7 @@ function kvToText(map: Record<string, string>): string {
     .join('\n');
 }
 
-function EnvsView({ addr, projectId, envs, onChanged, onToast }: EnvsViewProps) {
+function EnvsView({ projectId, envs, onChanged, onToast }: EnvsViewProps) {
   const { t } = useTranslation();
   const [form, setForm] = useState<EnvForm | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,7 +72,7 @@ function EnvsView({ addr, projectId, envs, onChanged, onToast }: EnvsViewProps) 
     }
     setBusy(true);
     try {
-      await invokeUpsertEnv(addr, {
+      await invokeUpsertEnv({
         id: form.id,
         projectId,
         name: form.name.trim(),
@@ -95,7 +94,7 @@ function EnvsView({ addr, projectId, envs, onChanged, onToast }: EnvsViewProps) 
   const remove = async (env: Env) => {
     setBusy(true);
     try {
-      await invokeDeleteEnv(addr, env.id);
+      await invokeDeleteEnv(env.id);
       onChanged();
       onToast(t('envs.deleted', { name: env.name }));
     } catch (err) {

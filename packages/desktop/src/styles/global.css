@@ -341,3 +341,66 @@ td.num, th.num { text-align: right; color: var(--muted); }
 .toast.err { background: #3a3a3a; color: var(--txt); border: 1px solid var(--border3); }
 
 .hint { color: var(--faint); font-size: 12px; }
+
+/* ── chat (T17) ──────────────────────────── */
+.chat { max-width: 880px; display: flex; flex-direction: column; height: 100%; padding-bottom: 40px; }
+.chat .ph { flex: 0 0 auto; }
+.chat-thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px 18px;
+}
+.chat-msg { display: flex; gap: 10px; align-items: flex-start; }
+.chat-msg.user { flex-direction: row-reverse; }
+.chat-avatar {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border2);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+}
+.chat-msg.user .chat-avatar { background: var(--w); color: #000; border-color: var(--w); }
+.chat-bubble {
+  max-width: 78%;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.chat-msg.user .chat-bubble { background: var(--panel2); }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 0 12px; flex: 0 0 auto; }
+.chip {
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.chip:hover:not(:disabled) { color: var(--txt); border-color: var(--border3); background: var(--hover); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.chat-input { display: flex; gap: 10px; flex: 0 0 auto; }
+.chat-input input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--txt);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.chat-input input:focus { border-color: #5a5a5a; }
+.chat-input input::placeholder { color: var(--faint2); }

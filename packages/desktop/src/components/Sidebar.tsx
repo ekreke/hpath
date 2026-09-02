@@ -2,7 +2,7 @@
 import { useTranslation } from 'react-i18next';
 import type { Project } from '../lib/ipc';
 
-export type ViewId = 'cases' | 'envs' | 'prd';
+export type ViewId = 'chat' | 'cases' | 'envs' | 'prd';
 
 type SidebarProps = {
   projects: Project[];
@@ -15,6 +15,17 @@ type SidebarProps = {
   onSelectProject: (id: string | null) => void;
   onSelectView: (view: ViewId) => void;
 };
+
+function IconChat() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M2 3.5h12v8H5.5L2 13.5z" />
+      <circle cx="5.4" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="10.6" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 
 function IconCases() {
   return (
@@ -98,6 +109,10 @@ function Sidebar({
 
       <nav className="nav">
         <div className="g">{t('sidebar.groupWorkbench')}</div>
+        <button className={view === 'chat' ? 'itm on' : 'itm'} onClick={() => onSelectView('chat')}>
+          <IconChat />
+          {t('sidebar.chat')}
+        </button>
         <button className={view === 'cases' ? 'itm on' : 'itm'} onClick={() => onSelectView('cases')}>
           <IconCases />
           {t('sidebar.cases')}

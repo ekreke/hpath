@@ -1,0 +1,70 @@
+# Build the macOS desktop bundle and attach it to a GitHub release.
+# Publishing a release triggers the build; workflow_dispatch runs the same
+# build as a dry run (artifacts land on the workflow run instead).
+# Bundles are unsigned in 1.0 — recipients must bypass Gatekeeper manually.
+name: Release desktop (macOS)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Install protoc (required by the desktop build script)
+        run: brew install protobuf
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm -r build
+
+      - name: Build app and attach to release
+        if: github.event_name == 'release'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: packages/desktop
+          releaseId: ${{ github.event.release.id }}
+
+      - name: Build app (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: packages/desktop
+
+      - name: Attach dry-run artifacts to the workflow run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hpath-macos
+          path: |
+            packages/desktop/src-tauri/target/release/bundle/**/*.app
+            packages/desktop/src-tauri/target/release/bundle/**/*.dmg
+          if-no-files-found: error

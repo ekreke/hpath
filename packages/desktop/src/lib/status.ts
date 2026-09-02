@@ -1,6 +1,7 @@
 // Status / enum metadata for rendering. Numeric values mirror the protobuf
 // enums (proto/hpath/v1/hpath.proto); they cross the IPC boundary as numbers.
 import type { TFunction } from 'i18next';
+import type { Run } from '@hpath/contract';
 
 export const CASE_STATUS = {
   UNSPECIFIED: 0,
@@ -79,6 +80,11 @@ export function reviewActionsFor(status: number): number[] {
     default:
       return [];
   }
+}
+
+/** Newest-first by startedAt; RFC3339 strings compare lexicographically. */
+export function sortRunsDesc(runs: Run[]): Run[] {
+  return [...runs].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 }
 
 export function formatDuration(ms: number): string {
