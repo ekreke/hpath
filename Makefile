@@ -3,9 +3,12 @@
 
 PORT ?= 50051
 LOG  ?= /tmp/hpath-server.log
+COMPOSE_FILE ?= docker/compose.yaml
+# `make up PROFILE=s3` additionally starts the optional SeaweedFS service.
+PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build mock real dev run smoke test restart stop clean verify
+.PHONY: help install proto build dist mock real dev run smoke test restart stop clean verify up down logs docker-clean
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -18,6 +21,10 @@ proto: ## Regenerate TS types + descriptor set from proto
 
 build: ## Build all workspace packages
 	pnpm build
+
+dist: ## Build the macOS desktop bundle (.app/.dmg under packages/desktop/src-tauri/target/release/bundle)
+	pnpm --filter @hpath/contract build
+	pnpm --filter @hpath/desktop tauri build
 
 mock: ## Start mock server in background (log: $(LOG)), wait until healthy
 	@$(MAKE) stop
@@ -63,6 +70,20 @@ stop: ## Stop any running hpath server on $(PORT)
 	if [ -n "$$pids" ]; then kill $$pids 2>/dev/null; echo "stopped: $$pids"; else echo "no server on $(PORT)"; fi
 
 verify: build smoke ## Build + smoke against an already-running server
+
+up: ## Build & start the docker compose stack (add PROFILE=s3 for SeaweedFS)
+	docker compose -f $(COMPOSE_FILE) $(if $(PROFILE),--profile $(PROFILE),) up -d --build
+
+down: ## Stop and remove the docker compose stack
+	docker compose -f $(COMPOSE_FILE) down
+
+logs: ## Tail docker compose logs
+	docker compose -f $(COMPOSE_FILE) logs -f --tail=100
+
+docker-clean: ## Reclaim docker disk: dangling images + build cache unused for 7d, then show usage
+	docker image prune -f
+	docker builder prune -f --filter until=168h
+	docker system df
 
 clean: ## Remove build outputs (keeps node_modules)
 	rm -rf packages/server/dist packages/desktop/dist

@@ -15,9 +15,23 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15.**
 
 ---
+
+## Artifact Storage Configuration
+
+Binary artifacts (video / screenshots / trace / request records) go through a
+single `ArtifactStore` interface. The backend is selected by env var
+`HPATH_ARTIFACT_STORE`:
+
+- `local` (default): filesystem directory rooted at `HPATH_ARTIFACT_DIR`
+  (default `data/artifacts`). Simplest setup; used by the default compose stack.
+- `seaweedfs`: S3 API against the SeaweedFS single container, for the full
+  compose topology (`docker compose --profile s3 up`).
+
+Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
+1.0 implements and verifies `local` first; the `seaweedfs` backend lands with T6.
 
 ## A. Contract & Mock Foundation
 
@@ -47,13 +61,17 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
   Run list filtered by project/env/case/status/date; per-case health strip (last N results).
   *Verify: mock runs visible and filterable.*
 
+- [x] **T16 Desktop packaging + release CI**
+  Tauri bundler enabled (macOS `.app` + `.dmg`, unsigned); `make dist` builds the bundle locally. GitHub Actions workflow (`.github/workflows/release.yml`) builds the macOS dmg on release publish and attaches it to the release assets (workflow_dispatch runs the same build as a dry run). Server address is runtime-configurable: a `set_server_addr` IPC command validates and holds the address Rust-side (AppState); the TopBar input + Apply persists it client-side (localStorage) and no command hardcodes it.
+  *Verify: `make dist` produces `.app`/`.dmg` under `src-tauri/target/release/bundle/`; publishing a release attaches the dmg; `tauri dev` smoke connects with a custom server address applied from the TopBar.*
+
 ## C. Real Server Topology
 
-- [ ] **T2 Docker compose topology**
-  `docker/compose.yaml` with services: `hpath-server` (Playwright base image, `--ipc=host`), `seaweedfs` (single container: master+volume+S3 gateway), `demo-app-dev`, `demo-app-staging`. Server Dockerfile.
-  *Verify: `docker compose up -d` -> all healthy; S3 responds; demo apps serve pages.*
+- [x] **T2 Docker compose topology**
+  `docker/compose.yaml` with services: `hpath-server` (slim Node image for the spike; switches to the Playwright base + `--ipc=host` when T7b lands; artifact store `local`), `demo-app-dev`, `demo-app-staging`; optional `seaweedfs` service (single container: master+volume+S3 gateway) under the `s3` compose profile, started with `docker compose --profile s3 up`. Server Dockerfile.
+  *Verify: `docker compose up -d` -> all healthy; demo apps serve pages; with `--profile s3` the S3 endpoint responds.*
 
-- [ ] **T4 demo-app (three-way aligned SUT)**
+- [x] **T4 demo-app (three-way aligned SUT)**
   Login + dashboard (balance card); HTTP `GET /api/balance`; gRPC `BalanceService.GetBalance` — all three serve the same seeded value; dev and staging instances use different seed data (so env switching is observable). Public image or source in `fixtures/demo-app/`.
   *Verify: manual curl + grpcurl + page check return the same number per env.*
 
@@ -67,9 +85,9 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
   On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 3 example cases (2 approved + 1 pending agent draft), 2 finished sample runs (1 passed + 1 failed), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
   *Verify: fresh boot -> ListProjects/ListEnvs/ListCases return seed data from SQLite.*
 
-- [ ] **T6 SeaweedFS artifact client**
-  S3 API client (aws-sdk-js): putObject/getObject streaming, artifact index bookkeeping, key scheme `artifacts/{project}/{env}/{run}/...`.
-  *Verify: round-trip upload/download in integration test.*
+- [ ] **T6 Artifact storage client (local first, S3 optional)**
+  One `ArtifactStore` interface, two backends selected by `HPATH_ARTIFACT_STORE`: `local` (default; filesystem under `HPATH_ARTIFACT_DIR`) and `s3` (aws-sdk-js against SeaweedFS). putObject/getObject streaming, artifact index bookkeeping, shared key scheme `artifacts/{project}/{env}/{run}/...`.
+  *Verify: round-trip upload/download integration test for the `local` backend; `s3` backend round-trips against the compose `s3` profile SeaweedFS.*
 
 - [ ] **T7a Agent kernel**
   AgentRegistry + AgentDefinition interface; ToolProviderRegistry; shared run pipeline: fresh session per run, env-bound injection, event recording (pi hooks), hard limits (maxSteps/tokenBudget/timeoutMs with evidence preserved), structured verdict channel.
@@ -80,8 +98,8 @@ Iteration order: **T1 -> T10 -> T11 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6
   *Verify: agent executes seed case against demo-app dev; verdict pass with all three sides evidenced.*
 
 - [ ] **T8 Run event streaming + evidence recording (real)**
-  RunCase server-streaming backed by the real pipeline; per-run: video.webm, trace.zip, per-step screenshots, request records -> SeaweedFS; events + artifact index -> SQLite; limit breaches -> failed with evidence retained.
-  *Verify: RunCase over gRPC yields ordered events; run artifacts complete in SeaweedFS; failed-on-limit run keeps evidence.*
+  RunCase server-streaming backed by the real pipeline; per-run: video.webm, trace.zip, per-step screenshots, request records -> the artifact store (local by default); events + artifact index -> SQLite; limit breaches -> failed with evidence retained.
+  *Verify: RunCase over gRPC yields ordered events; run artifacts complete in the artifact store; failed-on-limit run keeps evidence.*
 
 - [ ] **T9 analyze-agent**
   PRD ingest (md direct, docx via mammoth, pdf via pdf-parse) -> case drafts (status pending) with creator `{type:agent}`, source_prd_ref; drafts appear in ListCases pending review.

@@ -54,6 +54,8 @@ function buildReflectionService(): ReflectionService {
 export interface StartServerOptions {
   mode: ServerMode;
   port: number;
+  /** Bind address; defaults to the loopback interface. Containers pass 0.0.0.0. */
+  host?: string;
   store?: MockStore;
 }
 
@@ -70,7 +72,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   buildReflectionService().addToServer(server);
 
   const boundPort = await new Promise<number>((resolve, reject) => {
-    server.bindAsync(`127.0.0.1:${options.port}`, grpc.ServerCredentials.createInsecure(), (err, port) => {
+    const host = options.host ?? "127.0.0.1";
+    server.bindAsync(`${host}:${options.port}`, grpc.ServerCredentials.createInsecure(), (err, port) => {
       if (err) {
         reject(err);
       } else {

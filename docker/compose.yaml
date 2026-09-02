@@ -1,0 +1,97 @@
+# HPath 1.0 compose topology (SPEC T2).
+#
+# Default stack (`docker compose up -d` / `make up`):
+#   hpath-server        mock mode, local artifact store (HPATH_ARTIFACT_STORE=local)
+#   demo-app-dev        three-way aligned SUT, seed ¥1,337.50  (http 8081 / grpc 9091)
+#   demo-app-staging    three-way aligned SUT, seed ¥238.00    (http 8082 / grpc 9092)
+#
+# Full topology adds SeaweedFS for the S3 artifact backend (T6):
+#   docker compose --profile s3 up -d
+
+name: hpath
+
+services:
+  hpath-server:
+    build:
+      context: ..
+      dockerfile: docker/server.Dockerfile
+    # Needed once the T7b Playwright base drives browsers (/dev/shm); harmless
+    # for the slim mock-mode image.
+    ipc: host
+    environment:
+      HPATH_HOST: 0.0.0.0
+      HPATH_PORT: 50051
+      HPATH_ARTIFACT_STORE: local
+      HPATH_ARTIFACT_DIR: /data/artifacts
+      # Forward-compatible endpoints for T6/T7 (unused by the mock server):
+      # SEAWEED_S3_ENDPOINT: http://seaweedfs:8333
+      # DEMO_APP_DEV_URL: http://demo-app-dev:8080
+      # DEMO_APP_STAGING_URL: http://demo-app-staging:8080
+      # DEMO_GRPC_DEV: demo-app-dev:9090
+      # DEMO_GRPC_STAGING: demo-app-staging:9090
+      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - hpath-artifacts:/data/artifacts
+    ports:
+      - "${HPATH_PORT:-50051}:50051"
+    healthcheck:
+      test: ["CMD", "node", "-e", "const net=require('net');const s=net.connect(50051,'127.0.0.1',()=>process.exit(0));s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),3000)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
+
+  demo-app-dev:
+    build:
+      context: ../fixtures/demo-app
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: dev
+      HTTP_PORT: 8080
+      GRPC_PORT: 9090
+      BALANCE_SEED: "1337.50"
+      BALANCE_CURRENCY: CNY
+    ports:
+      - "8081:8080"
+      - "9091:9090"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 3s
+
+  demo-app-staging:
+    build:
+      context: ../fixtures/demo-app
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: staging
+      HTTP_PORT: 8080
+      GRPC_PORT: 9090
+      BALANCE_SEED: "238.00"
+      BALANCE_CURRENCY: CNY
+    ports:
+      - "8082:8080"
+      - "9092:9090"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 3s
+
+  # Optional: S3-compatible artifact backend (T6). Not started by default.
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    profiles: ["s3"]
+    command: "server -dir=/data -ip=seaweedfs -master.volumeSizeLimitMB=1024 -s3 -s3.port=8333"
+    ports:
+      - "9333:9333"
+      - "8333:8333"
+    volumes:
+      - seaweed-data:/data
+
+volumes:
+  hpath-artifacts:
+  seaweed-data:

@@ -2,15 +2,17 @@
 //   node dist/index.js --mock            (default) mock mode, in-memory data
 //   node dist/index.js --real            skeleton, all methods UNIMPLEMENTED
 //   node dist/index.js --port 50051
+//   node dist/index.js --host 0.0.0.0    bind address (env: HPATH_HOST)
 
 import { createMockStore } from "./mock/store.js";
 import { seedMockStore } from "./mock/seed.js";
 import { startServer } from "./grpc/server.js";
 import type { ServerMode } from "./grpc/hpath.js";
 
-function parseArgs(argv: string[]): { mode: ServerMode; port: number } {
+function parseArgs(argv: string[]): { mode: ServerMode; port: number; host: string } {
   let mode: ServerMode = "mock";
   let port = Number(process.env.HPATH_PORT ?? 50051);
+  let host = process.env.HPATH_HOST ?? "127.0.0.1";
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--mock") mode = "mock";
@@ -21,12 +23,18 @@ function parseArgs(argv: string[]): { mode: ServerMode; port: number } {
         port = value;
       }
     }
+    if (arg === "--host") {
+      const value = argv[i + 1];
+      if (value) {
+        host = value;
+      }
+    }
   }
-  return { mode, port };
+  return { mode, port, host };
 }
 
 async function main(): Promise<void> {
-  const { mode, port } = parseArgs(process.argv.slice(2));
+  const { mode, port, host } = parseArgs(process.argv.slice(2));
 
   let store;
   if (mode === "mock") {
@@ -34,8 +42,8 @@ async function main(): Promise<void> {
     seedMockStore(store);
   }
 
-  const server = await startServer({ mode, port, store });
-  console.log(`[hpath-server] mode=${mode} listening on 127.0.0.1:${server.port}`);
+  const server = await startServer({ mode, port, host, store });
+  console.log(`[hpath-server] mode=${mode} listening on ${host}:${server.port}`);
 
   const shutdown = (): void => {
     console.log("[hpath-server] shutting down");

@@ -1,0 +1,13 @@
+# Context for docker/server.Dockerfile (repository root). Keep the build
+# context small: only manifests, proto and server-side packages are needed.
+.git
+.github
+**/node_modules
+**/dist
+**/target
+docs
+docker
+fixtures
+packages/desktop
+*.md
+.DS_Store
