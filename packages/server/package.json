@@ -13,11 +13,13 @@
     "test": "tsc -p tsconfig.test.json && tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@hpath/contract": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1125.0",
+    "@aws-sdk/lib-storage": "^3.1125.0",
     "@bufbuild/protobuf": "^2.14.1",
     "@grpc/grpc-js": "1.14.4",
     "@grpc/proto-loader": "0.7.15",
     "@grpc/reflection": "1.0.4",
+    "@hpath/contract": "workspace:*",
     "fflate": "0.8.3",
     "protobufjs": "7.6.6"
   }

@@ -74,4 +74,35 @@ export class ArtifactRepository {
       .all(runId);
     return rows.map((row) => toArtifact(row as unknown as ArtifactRow));
   }
+
+  /** Artifact of a run stored under `key`, if any. */
+  getByKey(runId: string, key: string): Artifact | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM artifacts WHERE run_id = ? AND key = ?")
+      .get(runId, key);
+    return row ? toArtifact(row as unknown as ArtifactRow) : undefined;
+  }
+
+  /**
+   * Insert-or-update matched on (run_id, key): the store key is the natural
+   * identity of a run's evidence file, so re-uploading the same key refreshes
+   * kind/size/sha256 and keeps the artifact's id and created_at stable.
+   * Rejected with ForeignKeyError for unknown runs.
+   */
+  upsert(artifact: Artifact): Artifact {
+    const existing = this.getByKey(artifact.runId, artifact.key);
+    if (!existing) {
+      return this.insert(artifact);
+    }
+    try {
+      this.db
+        .prepare(
+          `UPDATE artifacts SET kind = ?, size_bytes = ?, sha256 = ? WHERE id = ?`,
+        )
+        .run(artifact.kind, artifact.sizeBytes, artifact.sha256, existing.id);
+    } catch (err) {
+      throw translateConstraintError(err, `update artifact ${existing.id}`);
+    }
+    return { ...existing, kind: artifact.kind, sizeBytes: artifact.sizeBytes, sha256: artifact.sha256 };
+  }
 }
