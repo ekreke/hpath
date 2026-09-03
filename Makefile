@@ -8,7 +8,7 @@ COMPOSE_FILE ?= docker/compose.yaml
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke test restart stop clean verify up down logs docker-clean
+.PHONY: help install proto build dist mock real dev run smoke test restart stop clean verify up down logs docker-clean cloc
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -88,3 +88,7 @@ docker-clean: ## Reclaim docker disk: dangling images + build cache unused for 7
 clean: ## Remove build outputs (keeps node_modules)
 	rm -rf packages/server/dist packages/desktop/dist
 	find . -name "*.tsbuildinfo" -not -path "./node_modules/*" -delete 2>/dev/null || true
+
+cloc: ## Count lines of business code (excludes generated content)
+	cloc . --exclude-dir=node_modules,dist,gen,target,generated-images \
+		--fullpath --not-match-d 'pnpm-lock\.yaml'
