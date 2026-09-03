@@ -4,7 +4,7 @@
 // the table passes the filter fields through to the server, the strip works
 // from the unfiltered run list. The project dimension of the filter is the
 // app-wide project switcher in the sidebar, like every other view.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
 import { invokeListCases, invokeListRuns } from '../lib/ipc';
@@ -22,6 +22,9 @@ type HistoryViewProps = {
   appliedServerAddr: string;
   projectId: string | null;
   envs: Env[];
+  // Bumped by App after a run finishes elsewhere (e.g. a re-run in CasesView):
+  // the view re-queries so new runs show up without a manual refresh.
+  refreshKey: number;
   onToast: (text: string, error?: boolean) => void;
 };
 
@@ -38,9 +41,11 @@ type Filters = {
 
 const EMPTY_FILTERS: Filters = { envId: '', caseId: '', status: 0, from: '', to: '' };
 
-// Inclusive local-date bounds as ISO-8601 for ListRunsRequest.from/to.
+// Inclusive local-date bounds as ISO-8601 for ListRunsRequest.from/to. The
+// end bound carries milliseconds: started_at is a ms-precision ISO string, so
+// `:59.000` would drop runs started in the last 999 ms of the selected day.
 function dayBound(date: string, endOfDay: boolean): string {
-  return new Date(`${date}T${endOfDay ? '23:59:59' : '00:00:00'}`).toISOString();
+  return new Date(`${date}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`).toISOString();
 }
 
 function triggerKey(trigger: number): string | null {
@@ -72,68 +77,60 @@ function HealthStrip({ results }: { results: Run[] }) {
   );
 }
 
-function HistoryView({ appliedServerAddr, projectId, envs, onToast }: HistoryViewProps) {
+function HistoryView({ appliedServerAddr, projectId, envs, refreshKey, onToast }: HistoryViewProps) {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [cases, setCases] = useState<Case[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [allRuns, setAllRuns] = useState<Run[]>([]);
   const [busy, setBusy] = useState(false);
+  // Ticket guard: with a real (non-instant) server, rapid filter changes must
+  // not let an older ListRuns response resolve last and paint wrong rows.
+  const seq = useRef(0);
 
   // Reset when the project (or server) changes: filters are env/case-scoped.
   useEffect(() => {
+    seq.current += 1;
     setFilters(EMPTY_FILTERS);
     setRuns([]);
     setAllRuns([]);
     setCases([]);
   }, [appliedServerAddr, projectId]);
 
-  // Unfiltered run list + case names: health strip and filter dropdowns.
-  useEffect(() => {
+  // One loader for the whole view: case names + health-strip data (unfiltered
+  // run list) + the filtered table rows, guarded by a single ticket so stale
+  // responses from an earlier filter/project can never land.
+  const loadAll = useCallback(async () => {
     if (!projectId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const [caseList, runList] = await Promise.all([
-          invokeListCases(projectId),
-          invokeListRuns(projectId),
-        ]);
-        if (cancelled) return;
-        setCases(caseList);
-        setAllRuns(sortRunsDesc(runList));
-      } catch (err) {
-        if (!cancelled) onToast(String(err), true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [appliedServerAddr, projectId, onToast]);
-
-  // Filtered run list: every filter maps onto a ListRunsRequest field, so the
-  // server (mock) does the filtering.
-  const loadRuns = useCallback(async () => {
-    if (!projectId) return;
+    const ticket = ++seq.current;
     setBusy(true);
     try {
-      const list = await invokeListRuns(projectId, {
-        envId: filters.envId,
-        caseId: filters.caseId,
-        status: filters.status,
-        from: filters.from ? dayBound(filters.from, false) : '',
-        to: filters.to ? dayBound(filters.to, true) : '',
-      });
-      setRuns(sortRunsDesc(list));
+      const [caseList, filtered, unfiltered] = await Promise.all([
+        invokeListCases(projectId),
+        invokeListRuns(projectId, {
+          envId: filters.envId,
+          caseId: filters.caseId,
+          status: filters.status,
+          from: filters.from ? dayBound(filters.from, false) : '',
+          to: filters.to ? dayBound(filters.to, true) : '',
+        }),
+        invokeListRuns(projectId),
+      ]);
+      if (ticket !== seq.current) return;
+      setCases(caseList);
+      setRuns(sortRunsDesc(filtered));
+      setAllRuns(sortRunsDesc(unfiltered));
     } catch (err) {
+      if (ticket !== seq.current) return;
       onToast(String(err), true);
     } finally {
-      setBusy(false);
+      if (ticket === seq.current) setBusy(false);
     }
   }, [projectId, filters, onToast]);
 
   useEffect(() => {
-    void loadRuns();
-  }, [loadRuns]);
+    void loadAll();
+  }, [loadAll, refreshKey]);
 
   if (!projectId) {
     return (
@@ -167,7 +164,7 @@ function HistoryView({ appliedServerAddr, projectId, envs, onToast }: HistoryVie
           <div className="path">{t('history.subtitle')}</div>
         </div>
         <div className="btns">
-          <button className="btn ghost sm" disabled={busy} onClick={() => void loadRuns()}>
+          <button className="btn ghost sm" disabled={busy} onClick={() => void loadAll()}>
             {t('history.refresh')}
           </button>
         </div>

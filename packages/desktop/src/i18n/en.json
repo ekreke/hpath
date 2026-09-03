@@ -142,6 +142,8 @@
     "transcript": "Agent transcript",
     "timeline": "Screenshot timeline",
     "videoLoading": "loading video… {{pct}}%",
+    "videoFailed": "video failed to load",
+    "retry": "Retry",
     "loadingRun": "Loading recorded run…",
     "traceTitle": "Trace",
     "traceHint": "trace viewer opens via playwright show-trace",

@@ -3,7 +3,7 @@
 // (T13) renders a finished run fetched via get_run — inline session video,
 // screenshot timeline, agent transcript, trace.zip download + one-click
 // `playwright show-trace`, and a re-run button.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Artifact, Run } from '@hpath/contract';
 import { ArtifactKind } from '@hpath/contract';
@@ -36,67 +36,89 @@ type RunPanelProps = {
   onToast: (text: string, error?: boolean) => void;
 };
 
-// Base64 data URLs per artifact, shared across panel openings.
+// Base64 data URLs per artifact, shared across panel openings. Capped so a
+// long session cannot retain every screenshot of every run forever.
+const CACHE_LIMIT = 100;
 const thumbnailCache = new Map<string, string>();
 const videoCache = new Map<string, string>();
 
-// Progress-aware fetch of an artifact's bytes as a data URL (T13 closes the
-// T12 gap: screenshot thumbnails stayed untracked, media downloads now report
-// streamed bytes through the IPC progress channel).
+function cachePut(cache: Map<string, string>, id: string, url: string) {
+  if (!cache.has(id) && cache.size >= CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(id, url);
+}
+
+// Progress-aware fetch of an artifact's bytes as a data URL: callers may
+// surface a per-chunk progress tick through the IPC progress channel, and a
+// failed download becomes an error state the caller can render with a retry.
 function useArtifactDataUrl(
   artifact: Artifact | null,
   mime: string,
   cache: Map<string, string>,
   onProgress?: (p: ArtifactProgress) => void,
-): string | null {
+): { src: string | null; error: string | null; retry: () => void } {
   const [src, setSrc] = useState<string | null>(
     () => (artifact ? cache.get(artifact.id) ?? null : null),
   );
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!artifact || src) return;
     let cancelled = false;
+    setError(null);
     invokeDownloadArtifact(artifact.id, onProgress)
       .then((b64) => {
         const url = `data:${mime};base64,${b64}`;
-        cache.set(artifact.id, url);
+        cachePut(cache, artifact.id, url);
         if (!cancelled) setSrc(url);
       })
-      .catch(() => {
-        // Load failures surface through the artifact placeholder; the toast
-        // for hard errors is handled by the callers that own one.
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifact?.id, src]);
+  }, [artifact?.id, src, attempt]);
 
-  return src;
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  return { src, error, retry };
 }
 
 function Screenshot({
   artifactId,
   caption,
+  sizeBytes,
   onZoom,
   onToast,
 }: {
   artifactId: string;
   caption: string;
+  // Total size when known (timeline artifacts): enables a download percent in
+  // the placeholder. Transcript-only screenshots have no artifact entity.
+  sizeBytes?: number;
   onZoom: (src: string) => void;
   onToast: (text: string, error?: boolean) => void;
 }) {
   const { t } = useTranslation();
   const cached = thumbnailCache.get(artifactId) ?? null;
   const [src, setSrc] = useState<string | null>(cached);
+  const [pct, setPct] = useState(0);
 
   useEffect(() => {
     if (src) return;
     let cancelled = false;
-    invokeDownloadArtifact(artifactId)
+    invokeDownloadArtifact(artifactId, (p) => {
+      if (sizeBytes) {
+        setPct(Math.min(100, Math.round((p.bytesReceived / Math.max(sizeBytes, 1)) * 100)));
+      }
+    })
       .then((b64) => {
         const url = `data:image/png;base64,${b64}`;
-        thumbnailCache.set(artifactId, url);
+        cachePut(thumbnailCache, artifactId, url);
         if (!cancelled) setSrc(url);
       })
       .catch((err) => {
@@ -105,9 +127,10 @@ function Screenshot({
     return () => {
       cancelled = true;
     };
-  }, [artifactId, src, onToast]);
+  }, [artifactId, src, onToast, sizeBytes]);
 
   if (!src) {
+    const label = caption || t('runPanel.loadingShot');
     return (
       <div
         className="mono dim"
@@ -122,7 +145,8 @@ function Screenshot({
           fontSize: 12,
         }}
       >
-        {caption || t('runPanel.loadingShot')}
+        {label}
+        {pct > 0 && pct < 100 ? ` ${pct}%` : ''}
       </div>
     );
   }
@@ -144,10 +168,20 @@ function Screenshot({
 function SessionVideo({ artifact }: { artifact: Artifact }) {
   const { t } = useTranslation();
   const [pct, setPct] = useState(0);
-  const src = useArtifactDataUrl(artifact, 'video/webm', videoCache, (p) =>
+  const { src, error, retry } = useArtifactDataUrl(artifact, 'video/webm', videoCache, (p) =>
     setPct(Math.min(100, Math.round((p.bytesReceived / Math.max(artifact.sizeBytes, 1)) * 100))),
   );
 
+  if (error) {
+    return (
+      <div className="mono dim" style={{ padding: '12px 16px', fontSize: 12 }}>
+        {t('runPanel.videoFailed')}{' '}
+        <button className="btn ghost sm" onClick={retry}>
+          {t('runPanel.retry')}
+        </button>
+      </div>
+    );
+  }
   if (!src) {
     return (
       <div className="mono dim" style={{ padding: '12px 16px', fontSize: 12 }}>
@@ -393,6 +427,7 @@ function RunPanel({
                 key={shot.id}
                 artifactId={shot.id}
                 caption={shotCaptions.get(shot.id) || shot.key.split('/').pop() || ''}
+                sizeBytes={shot.sizeBytes}
                 onZoom={setZoom}
                 onToast={onToast}
               />

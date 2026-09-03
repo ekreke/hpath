@@ -142,6 +142,8 @@
     "transcript": "Agent 记录",
     "timeline": "截图时间线",
     "videoLoading": "视频加载中… {{pct}}%",
+    "videoFailed": "视频加载失败",
+    "retry": "重试",
     "loadingRun": "运行记录加载中…",
     "traceTitle": "Trace",
     "traceHint": "通过 playwright show-trace 打开 Trace 查看器",

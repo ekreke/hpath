@@ -431,6 +431,7 @@ td.num, th.num { text-align: right; color: var(--muted); }
 .filters select:focus, .filters input:focus { border-color: #5a5a5a; }
 .hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; }
 .dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
-.dot.pass { background: var(--w); }
-.dot.fail { background: transparent; border: 1px solid var(--w); }
+/* Fill semantics mirror RunStatusTag: fail = solid, pass = outline. */
+.dot.pass { background: transparent; border: 1px solid var(--w); }
+.dot.fail { background: var(--w); }
 .dot.muted { background: var(--faint2); }

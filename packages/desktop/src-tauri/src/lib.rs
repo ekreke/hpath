@@ -1,4 +1,6 @@
 use base64::Engine as _;
+use std::io::Read;
+use std::process::Stdio;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 use tonic::Request;
@@ -397,8 +399,10 @@ async fn save_artifact(
 /// One-click trace inspection (T13): caches the trace.zip under the system
 /// temp dir and launches `playwright show-trace` on it. A global `playwright`
 /// binary is tried first, then `npx playwright` (which resolves or
-/// auto-installs the package). Returns the cached trace path; the viewer
-/// opens in the default browser.
+/// auto-installs the package). A launch only counts as success if the child
+/// survives a short probe window — a viewer that exits immediately (bad zip,
+/// broken install) surfaces as an error instead of a success toast. Returns
+/// the cached trace path; the viewer opens in the default browser.
 #[tauri::command]
 async fn show_trace(
     state: State<'_, AppState>,
@@ -409,6 +413,7 @@ async fn show_trace(
 
     let dir = std::env::temp_dir().join("hpath-traces");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    prune_stale_traces(&dir);
     let safe_run: String = run_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -420,18 +425,61 @@ async fn show_trace(
     ));
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
 
-    let spawned = std::process::Command::new("playwright")
+    let mut child = std::process::Command::new("playwright")
         .args(["show-trace"])
         .arg(&path)
+        .stderr(Stdio::piped())
         .spawn()
         .or_else(|_| {
             std::process::Command::new("npx")
                 .args(["--yes", "playwright", "show-trace"])
                 .arg(&path)
+                .stderr(Stdio::piped())
                 .spawn()
-        });
-    spawned.map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed?): {e}"))?;
+        })
+        .map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed?): {e}"))?;
+
+    // Probe briefly: the viewer stays alive while it serves the trace, so a
+    // child that is gone within the window has already failed.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) if !status.success() => {
+                let mut stderr = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    let _ = pipe.read_to_string(&mut stderr);
+                }
+                let tail = stderr.trim();
+                return Err(format!(
+                    "`playwright show-trace` exited with {status}{}",
+                    if tail.is_empty() { String::new() } else { format!(": {tail}") }
+                ));
+            }
+            Some(_) => break,
+            None if std::time::Instant::now() >= deadline => break,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Drop cached trace zips older than a day; the cache dir would otherwise
+/// grow by one zip per show_trace call for the life of the machine.
+fn prune_stale_traces(dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|modified| modified <= cutoff)
+            .unwrap_or(false);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// ~/Downloads/hpath when a home dir is set, otherwise the system temp dir.

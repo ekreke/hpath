@@ -1,7 +1,7 @@
 // Cases view: case list (creator/status/last-run) + case detail with review
 // actions, env strip, run history (with T13 replay), and the run trigger with
 // the live panel (T12).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
@@ -79,6 +79,12 @@ function CasesView({
   // Replay of a finished run (T13): panel + fetched run detail.
   const [replayRun, setReplayRun] = useState<Run | null>(null);
   const [replayDetail, setReplayDetail] = useState<RunDetailResult | null>(null);
+  // Env the live panel was actually triggered with: a re-run targets the
+  // replayed run's original env, which may differ from the TopBar selection.
+  const [runEnvId, setRunEnvId] = useState<string | null>(null);
+  // Ticket guard for openReplay: rapid clicks must not let a stale get_run
+  // response overwrite the newer replay.
+  const replaySeq = useRef(0);
 
   const selectedEnv = envs.find((e) => e.id === selectedEnvId) ?? null;
 
@@ -92,6 +98,8 @@ function CasesView({
     setRunFinal(null);
     setReplayRun(null);
     setReplayDetail(null);
+    setRunEnvId(null);
+    replaySeq.current += 1;
     if (!projectId) {
       setCases([]);
       setRuns([]);
@@ -172,6 +180,7 @@ function CasesView({
     setRunEvents([]);
     setReplayRun(null);
     setReplayDetail(null);
+    setRunEnvId(targetEnvId);
     setRunOpen(true);
     // Subscribe before invoking so the stream's early events are not missed;
     // events are filtered to the run this trigger started.
@@ -201,14 +210,18 @@ function CasesView({
   // Replay a finished run through all three layers (T13): session video,
   // screenshot timeline and the recorded agent transcript.
   const openReplay = async (run: Run) => {
+    const ticket = ++replaySeq.current;
     setRunOpen(false);
     setRunEvents([]);
     setRunResult(null);
     setReplayRun(run);
     setReplayDetail(null);
     try {
-      setReplayDetail(await invokeGetRun(run.id));
+      const fetched = await invokeGetRun(run.id);
+      if (ticket !== replaySeq.current) return;
+      setReplayDetail(fetched);
     } catch (err) {
+      if (ticket !== replaySeq.current) return;
       onToast(String(err), true);
       setReplayRun(null);
     }
@@ -305,7 +318,7 @@ function CasesView({
               {runOpen && (
                 <RunPanel
                   caseTitle={detail.title}
-                  envName={selectedEnv?.name ?? null}
+                  envName={envs.find((e) => e.id === runEnvId)?.name ?? null}
                   events={runEvents}
                   running={runBusy}
                   result={runResult}

@@ -173,9 +173,9 @@ export function invokeRunCase(
 
 // Base64-encoded artifact bytes (screenshots in the run panel; video / trace
 // in the replay view). A channel always carries the download so callers can
-// optionally surface a progress tick per received chunk (T13 closes the T12
-// gap: screenshot thumbnails stayed untracked, media downloads now report
-// streamed bytes).
+// optionally surface a progress tick per received chunk — the session video
+// always does, and timeline screenshots do when the artifact's sizeBytes is
+// known (transcript-only screenshots have no total to report against).
 export function invokeDownloadArtifact(
   artifactId: string,
   onProgress?: (progress: ArtifactProgress) => void,

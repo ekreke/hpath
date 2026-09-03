@@ -150,6 +150,7 @@ function App() {
               appliedServerAddr={appliedServerAddr}
               projectId={selectedProjectId}
               envs={envs}
+              refreshKey={refreshKey}
               onToast={onToast}
             />
           )}
