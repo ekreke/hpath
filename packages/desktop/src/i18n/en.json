@@ -24,6 +24,13 @@
   "sidebar": {
     "project": "Project",
     "selectProject": "Select project",
+    "createProject": "New project",
+    "createProjectTitle": "New project",
+    "projectName": "Name",
+    "projectNameRequired": "Project name is required",
+    "projectCreated": "Project \"{{name}}\" created",
+    "repoUrl": "Repository URL (optional)",
+    "env": "Environment",
     "groupWorkbench": "Workbench",
     "groupConfig": "Configuration",
     "chat": "Chat",

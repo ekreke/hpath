@@ -24,6 +24,13 @@
   "sidebar": {
     "project": "项目",
     "selectProject": "选择项目",
+    "createProject": "新建项目",
+    "createProjectTitle": "新建项目",
+    "projectName": "名称",
+    "projectNameRequired": "请填写项目名称",
+    "projectCreated": "项目“{{name}}”已创建",
+    "repoUrl": "仓库地址（可选）",
+    "env": "环境",
     "groupWorkbench": "工作台",
     "groupConfig": "配置",
     "chat": "Chat",

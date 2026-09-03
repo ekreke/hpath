@@ -18,6 +18,7 @@ import type {
   ListCasesResponse,
   ListEnvsResponse,
   ListProjectsResponse,
+  Project,
 } from "@hpath/contract";
 import { HpathDb } from "../src/db/index.js";
 import { seedDatabase } from "../src/db/seed.js";
@@ -151,10 +152,48 @@ describe("real mode read path (SQLite)", () => {
   });
 });
 
+describe("real mode CreateProject (T5 repository wiring)", () => {
+  it("creates a project and serves it through ListProjects", async () => {
+    const { err, res } = await callUnary("createProject", {
+      name: "wired-project",
+      repoUrl: "https://github.com/example/wired",
+    });
+    assert.equal(err, null);
+    const created = res as Project;
+    assert.ok(created.id.length > 0);
+    assert.equal(created.name, "wired-project");
+    assert.equal(created.repoUrl, "https://github.com/example/wired");
+    assert.ok(created.createdAt.length > 0);
+
+    const list = await callUnary("listProjects", {});
+    const names = (list.res as ListProjectsResponse).projects.map((p) => p.name);
+    assert.deepEqual(names, ["demo-bank", "wired-project"]);
+  });
+
+  it("defaults repoUrl to empty when omitted", async () => {
+    // Scalar fields must be present: ts-proto's encode only skips the field
+    // when it equals "" — a missing field would hit writer.string(undefined)
+    // and serialize the literal "undefined" onto the wire (same class of
+    // pitfall as the enum note below).
+    const { err, res } = await callUnary("createProject", { name: "no-repo", repoUrl: "" });
+    assert.equal(err, null);
+    assert.equal((res as Project).repoUrl, "");
+  });
+
+  it("reports INVALID_ARGUMENT when name is missing", async () => {
+    const { err } = await callUnary("createProject", { name: "" });
+    assert.equal(err?.code, status.INVALID_ARGUMENT);
+  });
+
+  it("reports ALREADY_EXISTS for a duplicate name", async () => {
+    const { err } = await callUnary("createProject", { name: "demo-bank" });
+    assert.equal(err?.code, status.ALREADY_EXISTS);
+  });
+});
+
 describe("real mode wiring boundary (UNIMPLEMENTED)", () => {
-  it("keeps createProject, reviewCase and listRuns UNIMPLEMENTED", async () => {
+  it("keeps reviewCase and listRuns UNIMPLEMENTED", async () => {
     for (const [method, request] of [
-      ["createProject", { name: "new-project" }],
       // Enum fields must be present: protobufjs fails to serialize undefined
       // int32/enum values client-side (INTERNAL 13 before the server answers).
       ["reviewCase", { caseId: pendingCaseId, action: ReviewAction.REVIEW_ACTION_APPROVE, comment: "" }],

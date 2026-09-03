@@ -12,7 +12,17 @@
     "withGlobalTauri": true,
     "security": {
       "csp": null
-    }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "HPath",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
+      }
+    ]
   },
   "bundle": {
     "active": true,

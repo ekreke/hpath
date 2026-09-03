@@ -1,6 +1,8 @@
-// Left sidebar: brand, project switcher, view navigation, connection footer.
+// Left sidebar: brand, project switcher (+ create), view navigation, connection footer.
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from '../lib/ipc';
+import { invokeCreateProject } from '../lib/ipc';
 
 export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd';
 
@@ -14,6 +16,8 @@ type SidebarProps = {
   envCount: number;
   onSelectProject: (id: string | null) => void;
   onSelectView: (view: ViewId) => void;
+  onProjectCreated: (id: string) => void;
+  onToast: (text: string, error?: boolean) => void;
 };
 
 function IconChat() {
@@ -77,9 +81,39 @@ function Sidebar({
   envCount,
   onSelectProject,
   onSelectView,
+  onProjectCreated,
+  onToast,
 }: SidebarProps) {
   const { t } = useTranslation();
   const selected = projects.find((p) => p.id === selectedProjectId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const openCreate = () => {
+    setName('');
+    setRepoUrl('');
+    setCreateOpen(true);
+  };
+
+  const save = async () => {
+    if (!name.trim()) {
+      onToast(t('sidebar.projectNameRequired'), true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await invokeCreateProject(name.trim(), repoUrl.trim());
+      setCreateOpen(false);
+      onProjectCreated(created.id);
+      onToast(t('sidebar.projectCreated', { name: created.name }));
+    } catch (err) {
+      onToast(String(err), true);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <aside className="sb">
@@ -90,18 +124,28 @@ function Sidebar({
       </div>
 
       <div className="proj">
-        <select
-          aria-label={t('sidebar.project')}
-          value={selectedProjectId ?? ''}
-          onChange={(e) => onSelectProject(e.target.value || null)}
-        >
-          <option value="">{t('sidebar.selectProject')}</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <div className="prow">
+          <select
+            aria-label={t('sidebar.project')}
+            value={selectedProjectId ?? ''}
+            onChange={(e) => onSelectProject(e.target.value || null)}
+          >
+            <option value="">{t('sidebar.selectProject')}</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn sm ghost"
+            aria-label={t('sidebar.createProject')}
+            title={t('sidebar.createProject')}
+            onClick={openCreate}
+          >
+            ＋
+          </button>
+        </div>
         <div className="s">
           {selected ? selected.repoUrl || selected.id.slice(0, 8) : serverAddr}
         </div>
@@ -141,6 +185,42 @@ function Sidebar({
         <i className={connectionStatus === 'connected' ? 'ok' : connectionStatus === 'connecting' ? 'warn' : 'err'} />
         {t(`topbar.${connectionStatus}`)} · {serverAddr}
       </div>
+
+      {createOpen && (
+        <div className="overlay" onClick={() => setCreateOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{t('sidebar.createProjectTitle')}</h3>
+            <div className="field">
+              <label>{t('sidebar.projectName')}</label>
+              <input
+                autoFocus
+                value={name}
+                placeholder="demo-bank"
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void save();
+                }}
+              />
+            </div>
+            <div className="field">
+              <label>{t('sidebar.repoUrl')}</label>
+              <input
+                value={repoUrl}
+                placeholder="https://github.com/example/demo-bank"
+                onChange={(e) => setRepoUrl(e.target.value)}
+              />
+            </div>
+            <div className="mfoot">
+              <button className="btn ghost" onClick={() => setCreateOpen(false)}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn w" disabled={busy} onClick={() => void save()}>
+                {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

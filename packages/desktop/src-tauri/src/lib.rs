@@ -62,6 +62,27 @@ async fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectDto>, St
 }
 
 #[tauri::command]
+async fn create_project(
+    state: State<'_, AppState>,
+    name: String,
+    repo_url: String,
+) -> Result<ProjectDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .create_project(Request::new(hpath::CreateProjectRequest {
+            name,
+            repo_url,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ProjectDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
 async fn list_envs(state: State<'_, AppState>, project_id: String) -> Result<Vec<EnvDto>, String> {
     let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
@@ -509,6 +530,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_server_addr,
             list_projects,
+            create_project,
             list_envs,
             upsert_env,
             delete_env,

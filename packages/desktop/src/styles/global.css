@@ -62,6 +62,9 @@ body {
   background: var(--panel);
 }
 .proj:hover { border-color: var(--border3); background: var(--panel2); }
+.proj .prow { display: flex; align-items: center; gap: 6px; }
+.proj .prow select { flex: 1; min-width: 0; }
+.proj .prow .btn { flex: none; padding: 0 7px; line-height: 20px; }
 .proj select {
   width: 100%;
   background: transparent;

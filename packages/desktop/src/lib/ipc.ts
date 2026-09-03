@@ -11,7 +11,7 @@ import type {
   Run,
   Verdict,
 } from '@hpath/contract';
-import { Channel } from '@tauri-apps/api/core';
+import { Channel, invoke as tauriInvoke } from '@tauri-apps/api/core';
 
 export type {
   Artifact,
@@ -92,14 +92,23 @@ export type ListRunsFilter = {
 
 declare global {
   interface Window {
-    __TAURI__: {
-      invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-    };
+    __TAURI_INTERNALS__?: unknown;
   }
 }
 
+// All commands go through the @tauri-apps/api ES module (no dependency on the
+// withGlobalTauri global). When the page runs in a plain browser tab (e.g. the
+// raw vite dev URL), the IPC bridge is absent — reject with an actionable
+// message instead of a cryptic TypeError.
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return window.__TAURI__.invoke(cmd, args) as Promise<T>;
+  if (typeof window === 'undefined' || !window.__TAURI_INTERNALS__) {
+    return Promise.reject(
+      new Error(
+        'Tauri IPC unavailable: this UI must run inside the desktop shell — start it with `make run` (or `tauri dev`), not in a browser tab.',
+      ),
+    );
+  }
+  return tauriInvoke<T>(cmd, args) as Promise<T>;
 }
 
 export function invokeSetServerAddr(addr: string): Promise<void> {
@@ -108,6 +117,10 @@ export function invokeSetServerAddr(addr: string): Promise<void> {
 
 export function invokeListProjects(): Promise<Project[]> {
   return invoke<Project[]>('list_projects');
+}
+
+export function invokeCreateProject(name: string, repoUrl: string): Promise<Project> {
+  return invoke<Project>('create_project', { name, repoUrl });
 }
 
 export function invokeListEnvs(projectId: string): Promise<Env[]> {

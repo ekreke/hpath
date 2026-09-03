@@ -32,6 +32,7 @@ function App() {
   >('offline');
   const [caseCount, setCaseCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
 
   const onToast = useCallback((text: string, error?: boolean) => {
@@ -65,7 +66,15 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [appliedServerAddr, onToast]);
+  }, [appliedServerAddr, onToast, projectRefreshKey]);
+
+  const onProjectCreated = useCallback(
+    (id: string) => {
+      setSelectedProjectId(id);
+      setProjectRefreshKey((k) => k + 1);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -110,6 +119,8 @@ function App() {
         envCount={envs.length}
         onSelectProject={setSelectedProjectId}
         onSelectView={setView}
+        onProjectCreated={onProjectCreated}
+        onToast={onToast}
       />
       <div className="main">
         <TopBar

@@ -4,7 +4,11 @@ import { initReactI18next } from 'react-i18next';
 import en from './en.json';
 import zh from './zh.json';
 
-const resources = { en, zh };
+// i18next expects resources[lng][namespace]; the JSON files hold flat
+// top-level sections (topbar/sidebar/...), so wrap them as the default
+// "translation" namespace. Without the wrapper every t() call misses and
+// renders the raw key.
+const resources = { en: { translation: en }, zh: { translation: zh } };
 
 i18n.use(initReactI18next).init({
   resources,

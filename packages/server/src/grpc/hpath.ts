@@ -1,13 +1,16 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
 // and the real one (SQLite-backed). Real mode serves the minimal read path
-// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3); every other
-// method reports UNIMPLEMENTED until its wiring task lands (runs/artifacts in
-// T8, writes + PRD parse in later tasks).
+// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3) plus project
+// creation (CreateProject, T5 repository); every other method reports
+// UNIMPLEMENTED until its wiring task lands (runs/artifacts in T8, PRD parse
+// in later tasks).
 
+import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
 import type { sendUnaryData, ServerUnaryCall, ServiceError } from "@grpc/grpc-js";
 import type {
   Case,
+  CreateProjectRequest,
   GetCaseRequest,
   HpathServer,
   ListCasesRequest,
@@ -15,6 +18,7 @@ import type {
   ListEnvsRequest,
   ListEnvsResponse,
   ListProjectsResponse,
+  Project,
 } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
@@ -32,7 +36,7 @@ export type ServerMode = "mock" | "real";
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T6/T8+); served today: ListProjects/ListEnvs/ListCases/GetCase over SQLite — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase over SQLite — start with --mock for the full contract",
   );
 }
 
@@ -85,12 +89,34 @@ function toGrpcError(err: unknown): ServiceError {
 }
 
 /**
- * Real-mode handlers: the minimal SQLite read path (T3). Reads only — writes,
- * runs and artifact streaming stay UNIMPLEMENTED until their wiring tasks.
+ * Real-mode handlers: the minimal SQLite read path (T3) plus CreateProject
+ * (T5 repository). Runs and artifact streaming stay UNIMPLEMENTED until their
+ * wiring tasks.
  */
 function createRealHandlers(db: HpathDb): HpathServer {
   return {
     ...createUnimplementedHandlers(),
+
+    createProject: (
+      call: ServerUnaryCall<CreateProjectRequest, Project>,
+      callback: sendUnaryData<Project>,
+    ): void => {
+      try {
+        const { name, repoUrl } = call.request;
+        if (!name) {
+          throw grpcError(status.INVALID_ARGUMENT, "name is required");
+        }
+        const project: Project = {
+          id: randomUUID(),
+          name,
+          repoUrl: repoUrl ?? "",
+          createdAt: new Date().toISOString(),
+        };
+        callback(null, db.projects.create(project));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
 
     listProjects: (
       _call: ServerUnaryCall<Record<string, never>, ListProjectsResponse>,
