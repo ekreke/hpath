@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import * as grpc from "@grpc/grpc-js";
 import protoLoader from "@grpc/proto-loader";
 import type { AddressInfo } from "node:net";
+import { chromium } from "playwright";
 import {
   InMemoryEventSink,
   RunEvidence,
@@ -39,6 +40,7 @@ function makeContext(
     events: new InMemoryEventSink({ runId }),
     verdict: new VerdictChannel({ type: "object" }),
     evidence: new RunEvidence(),
+    signal: new AbortController().signal,
   };
 }
 
@@ -220,7 +222,7 @@ interface GrpcTestServer {
 }
 
 /** In-process BalanceService speaking the demo-app proto. */
-async function startGrpcServer(): Promise<GrpcTestServer> {
+async function startGrpcServer(env = "dev"): Promise<GrpcTestServer> {
   const packageDefinition = protoLoader.loadSync(DEMO_APP_PROTO, {
     keepCase: false,
     longs: Number,
@@ -232,7 +234,7 @@ async function startGrpcServer(): Promise<GrpcTestServer> {
   const server = new grpc.Server();
   server.addService((proto as Record<string, any>).demo.v1.BalanceService.service, {
     GetBalance: (_call: unknown, callback: (err: null, value: unknown) => void) => {
-      callback(null, { env: "dev", currency: "CNY", balance: "1337.50", balanceCents: 133_750 });
+      callback(null, { env, currency: "CNY", balance: "1337.50", balanceCents: 133_750 });
     },
   });
   const boundPort = await new Promise<number>((resolve, reject) => {
@@ -398,4 +400,163 @@ test("built-in provider registry entries describe the T7b tool surface", () => {
   );
   // Provider-created sessions register their cleanup on the run evidence.
   assert.equal(tools.length > 0, true);
+});
+
+// ── review fixes: same-origin policy, hard-limit signal, caps ───────────────
+
+test("http_request rejects absolute URLs outside the env origin", async () => {
+  const context = makeContext("http://dev.example.test");
+  const tool = createHttpRequestTool(context);
+  await assert.rejects(
+    () => tool.execute("call_1", { url: "http://169.254.169.254/latest/meta-data" }),
+    /outside the current environment/,
+  );
+});
+
+test("http_request reaches an allowed cross-origin only when allowlisted", async () => {
+  const server = await startHttpServer((req, res) => json(res, 200, { allowed: true }));
+  try {
+    const context = makeContext("http://dev.example.test");
+    // Not allowlisted: refused.
+    const strict = createHttpRequestTool(context);
+    await assert.rejects(
+      () => strict.execute("call_1", { url: `${server.baseUrl}/x` }),
+      /outside the current environment/,
+    );
+    // Allowlisted: reachable.
+    const tool = createHttpRequestTool(context, { allowedOrigins: [new URL(server.baseUrl).origin] });
+    const result = await tool.execute("call_2", { url: `${server.baseUrl}/x` });
+    const payload = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+    assert.equal(payload.status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test("http_request clamps the model-supplied per-request timeout to the provider ceiling", async () => {
+  const server = await startHttpServer((req, res) => {
+    setTimeout(() => json(res, 200, { ok: true }), 500);
+  });
+  try {
+    const context = makeContext(server.baseUrl);
+    const tool = createHttpRequestTool(context, { timeoutMs: 50, maxTimeoutMs: 120 });
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => tool.execute("call_1", { url: "/slow", timeoutMs: 1_000_000 }),
+      /timed out after 120ms/,
+    );
+    assert.ok(Date.now() - startedAt < 400, "clamped timeout must fire well before the override");
+  } finally {
+    await server.close();
+  }
+});
+
+test("http_request aborts in-flight work when the run signal fires", async () => {
+  const server = await startHttpServer((req, res) => {
+    setTimeout(() => json(res, 200, { ok: true }), 500);
+  });
+  try {
+    const runAbort = new AbortController();
+    const context = makeContext(server.baseUrl);
+    context.signal = runAbort.signal;
+    const tool = createHttpRequestTool(context);
+    const promise = tool.execute("call_1", { url: "/slow" });
+    setTimeout(() => runAbort.abort(), 50);
+    await assert.rejects(() => promise, /run hard limit tripped/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("http_request caps the downloaded body and reports the truncation", async () => {
+  const bigBody = JSON.stringify({ data: "x".repeat(64 * 1024) });
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(bigBody);
+  });
+  try {
+    const context = makeContext(server.baseUrl);
+    const tool = createHttpRequestTool(context, { maxDownloadBytes: 1024, maxBodyChars: 256 });
+    const result = await tool.execute("call_1", { url: "/big" });
+    const payload = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+    assert.equal(payload.status, 200);
+    assert.match(String(payload.body), /download cap/);
+    // JSON must not be parsed from a truncated body.
+    assert.equal(payload.body, String(payload.body));
+  } finally {
+    await server.close();
+  }
+});
+
+test("grpc_call opens a fresh client per target instead of pinning the first", async () => {
+  const serverA = await startGrpcServer("dev");
+  const serverB = await startGrpcServer("stage");
+  try {
+    const context = makeContext("http://dev.example.test", { grpc_target: serverA.target });
+    const tool = createGrpcCallTool(context, { protoPaths: [DEMO_APP_PROTO] });
+
+    const first = await tool.execute("call_1", { method: "demo.v1.BalanceService/GetBalance" });
+    const firstPayload = JSON.parse((first.content as Array<{ type: string; text: string }>)[0].text);
+    assert.deepEqual(firstPayload.response, { env: "dev", currency: "CNY", balance: "1337.50", balanceCents: 133_750 });
+
+    // Same run, explicit target override: must hit server B via a new client.
+    const second = await tool.execute("call_2", {
+      method: "demo.v1.BalanceService/GetBalance",
+      target: serverB.target,
+    });
+    const secondPayload = JSON.parse((second.content as Array<{ type: string; text: string }>)[0].text);
+    assert.equal(secondPayload.target, serverB.target);
+    assert.equal((secondPayload.response as { env: string }).env, "stage");
+  } finally {
+    await serverA.shutdown();
+    await serverB.shutdown();
+  }
+});
+
+test("browser provider refuses navigation outside the env origin", async () => {
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<html><body>ok</body></html>");
+  });
+  const context = makeContext(server.baseUrl);
+  try {
+    const [navigate] = createBrowserTools(context);
+    await assert.rejects(
+      () => navigate!.execute("c1", { url: "http://169.254.169.254/" }),
+      /outside the current environment/,
+    );
+  } finally {
+    await context.evidence.dispose();
+    await server.close();
+  }
+});
+
+test("browser provider single-flights chromium launch under concurrent tool calls", async () => {
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<html><body>ok</body></html>");
+  });
+  const context = makeContext(server.baseUrl);
+  const originalLaunch = chromium.launch;
+  let launches = 0;
+  chromium.launch = ((...args: Parameters<typeof chromium.launch>) => {
+    launches += 1;
+    return originalLaunch.call(chromium, ...args);
+  }) as typeof chromium.launch;
+  try {
+    const tools = createBrowserTools(context);
+    const wait = tools.find((tool) => tool.name === "wait")!;
+    // Two parallel first-page calls race through getPage(); both must share one launch.
+    const [a, b] = await Promise.all([
+      wait.execute("c1", { ms: 10 }),
+      wait.execute("c2", { ms: 10 }),
+    ]);
+    assert.match((a.content as Array<{ type: string; text: string }>)[0].text, /waited 10ms/);
+    assert.match((b.content as Array<{ type: string; text: string }>)[0].text, /waited 10ms/);
+    assert.equal(launches, 1, "concurrent first-page calls must share one chromium launch");
+  } finally {
+    chromium.launch = originalLaunch;
+    await context.evidence.dispose();
+    await server.close();
+  }
 });

@@ -195,6 +195,10 @@ export class AgentKernel {
     //    resources (the browser provider's Playwright session, ...) register
     //    their cleanup on the run's evidence store.
     const evidence = new RunEvidence();
+    // Run-level abort: firing interrupts provider-side in-flight work (fetch,
+    // playwright, grpc calls) through ToolContext.signal, so the wall-clock
+    // limit stays hard even when a tool call never returns on its own.
+    const runAbort = new AbortController();
     const context = {
       runId,
       agentId: definition.id,
@@ -203,6 +207,7 @@ export class AgentKernel {
       events: sink,
       verdict: channel,
       evidence,
+      signal: runAbort.signal,
     };
     const tools: AgentTool[] = [];
     for (const binding of definition.toolBindings) {
@@ -229,16 +234,6 @@ export class AgentKernel {
       },
       streamFn: this.streamFn,
       sessionId: runId,
-      afterToolCall: async (hookContext) => {
-        // pi hook used for evidence recording: capture finished tool results.
-        sink.append({
-          kind: "tool_finished",
-          tool: hookContext.toolCall.name,
-          ok: !hookContext.isError,
-          resultSummary: summarizeToolResult(hookContext.result?.content),
-        });
-        return undefined;
-      },
     });
 
     agent.subscribe((event) => {
@@ -251,6 +246,17 @@ export class AgentKernel {
             kind: "tool_started",
             tool: event.toolName,
             argsJson: JSON.stringify(event.args) ?? "",
+          });
+          break;
+        // tool_execution_end fires on EVERY completion path — executed calls,
+        // argument-validation failures, unknown tools, aborted/truncated
+        // batches — so every tool_started is paired with a tool_finished.
+        case "tool_execution_end":
+          sink.append({
+            kind: "tool_finished",
+            tool: event.toolName,
+            ok: !event.isError,
+            resultSummary: summarizeToolResult(event.result?.content),
           });
           break;
         case "message_end": {
@@ -270,6 +276,7 @@ export class AgentKernel {
           if (tokenCost > definition.hardLimits.tokenBudget) {
             breach ||= "limit:token_budget";
             agent.abort();
+            runAbort.abort();
           }
           break;
         }
@@ -283,6 +290,7 @@ export class AgentKernel {
           if (!channel.isRecorded && steps >= definition.hardLimits.maxSteps) {
             breach ||= "limit:max_steps";
             agent.abort();
+            runAbort.abort();
           }
           break;
         }
@@ -294,11 +302,13 @@ export class AgentKernel {
       }
     });
 
-    // Hard limit: wall clock. Firing aborts the agent; evidence already in
-    // the sink is preserved.
+    // Hard limit: wall clock. Firing aborts the agent AND the run signal (the
+    // latter interrupts in-flight tool work); evidence already in the sink is
+    // preserved.
     const timer = setTimeout(() => {
       breach ||= "limit:timeout_ms";
       agent.abort();
+      runAbort.abort();
     }, definition.hardLimits.timeoutMs);
 
     try {
@@ -310,9 +320,11 @@ export class AgentKernel {
       sink.append({ kind: "error", errorKind: "agent_error", message: errorMessage });
     } finally {
       clearTimeout(timer);
-      // Release run-scoped resources (browser, pages, ...). Runs after the
-      // agent loop stopped; disposal errors never mask the run outcome and
-      // evidence already in the sink/channel is preserved.
+      // Release stragglers the loop no longer waits for (no-op when a breach
+      // already aborted), then release run-scoped resources (browser, pages,
+      // ...). Disposal errors never mask the run outcome and evidence already
+      // in the sink/channel is preserved.
+      runAbort.abort();
       await evidence.dispose();
     }
 

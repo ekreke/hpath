@@ -313,3 +313,94 @@ test("a run that ends without a verdict always fails with no_verdict", async () 
   assert.equal(textEvents.length, 1);
   assert.equal((textEvents[0].payload as { text: string }).text, "all done, bye");
 });
+
+// ── review fixes: event symmetry and hard-limit abort propagation ───────────
+
+/** Tool that only resolves when the run abort signal fires (in-flight hang). */
+function hangingProvider(): ToolProvider {
+  return {
+    id: "hang",
+    description: "blocks until the run abort signal fires",
+    createTools: () => [
+      {
+        name: "hang",
+        label: "Hang",
+        description: "does nothing except wait for the abort signal",
+        parameters: Type.Object({}),
+        execute: (_id, _args, signal) => new Promise((resolve) => {
+          const finish = (): void => {
+            resolve({ content: [{ type: "text", text: "aborted" }], details: {} });
+          };
+          if (signal?.aborted) finish();
+          else signal?.addEventListener("abort", finish, { once: true });
+        }),
+      },
+    ],
+  };
+}
+
+test("every tool_started is paired with a tool_finished, even on argument validation failure", async () => {
+  const pickyProvider: ToolProvider = {
+    id: "picky",
+    description: "tool whose schema rejects malformed args",
+    createTools: () => [
+      {
+        name: "picky_tool",
+        label: "Picky",
+        description: "requires a number",
+        parameters: Type.Object({ count: Type.Number() }),
+        execute: async () => ({ content: [{ type: "text", text: "never reached" }], details: {} }),
+      },
+    ],
+  };
+  const agents = new AgentRegistry().register(stubDefinition({
+    toolBindings: ["picky"],
+    hardLimits: { maxSteps: 10, tokenBudget: 100_000, timeoutMs: 5_000 },
+  }));
+  const toolProviders = new ToolProviderRegistry().register(pickyProvider);
+  const streamFn = scriptedStreamFn((_context, call) => {
+    // Call 1: an invalid-argument tool call (schema rejects "count": "nope").
+    // Call 2: the valid verdict.
+    return call === 1
+      ? assistantToolCallMessage("picky_tool", { count: "nope" })
+      : assistantToolCallMessage("finish_verdict", VALID_VERDICT);
+  });
+  const kernel = new AgentKernel({ agents, toolProviders, streamFn, resolveModel: () => STUB_MODEL });
+  const result = await kernel.run({ agentId: "stub-agent", input: BASE_INPUT, env: STUB_ENV });
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_PASSED);
+  const started = result.events.filter((event) => event.payload.kind === "tool_started" && (event.payload as { tool: string }).tool === "picky_tool");
+  const finished = result.events.filter((event) => event.payload.kind === "tool_finished" && (event.payload as { tool: string }).tool === "picky_tool");
+  assert.equal(started.length, 1, "invalid call still records tool_started");
+  assert.equal(finished.length, 1, "invalid call must also record tool_finished (no dangling start)");
+  assert.equal((finished[0].payload as { ok: boolean }).ok, false);
+  // Ordering: the finish follows the start.
+  assert.ok(started[0].seq < finished[0].seq);
+});
+
+test("a hanging tool call cannot outlive the wall-clock hard limit", async () => {
+  const agents = new AgentRegistry().register(stubDefinition({
+    toolBindings: ["hang"],
+    hardLimits: { maxSteps: 10, tokenBudget: 100_000, timeoutMs: 250 },
+  }));
+  const toolProviders = new ToolProviderRegistry().register(hangingProvider());
+  const kernel = new AgentKernel({
+    agents,
+    toolProviders,
+    streamFn: scriptedStreamFn(() => assistantToolCallMessage("hang", {})),
+    resolveModel: () => STUB_MODEL,
+  });
+
+  const startedAt = Date.now();
+  const result = await kernel.run({ agentId: "stub-agent", input: BASE_INPUT, env: STUB_ENV });
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_FAILED);
+  assert.equal(result.failReason, "limit:timeout_ms");
+  assert.ok(elapsed < 5_000, "run must finish shortly after the limit trips, not hang forever");
+  // The aborted tool's completion is still recorded (event symmetry).
+  const finished = result.events.filter((event) =>
+    event.payload.kind === "tool_finished" && (event.payload as { tool: string }).tool === "hang",
+  );
+  assert.ok(finished.length >= 1, "the aborted hanging tool still emits tool_finished");
+});

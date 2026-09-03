@@ -22,6 +22,12 @@ export interface ToolContext {
   verdict: VerdictChannel;
   /** Run-scoped evidence store + resource cleanup registry (kernel-owned). */
   evidence: RunEvidence;
+  /**
+   * Run abort signal: fires when a hard limit trips (or the run finalizes).
+   * Providers must wire it into in-flight work so the wall-clock limit stays
+   * hard even when a tool call never returns on its own.
+   */
+  signal: AbortSignal;
 }
 
 export interface ToolProvider {

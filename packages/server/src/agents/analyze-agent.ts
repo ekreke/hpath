@@ -14,6 +14,7 @@
 
 import { CaseStatus, CreatorType } from "@hpath/contract";
 import type { AgentDefinition, HardLimits, JsonSchemaValue } from "./types.js";
+import { MAX_PRD_BYTES } from "./prd.js";
 
 export const ANALYZE_AGENT_ID = "analyze-agent";
 
@@ -132,7 +133,15 @@ export const ANALYZE_AGENT_INPUT_SCHEMA: JsonSchemaValue = {
     projectId: { type: "string", minLength: 1 },
     filename: { type: "string", minLength: 1 },
     format: { enum: ["md", "docx", "pdf"] },
-    contentBase64: { type: "string", minLength: 1, description: "PRD file bytes, base64-encoded" },
+    contentBase64: {
+      type: "string",
+      minLength: 1,
+      // Coarse schema-level guard matching the MAX_PRD_BYTES cap in prd.ts
+      // (base64 inflates bytes by ~4/3); the authoritative check happens on
+      // the decoded buffer before any parsing.
+      maxLength: Math.ceil(MAX_PRD_BYTES * 4 / 3) + 1024,
+      description: "PRD file bytes, base64-encoded",
+    },
     existingCases: {
       type: "array",
       items: {

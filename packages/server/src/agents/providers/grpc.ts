@@ -1,6 +1,7 @@
 // Built-in "grpc" ToolProvider (T7b): one `grpc_call` tool. Env-bound
 // injection: the call target defaults to the current env's `grpc_target`
-// variable (or the provider default), so other environments are unreachable.
+// variable (or the provider default), so calls stay on the environment unless
+// the deployment explicitly allows a `target` override.
 //
 // Proto resolution is configuration, not guessing: the provider is constructed
 // with the proto files the deployment knows about (e.g. fixtures/demo-app), and
@@ -19,11 +20,14 @@ export interface GrpcToolProviderOptions {
   defaultTarget?: string;
   /** Per-call deadline in milliseconds (default 10000). */
   timeoutMs?: number;
+  /** Upper bound for the model-supplied per-call deadline override (default 60000). */
+  maxTimeoutMs?: number;
   /** proto-loader include directories (for proto imports). */
   includeDirs?: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_TIMEOUT_MS = 60_000;
 
 /** Parsed package definitions are immutable — cache them per proto file. */
 const packageDefinitionCache = new Map<string, protoLoader.PackageDefinition>();
@@ -76,18 +80,31 @@ function resolveService(grpcObject: Record<string, unknown>, serviceFullName: st
 export function createGrpcCallTool(context: ToolContext, options: GrpcToolProviderOptions = {}): AgentTool {
   const protoPaths = options.protoPaths ?? [];
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  let client: grpc.Client | undefined;
+  const maxTimeoutMs = Math.max(options.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS, timeoutMs);
+  // One client per (target, service): a later call to a different target or
+  // service must not silently reuse the first client's connection. All are
+  // closed together at run end.
+  const clients = new Map<string, grpc.Client>();
+  context.evidence.registerCleanup(() => {
+    for (const client of clients.values()) {
+      try {
+        client.close();
+      } catch {
+        // Swallowed: disposal must never mask the run outcome.
+      }
+    }
+  });
 
-  const ensureClient = (target: string, serviceCtor: ServiceClientCtor): grpc.Client => {
-    if (client) return client;
+  const ensureClient = (target: string, serviceFullName: string, serviceCtor: ServiceClientCtor): grpc.Client => {
+    const key = `${target}|${serviceFullName}`;
+    const cached = clients.get(key);
+    if (cached) return cached;
     if (protoPaths.length === 0) {
       throw new Error("grpc_call has no proto files configured for this deployment");
     }
     // The proto-loader service constructor doubles as the client constructor.
-    client = new serviceCtor(target, grpc.credentials.createInsecure());
-    context.evidence.registerCleanup(() => {
-      client?.close();
-    });
+    const client = new serviceCtor(target, grpc.credentials.createInsecure());
+    clients.set(key, client);
     return client;
   };
 
@@ -144,7 +161,7 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
         );
       }
 
-      const grpcClient = ensureClient(resolvedTarget, serviceCtor);
+      const grpcClient = ensureClient(resolvedTarget, serviceFullName, serviceCtor);
       const methodName = candidateMethodNames(rpcName).find(
         (name) => typeof (grpcClient as unknown as Record<string, unknown>)[name] === "function",
       );
@@ -158,10 +175,23 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
           callMetadata.set(key, String(value));
         }
       }
-      const deadline = new Date(Date.now() + (typeof perCallTimeout === "number" && perCallTimeout > 0 ? perCallTimeout : timeoutMs));
+      // The model-supplied deadline override never exceeds the provider
+      // ceiling; the run abort signal cancels the in-flight call so the
+      // wall-clock hard limit stays hard even mid-call.
+      const deadline = new Date(Date.now() + Math.min(
+        typeof perCallTimeout === "number" && perCallTimeout > 0 ? perCallTimeout : timeoutMs,
+        maxTimeoutMs,
+      ));
 
       return new Promise((resolve) => {
+        let call: grpc.ClientUnaryCall | undefined;
+        const onAbort = (): void => {
+          // cancel() on a completed call is a no-op, so no finished guard needed.
+          if (call) call.cancel();
+        };
+        context.signal.addEventListener("abort", onAbort, { once: true });
         const handler = (err: grpc.ServiceError | null, response: unknown): void => {
+          context.signal.removeEventListener("abort", onAbort);
           if (err) {
             resolve({
               content: [{
@@ -187,7 +217,7 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
             details: { ok: true },
           });
         };
-        (grpcClient as unknown as Record<string, (...cbArgs: unknown[]) => void>)[methodName](
+        call = (grpcClient as unknown as Record<string, (...cbArgs: unknown[]) => grpc.ClientUnaryCall>)[methodName](
           request ?? {},
           callMetadata,
           { deadline },

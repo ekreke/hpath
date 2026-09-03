@@ -14,11 +14,12 @@ import { createBrowserToolProvider } from "./providers/browser.js";
 import { createGrpcToolProvider } from "./providers/grpc.js";
 import { createHttpToolProvider } from "./providers/http.js";
 import { createPrdAnalysisToolProvider } from "./providers/prd-analysis.js";
-import type { BrowserToolProviderOptions, GrpcToolProviderOptions } from "./providers/index.js";
+import type { BrowserToolProviderOptions, GrpcToolProviderOptions, HttpToolProviderOptions } from "./providers/index.js";
 import { createEvidenceToolProvider } from "./verdict.js";
 
 export interface BuiltInOptions {
   browser?: BrowserToolProviderOptions;
+  http?: HttpToolProviderOptions;
   grpc?: GrpcToolProviderOptions;
   executeAgent?: ExecuteAgentOptions;
   analyzeAgent?: AnalyzeAgentOptions;
@@ -28,7 +29,7 @@ export interface BuiltInOptions {
 export function createBuiltInToolProviders(options: BuiltInOptions = {}): ToolProvider[] {
   return [
     createBrowserToolProvider(options.browser),
-    createHttpToolProvider(),
+    createHttpToolProvider(options.http),
     createGrpcToolProvider(options.grpc),
     createEvidenceToolProvider(),
     createPrdAnalysisToolProvider(),

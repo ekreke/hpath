@@ -5,7 +5,8 @@
 // one BrowserContext per run — no cookie/storage sharing across runs or envs.
 // The browser launches lazily on the first tool call (runs that never touch
 // the browser do not pay for it) and is closed through the run's evidence
-// cleanup registry, so hard-limit aborts still release the process.
+// cleanup registry AND the run abort signal, so hard-limit aborts still
+// release the process and interrupt in-flight Playwright operations.
 
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -24,6 +25,8 @@ export interface BrowserToolProviderOptions {
   maxScreenshotBytes?: number;
   /** read_page text cap handed back to the model, in characters (default 8000). */
   maxPageTextChars?: number;
+  /** Extra origins navigation may reach in addition to the env's baseUrl origin. */
+  allowedOrigins?: string[];
 }
 
 const DEFAULTS = {
@@ -40,27 +43,49 @@ class BrowserSession {
   private context?: BrowserContext;
   private page?: Page;
   private closing = false;
+  /** Single-flight init: concurrent tool calls must not double-launch chromium. */
+  private init?: Promise<Page>;
 
   constructor(
     private readonly baseUrl: string,
     private readonly options: Required<typeof DEFAULTS>,
+    private readonly allowedOrigins: Set<string>,
   ) {}
 
   async getPage(): Promise<Page> {
     if (this.closing) throw new Error("browser session already closed");
     if (this.page) return this.page;
+    // pi executes a batch's tool calls in parallel; two awaits racing through
+    // here must share one launch (an orphaned chromium would never be closed).
+    this.init ??= this.initOnce();
+    return this.init;
+  }
+
+  private async initOnce(): Promise<Page> {
+    let browser: Browser | undefined;
     try {
-      this.browser ??= await chromium.launch({ headless: this.options.headless });
+      browser = await chromium.launch({ headless: this.options.headless });
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      page.setDefaultTimeout(this.options.actionTimeoutMs);
+      this.browser = browser;
+      this.context = context;
+      this.page = page;
+      return page;
     } catch (err) {
+      // Allow a later retry and release any partially created resources.
+      this.init = undefined;
+      try {
+        await this.context?.close();
+        await browser?.close();
+      } catch {
+        // Swallowed: cleanup must not mask the original error.
+      }
       throw new Error(
         "could not launch chromium — install the browser once with "
-          + "`pnpm exec playwright install chromium`: " + (err as Error).message,
+        + "`pnpm exec playwright install chromium`: " + (err as Error).message,
       );
     }
-    this.context ??= await this.browser.newContext();
-    this.page = await this.context.newPage();
-    this.page.setDefaultTimeout(this.options.actionTimeoutMs);
-    return this.page;
   }
 
   resolveUrl(raw: string): URL {
@@ -73,11 +98,23 @@ class BrowserSession {
     if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
       throw new Error(`unsupported protocol "${resolved.protocol}" — only http/https are allowed`);
     }
+    if (!this.allowedOrigins.has(resolved.origin)) {
+      throw new Error(
+        `URL "${resolved.origin}" is outside the current environment — only the env base URL origin`
+          + ` (${new URL(this.baseUrl).origin}) is reachable`,
+      );
+    }
     return resolved;
   }
 
   async close(): Promise<void> {
     this.closing = true;
+    // Wait for an in-flight init so its browser/context are captured below.
+    try {
+      await this.init;
+    } catch {
+      // A failed init already cleaned up after itself.
+    }
     try {
       await this.context?.close();
     } catch {
@@ -110,17 +147,22 @@ function strArgs(args: unknown): Record<string, unknown> {
 
 export function createBrowserTools(context: ToolContext, options: BrowserToolProviderOptions = {}): AgentTool[] {
   const resolved = { ...DEFAULTS, ...options } as Required<typeof DEFAULTS>;
-  const session = new BrowserSession(context.env.baseUrl, resolved);
+  const allowedOrigins = new Set([new URL(context.env.baseUrl).origin, ...(options.allowedOrigins ?? [])]);
+  const session = new BrowserSession(context.env.baseUrl, resolved, allowedOrigins);
   context.evidence.registerCleanup(() => session.close());
+  // Closing the context interrupts in-flight Playwright operations, so the
+  // wall-clock hard limit stays hard even mid-navigation.
+  context.signal.addEventListener("abort", () => void session.close(), { once: true });
 
   const navigate: AgentTool = {
     name: "navigate",
     label: "Navigate",
     description:
       "Open a URL in the browser. Relative URLs (e.g. \"/login\") resolve against "
-        + "the current environment's base URL. Waits for the page load.",
+        + "the current environment's base URL; only that origin is reachable. Waits "
+        + "for the page load.",
     parameters: Type.Object({
-      url: Type.String({ description: "Absolute URL or path relative to the env base URL" }),
+      url: Type.String({ description: "Path relative to the env base URL (same-origin only)" }),
     }),
     execute: async (_toolCallId, args) => {
       const page = await session.getPage();

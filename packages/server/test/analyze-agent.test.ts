@@ -107,6 +107,32 @@ test("ingest failures are structured PrdIngestErrors naming the format", async (
   );
 });
 
+test("ingest rejects documents over the upload cap before parsing (zip-bomb guard)", async () => {
+  // A high-compression docx/pdf could otherwise amplify a small upload into a
+  // large parse; the byte gate must reject BEFORE any decompression.
+  const oversized = Buffer.alloc(21 * 1024 * 1024, "a");
+  await assert.rejects(
+    () => ingestPrd(oversized, "docx"),
+    (err: unknown) => err instanceof PrdIngestError && /upload cap/.test((err as Error).message),
+  );
+  await assert.rejects(
+    () => ingestPrd(oversized, "pdf"),
+    (err: unknown) => err instanceof PrdIngestError && /upload cap/.test((err as Error).message),
+  );
+  // The schema-level guard matches: a base64 payload above the cap is invalid input.
+  const schema = ANALYZE_AGENT_INPUT_SCHEMA;
+  const ok = validateSchema(
+    { projectId: "p", filename: "x.md", format: "md", contentBase64: Buffer.from("small").toString("base64") },
+    schema,
+  );
+  assert.equal(ok.length, 0);
+  const tooBig = validateSchema(
+    { projectId: "p", filename: "x.md", format: "md", contentBase64: "A".repeat(30 * 1024 * 1024) },
+    schema,
+  );
+  assert.ok(tooBig.some((issue) => issue.path === "contentBase64"), "schema rejects oversized base64");
+});
+
 // ── definition + schemas ────────────────────────────────────────────────────
 
 test("analyze-agent is a registered AgentDefinition with the T9 tool surface", () => {
@@ -219,6 +245,7 @@ function makeContext(runId: string, input: unknown): ToolContext {
     events: new InMemoryEventSink({ runId }),
     verdict: new VerdictChannel({ type: "object" }),
     evidence: new RunEvidence(),
+    signal: new AbortController().signal,
   };
 }
 

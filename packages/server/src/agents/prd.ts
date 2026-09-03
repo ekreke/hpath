@@ -59,12 +59,20 @@ export interface IngestedPrd {
 /** Hard cap on the text handed to the model (PRDs in 1.0 are small). */
 const MAX_PRD_CHARS = 200_000;
 
+/** Hard cap on the raw uploaded bytes, checked BEFORE any decompression. */
+export const MAX_PRD_BYTES = 20 * 1024 * 1024;
+
 /**
  * Ingest PRD file bytes into plain text. Parsing errors are wrapped in
  * PrdIngestError so callers (the read_prd tool, T8's ParsePRD wiring) can
  * report them structurally instead of crashing the run.
  */
 export async function ingestPrd(content: Buffer, format: PrdFormat): Promise<IngestedPrd> {
+  // Size gate before parsing: a high-compression docx/pdf could otherwise
+  // amplify a small upload into a large parse in server memory.
+  if (content.byteLength > MAX_PRD_BYTES) {
+    throw new PrdIngestError(format, `document exceeds the ${MAX_PRD_BYTES}-byte upload cap`);
+  }
   let text: string;
   try {
     switch (format) {
