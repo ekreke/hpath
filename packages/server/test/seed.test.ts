@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { Env } from "@hpath/contract";
 import {
   CaseStatus,
   CreatorType,
@@ -16,6 +17,7 @@ import {
   VerdictStatus,
 } from "@hpath/contract";
 import { HpathDb } from "../src/db/index.js";
+import { withTransaction } from "../src/db/database.js";
 import { prdFixturesDir, seedDatabase } from "../src/db/seed.js";
 
 describe("seedDatabase", () => {
@@ -142,6 +144,88 @@ describe("seedDatabase", () => {
       assert.equal(reopened.projects.getRequired(projectId).name, "demo-bank");
     } finally {
       reopened.close();
+    }
+  });
+
+  it("rolls the whole seed back when any step fails, so the next boot re-seeds cleanly", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const originalCreate = db.envs.create.bind(db.envs);
+      let envCalls = 0;
+      // Fail on the second env insert (staging) to abort the seed mid-way.
+      db.envs.create = ((env: Env) => {
+        envCalls += 1;
+        if (envCalls === 2) {
+          throw new Error("injected seed failure");
+        }
+        return originalCreate(env);
+      }) as typeof db.envs.create;
+
+      assert.throws(() => seedDatabase(db), /injected seed failure/);
+      // No residue: the project inserted before the failure was rolled back.
+      assert.equal(db.projects.list().length, 0);
+
+      db.envs.create = originalCreate;
+      const seed = seedDatabase(db);
+      assert.ok(seed, "a fresh boot after the failure re-seeds fully");
+      assert.equal(db.projects.list().length, 1);
+      assert.equal(db.cases.listByProject(seed!.project.id).length, 5);
+      assert.equal(db.runs.list({ projectId: seed!.project.id }).length, 2);
+      assert.equal(db.prds.listByProject(seed!.project.id).length, 3);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("withTransaction", () => {
+  it("nests: an inner rollback leaves the outer scope intact (SAVEPOINT)", () => {
+    const db = HpathDb.inMemory();
+    try {
+      withTransaction(db.database, () => {
+        db.database.exec(
+          "INSERT INTO projects (id, name, created_at) VALUES ('p1', 'n1', '2026-01-01T00:00:00.000Z')",
+        );
+        assert.throws(
+          () =>
+            withTransaction(db.database, () => {
+              db.database.exec(
+                "INSERT INTO projects (id, name, created_at) VALUES ('p2', 'n2', '2026-01-01T00:00:00.000Z')",
+              );
+              throw new Error("inner boom");
+            }),
+          /inner boom/,
+        );
+        // Inner work rolled back; outer work still pending, then commits.
+      });
+      assert.equal(db.projects.get("p1")?.name, "n1");
+      assert.equal(db.projects.get("p2"), undefined);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rolls back the whole transaction when the top-level scope fails", () => {
+    const db = HpathDb.inMemory();
+    try {
+      assert.throws(
+        () =>
+          withTransaction(db.database, () => {
+            db.database.exec(
+              "INSERT INTO projects (id, name, created_at) VALUES ('p1', 'n1', '2026-01-01T00:00:00.000Z')",
+            );
+            throw new Error("outer boom");
+          }),
+        /outer boom/,
+      );
+      assert.equal(db.projects.get("p1"), undefined);
+      // The transaction is fully released: a later write works normally.
+      db.database.exec(
+        "INSERT INTO projects (id, name, created_at) VALUES ('p2', 'n2', '2026-01-01T00:00:00.000Z')",
+      );
+      assert.equal(db.projects.get("p2")?.name, "n2");
+    } finally {
+      db.close();
     }
   });
 });

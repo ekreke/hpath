@@ -5,6 +5,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Alignment, Case, ChangeLogEntry, Creator } from "@hpath/contract";
 import { CaseStatus, CreatorType, ReviewAction } from "@hpath/contract";
+import { withTransaction } from "../database.js";
 import {
   ConflictError,
   ForeignKeyError,
@@ -98,44 +99,43 @@ export class CaseRepository {
    */
   create(kase: Case): Case {
     try {
-      this.db.exec("BEGIN");
-      this.db
-        .prepare(
-          `INSERT INTO cases (id, project_id, title, goal, creator_type, creator_name,
-                              creator_run_ref, status, source_prd_ref, version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          kase.id,
-          kase.projectId,
-          kase.title,
-          kase.goal,
-          kase.creator?.type ?? CreatorType.CREATOR_TYPE_UNSPECIFIED,
-          kase.creator?.name ?? "",
-          kase.creator?.runRef ?? "",
-          kase.status,
-          kase.sourcePrdRef,
-          kase.version,
-          kase.createdAt,
-          kase.updatedAt,
+      withTransaction(this.db, () => {
+        this.db
+          .prepare(
+            `INSERT INTO cases (id, project_id, title, goal, creator_type, creator_name,
+                                creator_run_ref, status, source_prd_ref, version, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            kase.id,
+            kase.projectId,
+            kase.title,
+            kase.goal,
+            kase.creator?.type ?? CreatorType.CREATOR_TYPE_UNSPECIFIED,
+            kase.creator?.name ?? "",
+            kase.creator?.runRef ?? "",
+            kase.status,
+            kase.sourcePrdRef,
+            kase.version,
+            kase.createdAt,
+            kase.updatedAt,
+          );
+        const insertAlignment = this.db.prepare(
+          `INSERT INTO case_alignments (case_id, idx, api_path, ui_anchor, rule)
+           VALUES (?, ?, ?, ?, ?)`,
         );
-      const insertAlignment = this.db.prepare(
-        `INSERT INTO case_alignments (case_id, idx, api_path, ui_anchor, rule)
-         VALUES (?, ?, ?, ?, ?)`,
-      );
-      (kase.alignments ?? []).forEach((alignment, idx) => {
-        insertAlignment.run(kase.id, idx, alignment.apiPath, alignment.uiAnchor, alignment.rule);
+        (kase.alignments ?? []).forEach((alignment, idx) => {
+          insertAlignment.run(kase.id, idx, alignment.apiPath, alignment.uiAnchor, alignment.rule);
+        });
+        const insertEntry = this.db.prepare(
+          `INSERT INTO case_changelog (case_id, version, author, comment, changed_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        );
+        (kase.changelog ?? []).forEach((entry) => {
+          insertEntry.run(kase.id, entry.version, entry.author, entry.comment, entry.changedAt);
+        });
       });
-      const insertEntry = this.db.prepare(
-        `INSERT INTO case_changelog (case_id, version, author, comment, changed_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      );
-      (kase.changelog ?? []).forEach((entry) => {
-        insertEntry.run(kase.id, entry.version, entry.author, entry.comment, entry.changedAt);
-      });
-      this.db.exec("COMMIT");
     } catch (err) {
-      this.db.exec("ROLLBACK");
       throw translateConstraintError(err, `create case "${kase.title}"`);
     }
     return kase;
@@ -219,27 +219,26 @@ export class CaseRepository {
     const version = kase.version + 1;
     const changedAt = new Date().toISOString();
     try {
-      this.db.exec("BEGIN");
-      this.db
-        .prepare("UPDATE cases SET status = ?, version = ?, updated_at = ? WHERE id = ?")
-        .run(transition.to, version, changedAt, id);
-      this.db
-        .prepare(
-          `INSERT INTO case_changelog (case_id, version, author, comment, changed_at)
-           VALUES (?, ?, ?, ?, ?)`,
-        )
-        .run(
-          id,
-          version,
-          options?.author ?? "reviewer",
-          options?.comment && options.comment !== ""
-            ? options.comment
-            : `${ReviewAction[action] ?? "review"} via review`,
-          changedAt,
-        );
-      this.db.exec("COMMIT");
+      withTransaction(this.db, () => {
+        this.db
+          .prepare("UPDATE cases SET status = ?, version = ?, updated_at = ? WHERE id = ?")
+          .run(transition.to, version, changedAt, id);
+        this.db
+          .prepare(
+            `INSERT INTO case_changelog (case_id, version, author, comment, changed_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            version,
+            options?.author ?? "reviewer",
+            options?.comment && options.comment !== ""
+              ? options.comment
+              : `${ReviewAction[action] ?? "review"} via review`,
+            changedAt,
+          );
+      });
     } catch (err) {
-      this.db.exec("ROLLBACK");
       throw translateConstraintError(err, `review case ${id}`);
     }
     return this.getRequired(id);

@@ -23,6 +23,7 @@ import {
   VerdictStatus,
 } from "@hpath/contract";
 import type { HpathDb } from "./index.js";
+import { withTransaction } from "./database.js";
 
 /** Everything the seed created, so tests and callers can reference the ids. */
 export interface SeedResult {
@@ -468,17 +469,21 @@ function seedRuns(
 /**
  * Seed demo data into a fresh database. No-op (returns undefined) when the
  * database already contains projects, so reboots never duplicate the seed.
+ * The whole seed runs in one transaction: a mid-way failure rolls everything
+ * back, leaving the database empty so the next boot can re-seed cleanly.
  */
 export function seedDatabase(db: HpathDb): SeedResult | undefined {
   if (db.projects.list().length > 0) {
     return undefined;
   }
-  const base = new Date();
-  const clock = makeClock(base);
-  const project = seedProject(db, clock);
-  const envs = seedEnvs(db, project);
-  const cases = seedCases(db, project, clock);
-  const runs = seedRuns(db, project, envs, cases, base);
-  const prds = seedPrds(db, project.id, clock);
-  return { project, envs, cases, runs, prds };
+  return withTransaction(db.database, () => {
+    const base = new Date();
+    const clock = makeClock(base);
+    const project = seedProject(db, clock);
+    const envs = seedEnvs(db, project);
+    const cases = seedCases(db, project, clock);
+    const runs = seedRuns(db, project, envs, cases, base);
+    const prds = seedPrds(db, project.id, clock);
+    return { project, envs, cases, runs, prds };
+  });
 }

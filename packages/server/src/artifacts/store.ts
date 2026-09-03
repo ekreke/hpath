@@ -106,7 +106,7 @@ export async function createArtifactStore(options: CreateStoreOptions = {}): Pro
     process.env.HPATH_S3_ENDPOINT ??
     process.env.SEAWEED_S3_ENDPOINT ??
     DEFAULT_S3_ENDPOINT;
-  return S3ArtifactStore.create({
+  const store = await S3ArtifactStore.create({
     endpoint,
     bucket: options.s3?.bucket ?? process.env.HPATH_S3_BUCKET ?? DEFAULT_S3_BUCKET,
     region: options.s3?.region ?? process.env.HPATH_S3_REGION ?? DEFAULT_S3_REGION,
@@ -116,4 +116,8 @@ export async function createArtifactStore(options: CreateStoreOptions = {}): Pro
     secretAccessKey:
       options.s3?.secretAccessKey ?? process.env.HPATH_S3_SECRET_ACCESS_KEY ?? "hpath",
   });
+  // Fail fast on a missing/misconfigured backend: creating the bucket up front
+  // surfaces setup problems at startup instead of deep inside the run pipeline.
+  await store.ensureBucket();
+  return store;
 }

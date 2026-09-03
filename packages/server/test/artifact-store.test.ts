@@ -17,11 +17,10 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ArtifactKind } from "@hpath/contract";
 import { HpathDb } from "../src/db/index.js";
-import { ForeignKeyError, NotFoundError } from "../src/db/errors.js";
+import { ConflictError, ForeignKeyError, NotFoundError } from "../src/db/errors.js";
 import {
   ArtifactIndex,
   LocalArtifactStore,
-  S3ArtifactStore,
   artifactKey,
   createArtifactStore,
   isValidArtifactKey,
@@ -88,6 +87,7 @@ function chunkedPayload(
 }
 
 const S3_ENDPOINT = process.env.HPATH_TEST_S3_ENDPOINT ?? "http://127.0.0.1:8333";
+const S3_SKIP_REASON = `SeaweedFS not reachable on ${S3_ENDPOINT} — s3 round-trip pending manual verification (docker compose --profile s3 up, see docker/README.md)`;
 
 async function s3Reachable(): Promise<boolean> {
   try {
@@ -310,6 +310,42 @@ describe("artifact index accounting", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("enforces one row per (run_id, key) at the database level", async () => {
+    const db = HpathDb.inMemory();
+    const root = tempRoot();
+    try {
+      const ids = seedRunChain(db);
+      const store = new LocalArtifactStore(root);
+      const index = new ArtifactIndex(db.artifacts);
+      const artifact = await storeArtifact(store, index, {
+        projectId: ids.projectId,
+        envId: ids.envId,
+        runId: ids.runId,
+        name: "trace.zip",
+        kind: ArtifactKind.ARTIFACT_KIND_TRACE,
+        body: "v1",
+      });
+      // A second row for the same (run_id, key) is impossible even when the
+      // upsert is bypassed: the UNIQUE index rejects the raw insert.
+      assert.throws(
+        () =>
+          db.artifacts.insert({
+            id: randomUUID(),
+            runId: ids.runId,
+            kind: artifact.kind,
+            key: artifact.key,
+            sizeBytes: 1,
+            sha256: "x",
+            createdAt: new Date().toISOString(),
+          }),
+        ConflictError,
+      );
+    } finally {
+      db.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("backend factory", () => {
@@ -329,12 +365,19 @@ describe("backend factory", () => {
     });
   });
 
-  it("selects the s3 backend for both s3 and seaweedfs values", async () => {
+  it("selects the s3 backend for both s3 and seaweedfs values", async (t) => {
+    if (!(await s3Reachable())) {
+      // The factory verifies the bucket on creation (fail-fast on a missing
+      // backend), which needs a live SeaweedFS; see docker/README.md. The
+      // env-value mapping itself is covered by resolveBackend below.
+      return t.skip(S3_SKIP_REASON);
+    }
+    const bucket = `hpath-test-${randomUUID().slice(0, 8)}`;
     await withEnv({ HPATH_ARTIFACT_STORE: "s3" }, () =>
-      createArtifactStore({ s3: { endpoint: S3_ENDPOINT } }),
+      createArtifactStore({ s3: { endpoint: S3_ENDPOINT, bucket } }),
     ).then((store) => assert.equal(store.backend, "s3"));
     await withEnv({ HPATH_ARTIFACT_STORE: "seaweedfs" }, () =>
-      createArtifactStore({ s3: { endpoint: S3_ENDPOINT } }),
+      createArtifactStore({ s3: { endpoint: S3_ENDPOINT, bucket: `${bucket}-2` } }),
     ).then((store) => assert.equal(store.backend, "s3"));
   });
 
@@ -357,7 +400,6 @@ describe("backend factory", () => {
 });
 
 describe("s3 backend round-trip against SeaweedFS", () => {
-  const SKIP_REASON = `SeaweedFS not reachable on ${S3_ENDPOINT} — s3 round-trip pending manual verification (docker compose --profile s3 up)`;
   let reachable = false;
   let store: ArtifactStore;
 
@@ -366,6 +408,7 @@ describe("s3 backend round-trip against SeaweedFS", () => {
     if (!reachable) {
       return;
     }
+    // The factory ensures the bucket exists, so no explicit ensureBucket call.
     store = await createArtifactStore({
       backend: "s3",
       s3: {
@@ -373,12 +416,11 @@ describe("s3 backend round-trip against SeaweedFS", () => {
         bucket: `hpath-test-${randomUUID().slice(0, 8)}`,
       },
     });
-    await (store as S3ArtifactStore).ensureBucket();
   });
 
   it("round-trips an in-memory upload with accounting", async (t) => {
     if (!reachable) {
-      return t.skip(SKIP_REASON);
+      return t.skip(S3_SKIP_REASON);
     }
     const payload = randomBytes(8192);
     const key = "artifacts/proj-s3/dev/run-s3/01-login.png";
@@ -395,7 +437,7 @@ describe("s3 backend round-trip against SeaweedFS", () => {
 
   it("round-trips a streamed upload", async (t) => {
     if (!reachable) {
-      return t.skip(SKIP_REASON);
+      return t.skip(S3_SKIP_REASON);
     }
     const { payload, chunks } = chunkedPayload(1024 * 1024, 64 * 1024);
     const key = "artifacts/proj-s3/dev/run-s3/session.webm";
@@ -405,9 +447,23 @@ describe("s3 backend round-trip against SeaweedFS", () => {
     assert.deepEqual(await readAll((await store.getObject(key)).stream), payload);
   });
 
+  it("multipart-uploads a body above the 5 MiB part size", async (t) => {
+    if (!reachable) {
+      return t.skip(S3_SKIP_REASON);
+    }
+    // Above the 5 MiB partSize, @aws-sdk/lib-storage switches to multipart
+    // upload, which is a different SeaweedFS code path than single PUT.
+    const { payload, chunks } = chunkedPayload(6 * 1024 * 1024, 512 * 1024);
+    const key = "artifacts/proj-s3/dev/run-s3/session-big.webm";
+    const put = await store.putObject(key, chunks());
+    assert.equal(put.sizeBytes, payload.length);
+    assert.equal(put.sha256, sha256(payload));
+    assert.deepEqual(await readAll((await store.getObject(key)).stream), payload);
+  });
+
   it("overwrites, and reports missing keys", async (t) => {
     if (!reachable) {
-      return t.skip(SKIP_REASON);
+      return t.skip(S3_SKIP_REASON);
     }
     const key = "artifacts/proj-s3/dev/run-s3/report.json";
     await store.putObject(key, Buffer.from("v1"));

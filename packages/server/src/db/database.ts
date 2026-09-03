@@ -17,6 +17,57 @@ export function defaultDbPath(): string {
   return process.env.HPATH_DB_PATH ?? DEFAULT_DB_PATH;
 }
 
+// Nesting depth of withTransaction per open connection. Top-level calls use
+// BEGIN/COMMIT; nested calls (a repository method invoked from inside an
+// outer transaction) use SAVEPOINT so SQLite's "cannot start a transaction
+// within a transaction" never fires and a nested failure rolls back only its
+// own work.
+const transactionDepth = new WeakMap<DatabaseSync, number>();
+
+/**
+ * Run `fn` inside a transaction, committing on success and rolling back on
+ * error. Safe to nest: the innermost active scope uses a SAVEPOINT instead of
+ * BEGIN, so callers like `seedDatabase` can wrap multi-repository work while
+ * the repositories themselves stay transactional.
+ */
+export function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
+  const depth = transactionDepth.get(db) ?? 0;
+  const savepoint = depth > 0 ? `tx_${depth}` : null;
+  try {
+    if (savepoint) {
+      db.exec(`SAVEPOINT ${savepoint}`);
+    } else {
+      db.exec("BEGIN");
+    }
+  } catch (err) {
+    throw err;
+  }
+  transactionDepth.set(db, depth + 1);
+  try {
+    const result = fn();
+    if (savepoint) {
+      db.exec(`RELEASE ${savepoint}`);
+    } else {
+      db.exec("COMMIT");
+    }
+    transactionDepth.set(db, depth);
+    return result;
+  } catch (err) {
+    try {
+      if (savepoint) {
+        db.exec(`ROLLBACK TO ${savepoint}`);
+        db.exec(`RELEASE ${savepoint}`);
+      } else {
+        db.exec("ROLLBACK");
+      }
+    } catch {
+      // A failed rollback must not mask the original error.
+    }
+    transactionDepth.set(db, depth);
+    throw err;
+  }
+}
+
 /**
  * Open (creating if needed) the SQLite database at `path`, enable the pragmas
  * HPath relies on, and apply pending migrations.

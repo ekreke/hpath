@@ -126,6 +126,23 @@ describe("EnvRepository", () => {
     }
   });
 
+  it("update rejects renaming onto a duplicate name with ConflictError", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      db.envs.create(makeEnv(project, { name: "dev" }));
+      db.envs.create(makeEnv(project, { name: "staging" }));
+      const dev = db.envs.listByProject(project.id).find((env) => env.name === "dev")!;
+      assert.throws(
+        () => db.envs.update({ ...dev, name: "staging" }),
+        ConflictError,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it("deletes an env but refuses while runs reference it", () => {
     const db = HpathDb.inMemory();
     try {

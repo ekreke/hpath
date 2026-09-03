@@ -26,6 +26,9 @@ COPY tsconfig.base.json ./
 COPY proto ./proto
 COPY packages/contract ./packages/contract
 COPY packages/server ./packages/server
+# Bundled PRD fixtures seed the real-mode database (seed.ts walks up to
+# <root>/fixtures/prds); the .dockerignore negation keeps them in context.
+COPY fixtures/prds ./fixtures/prds
 RUN pnpm --filter @hpath/contract --filter @hpath/server build
 
 # 1.0 spike runs mock mode; T5+ swap the internals behind the same contract,

@@ -87,22 +87,33 @@ export class ArtifactRepository {
    * Insert-or-update matched on (run_id, key): the store key is the natural
    * identity of a run's evidence file, so re-uploading the same key refreshes
    * kind/size/sha256 and keeps the artifact's id and created_at stable.
-   * Rejected with ForeignKeyError for unknown runs.
+   * Backed by the UNIQUE(run_id, key) index (migration 0002), so the conflict
+   * is resolved in one statement. Rejected with ForeignKeyError for unknown runs.
    */
   upsert(artifact: Artifact): Artifact {
-    const existing = this.getByKey(artifact.runId, artifact.key);
-    if (!existing) {
-      return this.insert(artifact);
-    }
     try {
-      this.db
+      const row = this.db
         .prepare(
-          `UPDATE artifacts SET kind = ?, size_bytes = ?, sha256 = ? WHERE id = ?`,
+          `INSERT INTO artifacts (id, run_id, kind, key, size_bytes, sha256, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (run_id, key) DO UPDATE SET
+             kind = excluded.kind,
+             size_bytes = excluded.size_bytes,
+             sha256 = excluded.sha256
+           RETURNING id, run_id, kind, key, size_bytes, sha256, created_at`,
         )
-        .run(artifact.kind, artifact.sizeBytes, artifact.sha256, existing.id);
+        .get(
+          artifact.id,
+          artifact.runId,
+          artifact.kind,
+          artifact.key,
+          artifact.sizeBytes,
+          artifact.sha256,
+          artifact.createdAt,
+        );
+      return toArtifact(row as unknown as ArtifactRow);
     } catch (err) {
-      throw translateConstraintError(err, `update artifact ${existing.id}`);
+      throw translateConstraintError(err, `upsert artifact ${artifact.key}`);
     }
-    return { ...existing, kind: artifact.kind, sizeBytes: artifact.sizeBytes, sha256: artifact.sha256 };
   }
 }

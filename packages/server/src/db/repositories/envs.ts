@@ -57,22 +57,27 @@ export class EnvRepository {
     return env;
   }
 
-  /** Update an existing env. Throws NotFoundError when the id is unknown. */
+  /** Update an existing env. Throws NotFoundError for unknown ids and ConflictError on duplicate names. */
   update(env: Env): Env {
-    const info = this.db
-      .prepare(
-        `UPDATE envs
-         SET name = ?, web_base_url = ?, grpc_address = ?, vars_json = ?, credentials_json = ?
-         WHERE id = ?`,
-      )
-      .run(
-        env.name,
-        env.webBaseUrl,
-        env.grpcAddress,
-        JSON.stringify(env.vars ?? {}),
-        JSON.stringify(env.credentials ?? {}),
-        env.id,
-      );
+    let info;
+    try {
+      info = this.db
+        .prepare(
+          `UPDATE envs
+           SET name = ?, web_base_url = ?, grpc_address = ?, vars_json = ?, credentials_json = ?
+           WHERE id = ?`,
+        )
+        .run(
+          env.name,
+          env.webBaseUrl,
+          env.grpcAddress,
+          JSON.stringify(env.vars ?? {}),
+          JSON.stringify(env.credentials ?? {}),
+          env.id,
+        );
+    } catch (err) {
+      throw translateConstraintError(err, `update env "${env.name}"`);
+    }
     if (Number(info.changes) === 0) {
       throw new NotFoundError(`env not found: ${env.id}`);
     }

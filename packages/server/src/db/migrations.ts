@@ -140,6 +140,15 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX idx_prds_project ON prds(project_id);
     `,
   },
+  {
+    name: "0002_artifact_run_key_unique",
+    sql: `
+      -- Re-uploading a run's store key must refresh one row, never duplicate:
+      -- the run pipeline upserts artifacts on (run_id, key), and this index
+      -- makes that conflict target enforceable at the database level.
+      CREATE UNIQUE INDEX idx_artifacts_run_key ON artifacts(run_id, key);
+    `,
+  },
 ];
 
 function nowIso(): string {
