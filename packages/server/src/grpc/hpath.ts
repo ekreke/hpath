@@ -1,17 +1,39 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
-// and the real one (real implementations land in T5+; every method reports
-// UNIMPLEMENTED until then).
+// and the real one (SQLite-backed). Real mode serves the minimal read path
+// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3); every other
+// method reports UNIMPLEMENTED until its wiring task lands (runs/artifacts in
+// T8, writes + PRD parse in later tasks).
 
 import { status } from "@grpc/grpc-js";
-import type { ServiceError } from "@grpc/grpc-js";
-import type { HpathServer } from "@hpath/contract";
+import type { sendUnaryData, ServerUnaryCall, ServiceError } from "@grpc/grpc-js";
+import type {
+  Case,
+  GetCaseRequest,
+  HpathServer,
+  ListCasesRequest,
+  ListCasesResponse,
+  ListEnvsRequest,
+  ListEnvsResponse,
+  ListProjectsResponse,
+} from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
+import {
+  ConflictError,
+  ForeignKeyError,
+  InvalidTransitionError,
+  NotFoundError,
+  RepositoryError,
+} from "../db/errors.js";
+import type { HpathDb } from "../db/index.js";
 
 export type ServerMode = "mock" | "real";
 
 function unimplemented(): ServiceError {
-  return grpcError(status.UNIMPLEMENTED, "real server implementation not built yet (SPEC T5+); start with --mock");
+  return grpcError(
+    status.UNIMPLEMENTED,
+    "not wired in real mode yet (SPEC T6/T8+); served today: ListProjects/ListEnvs/ListCases/GetCase over SQLite — start with --mock for the full contract",
+  );
 }
 
 function createUnimplementedHandlers(): HpathServer {
@@ -38,12 +60,101 @@ function createUnimplementedHandlers(): HpathServer {
   } as unknown as HpathServer;
 }
 
-export function createHpathService(mode: ServerMode, store?: MockStore): HpathServer {
+/**
+ * Map repository errors onto gRPC status codes (mapping documented in
+ * db/errors.ts). Anything else is passed through untouched: gRPC layer errors
+ * are already ServiceErrors, and unexpected failures must stay loud.
+ */
+function toGrpcError(err: unknown): ServiceError {
+  if (err instanceof NotFoundError) {
+    return grpcError(status.NOT_FOUND, err.message);
+  }
+  if (err instanceof ConflictError) {
+    return grpcError(status.ALREADY_EXISTS, err.message);
+  }
+  if (err instanceof InvalidTransitionError) {
+    return grpcError(status.FAILED_PRECONDITION, err.message);
+  }
+  if (err instanceof ForeignKeyError) {
+    return grpcError(status.INVALID_ARGUMENT, err.message);
+  }
+  if (err instanceof RepositoryError) {
+    return grpcError(status.INTERNAL, err.message);
+  }
+  return err as ServiceError;
+}
+
+/**
+ * Real-mode handlers: the minimal SQLite read path (T3). Reads only — writes,
+ * runs and artifact streaming stay UNIMPLEMENTED until their wiring tasks.
+ */
+function createRealHandlers(db: HpathDb): HpathServer {
+  return {
+    ...createUnimplementedHandlers(),
+
+    listProjects: (
+      _call: ServerUnaryCall<Record<string, never>, ListProjectsResponse>,
+      callback: sendUnaryData<ListProjectsResponse>,
+    ): void => {
+      try {
+        callback(null, { projects: db.projects.list() });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    listEnvs: (
+      call: ServerUnaryCall<ListEnvsRequest, ListEnvsResponse>,
+      callback: sendUnaryData<ListEnvsResponse>,
+    ): void => {
+      try {
+        db.projects.getRequired(call.request.projectId);
+        callback(null, { envs: db.envs.listByProject(call.request.projectId) });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    listCases: (
+      call: ServerUnaryCall<ListCasesRequest, ListCasesResponse>,
+      callback: sendUnaryData<ListCasesResponse>,
+    ): void => {
+      try {
+        db.projects.getRequired(call.request.projectId);
+        callback(null, {
+          cases: db.cases.listByProject(call.request.projectId, call.request.status),
+        });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    getCase: (
+      call: ServerUnaryCall<GetCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ): void => {
+      try {
+        callback(null, db.cases.getRequired(call.request.caseId));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+  } as unknown as HpathServer;
+}
+
+export function createHpathService(
+  mode: ServerMode,
+  store?: MockStore,
+  db?: HpathDb,
+): HpathServer {
   if (mode === "mock") {
     if (!store) {
       throw new Error("mock mode requires a store");
     }
     return createMockHandlers(store);
   }
-  return createUnimplementedHandlers();
+  if (!db) {
+    throw new Error("real mode requires a database (HpathDb)");
+  }
+  return createRealHandlers(db);
 }

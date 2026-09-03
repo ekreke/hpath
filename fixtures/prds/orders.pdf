@@ -1,0 +1,45 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 826 >>
+stream
+BT /F1 12 Tf
+1 0 0 1 72 720 Tm (Order Management PRD - demo-bank) Tj
+1 0 0 1 72 702 Tm () Tj
+1 0 0 1 72 684 Tm (Sample product requirements document bundled with the server seed \(SPEC T3\).) Tj
+1 0 0 1 72 666 Tm () Tj
+1 0 0 1 72 648 Tm (Section: Order list \(#list\)) Tj
+1 0 0 1 72 630 Tm (The dashboard shows the user's recent orders in a table with columns id,) Tj
+1 0 0 1 72 612 Tm (amount and status. Every rendered row must match exactly one record from) Tj
+1 0 0 1 72 594 Tm (the backend order service; the UI must never invent or drop orders.) Tj
+1 0 0 1 72 576 Tm () Tj
+1 0 0 1 72 558 Tm (Section: Order detail \(#detail\)) Tj
+1 0 0 1 72 540 Tm (Selecting a row opens the order detail view showing the same id, amount) Tj
+1 0 0 1 72 522 Tm (and status as the list, plus a timestamp of the last synchronization.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001118 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1188
+%%EOF

@@ -35,7 +35,7 @@ mock: ## Start mock server in background (log: $(LOG)), wait until healthy
 		&& echo "healthy: reflection OK" \
 		|| (echo "FAILED to start, log tail:"; tail -5 $(LOG); exit 1)
 
-real: ## Start real-mode skeleton in background (all RPCs UNIMPLEMENTED)
+real: ## Start real-mode server in background (SQLite reads from T3; rest UNIMPLEMENTED until T8)
 	@$(MAKE) stop
 	@nohup node packages/server/dist/index.js --real --port $(PORT) > $(LOG) 2>&1 & \
 	 echo "real skeleton starting on 127.0.0.1:$(PORT) (log $(LOG))"
