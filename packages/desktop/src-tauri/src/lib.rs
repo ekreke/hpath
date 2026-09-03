@@ -1,5 +1,4 @@
 use base64::Engine as _;
-use std::io::Read;
 use std::process::Stdio;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
@@ -401,8 +400,9 @@ async fn save_artifact(
 /// binary is tried first, then `npx playwright` (which resolves or
 /// auto-installs the package). A launch only counts as success if the child
 /// survives a short probe window — a viewer that exits immediately (bad zip,
-/// broken install) surfaces as an error instead of a success toast. Returns
-/// the cached trace path; the viewer opens in the default browser.
+/// broken install) surfaces as an error instead of a success toast. On success
+/// a background task reaps the viewer when it exits, so no zombie is left
+/// behind. Returns the cached trace path; the viewer opens in the default browser.
 #[tauri::command]
 async fn show_trace(
     state: State<'_, AppState>,
@@ -425,13 +425,13 @@ async fn show_trace(
     ));
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
 
-    let mut child = std::process::Command::new("playwright")
+    let mut child = tokio::process::Command::new("playwright")
         .args(["show-trace"])
         .arg(&path)
         .stderr(Stdio::piped())
         .spawn()
         .or_else(|_| {
-            std::process::Command::new("npx")
+            tokio::process::Command::new("npx")
                 .args(["--yes", "playwright", "show-trace"])
                 .arg(&path)
                 .stderr(Stdio::piped())
@@ -439,15 +439,19 @@ async fn show_trace(
         })
         .map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed?): {e}"))?;
 
-    // Probe briefly: the viewer stays alive while it serves the trace, so a
-    // child that is gone within the window has already failed.
+    // Probe briefly without blocking the async worker: the viewer stays alive
+    // while it serves the trace, so a child that is gone within the window
+    // has already failed. On success the viewer keeps running, so spawn a
+    // background task to wait() it and drain stderr — otherwise the child
+    // becomes a zombie and its stderr pipe fills up.
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(status) if !status.success() => {
+                use tokio::io::AsyncReadExt;
                 let mut stderr = String::new();
                 if let Some(mut pipe) = child.stderr.take() {
-                    let _ = pipe.read_to_string(&mut stderr);
+                    let _ = pipe.read_to_string(&mut stderr).await;
                 }
                 let tail = stderr.trim();
                 return Err(format!(
@@ -457,9 +461,17 @@ async fn show_trace(
             }
             Some(_) => break,
             None if std::time::Instant::now() >= deadline => break,
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+            None => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
         }
     }
+    tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr).await;
+        }
+        let _ = child.wait().await;
+    });
     Ok(path.to_string_lossy().into_owned())
 }
 

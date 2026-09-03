@@ -85,6 +85,9 @@ function CasesView({
   // Ticket guard for openReplay: rapid clicks must not let a stale get_run
   // response overwrite the newer replay.
   const replaySeq = useRef(0);
+  // Ticket guard for openCase: rapid clicks must not let a stale get_case /
+  // list_runs response overwrite the detail of a case opened later.
+  const caseSeq = useRef(0);
 
   const selectedEnv = envs.find((e) => e.id === selectedEnvId) ?? null;
 
@@ -100,6 +103,7 @@ function CasesView({
     setReplayDetail(null);
     setRunEnvId(null);
     replaySeq.current += 1;
+    caseSeq.current += 1;
     if (!projectId) {
       setCases([]);
       setRuns([]);
@@ -129,6 +133,10 @@ function CasesView({
 
   const openCase = useCallback(
     async (caseId: string) => {
+      const ticket = ++caseSeq.current;
+      // Opening a case clears the replay panel, so an in-flight replay
+      // response must not repopulate it.
+      replaySeq.current += 1;
       setSelectedCaseId(caseId);
       setRunResult(null);
       setReplayRun(null);
@@ -139,12 +147,14 @@ function CasesView({
           invokeGetCase(caseId),
           invokeListRuns(projectId ?? '', { caseId }),
         ]);
+        if (ticket !== caseSeq.current) return;
         setDetail(caseDetail);
         setDetailRuns(sortRunsDesc(runList));
       } catch (err) {
+        if (ticket !== caseSeq.current) return;
         onToast(String(err), true);
       } finally {
-        setBusy(false);
+        if (ticket === caseSeq.current) setBusy(false);
       }
     },
     [projectId, onToast],
