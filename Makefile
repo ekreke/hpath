@@ -8,7 +8,7 @@ COMPOSE_FILE ?= docker/compose.yaml
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke test restart stop clean verify up down logs docker-clean cloc
+.PHONY: help install proto build dist mock real dev run smoke test test-unit restart stop clean verify up down logs docker-clean cloc
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -35,7 +35,7 @@ mock: ## Start mock server in background (log: $(LOG)), wait until healthy
 		&& echo "healthy: reflection OK" \
 		|| (echo "FAILED to start, log tail:"; tail -5 $(LOG); exit 1)
 
-real: ## Start real-mode skeleton in background (all RPCs UNIMPLEMENTED)
+real: ## Start real-mode server in background (SQLite reads from T3; rest UNIMPLEMENTED until T8)
 	@$(MAKE) stop
 	@nohup node packages/server/dist/index.js --real --port $(PORT) > $(LOG) 2>&1 & \
 	 echo "real skeleton starting on 127.0.0.1:$(PORT) (log $(LOG))"
@@ -57,10 +57,14 @@ run: ## Start mock server (bg) + Tauri desktop dev together (Ctrl+C stops both)
 smoke: ## Run the smoke client against a running server (default $(PORT))
 	pnpm --filter @hpath/server smoke
 
-test: build mock ## Full local verification: build, start mock, run smoke, stop
+test: build mock ## Full local verification: build, start mock, unit tests + smoke, stop
+	@$(MAKE) test-unit || { $(MAKE) stop; exit 1; }
 	@sleep 0.5
 	@pnpm --filter @hpath/server smoke; status=$$?; \
 	 $(MAKE) stop; exit $$status
+
+test-unit: ## Run @hpath/server unit tests (SQLite db layer)
+	pnpm --filter @hpath/server test
 
 restart: ## Restart the background mock server
 	@$(MAKE) mock

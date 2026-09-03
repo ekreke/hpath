@@ -7,7 +7,9 @@
 **/target
 docs
 docker
+# PRD fixtures seed the real-mode database; the demo-app SUT stays out.
 fixtures
+!fixtures/prds
 packages/desktop
 *.md
 .DS_Store

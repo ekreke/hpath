@@ -17,6 +17,7 @@ import { HpathService, descriptorPath } from "@hpath/contract";
 import type { ServerMode } from "./hpath.js";
 import { createHpathService } from "./hpath.js";
 import type { MockStore } from "../mock/store.js";
+import type { HpathDb } from "../db/index.js";
 
 const require = createRequire(import.meta.url);
 // Uses protobufjs/ext/descriptor to decode the descriptor set. This path is a
@@ -56,7 +57,10 @@ export interface StartServerOptions {
   port: number;
   /** Bind address; defaults to the loopback interface. Containers pass 0.0.0.0. */
   host?: string;
+  /** Required in mock mode: the in-memory seed store. */
   store?: MockStore;
+  /** Required in real mode: the SQLite facade backing the read path (T3). */
+  db?: HpathDb;
 }
 
 export interface RunningServer {
@@ -68,7 +72,7 @@ export interface RunningServer {
 
 export async function startServer(options: StartServerOptions): Promise<RunningServer> {
   const server = new grpc.Server();
-  server.addService(HpathService, createHpathService(options.mode, options.store));
+  server.addService(HpathService, createHpathService(options.mode, options.store, options.db));
   buildReflectionService().addToServer(server);
 
   const boundPort = await new Promise<number>((resolve, reject) => {
