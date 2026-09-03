@@ -27,6 +27,10 @@ export { createHttpToolProvider, createHttpRequestTool } from "./providers/http.
 export type { HttpToolProviderOptions } from "./providers/http.js";
 export { createGrpcToolProvider, createGrpcCallTool } from "./providers/grpc.js";
 export type { GrpcToolProviderOptions } from "./providers/grpc.js";
+export { createPrdAnalysisToolProvider, createReadPrdTool, createListExistingCasesTool, createWriteCaseDraftTool } from "./providers/prd-analysis.js";
+export type { PrdAnalysisToolProviderOptions, AnalyzeRunInput, CaseDraft } from "./providers/prd-analysis.js";
+export { ingestPrd, prdFormatFromFilename, PrdIngestError, PRD_FORMATS } from "./prd.js";
+export type { PrdFormat, IngestedPrd } from "./prd.js";
 export {
   ALIGNMENT_ENTRY_SCHEMA,
   EXECUTE_AGENT_ID,
@@ -37,6 +41,18 @@ export {
   createExecuteAgentDefinition,
 } from "./execute-agent.js";
 export type { ExecuteAgentOptions } from "./execute-agent.js";
+export {
+  ANALYZE_AGENT_ID,
+  ANALYZE_AGENT_DEFAULT_LIMITS,
+  ANALYZE_AGENT_DEFAULT_MODEL,
+  ANALYZE_AGENT_INPUT_SCHEMA,
+  ANALYZE_AGENT_OUTPUT_SCHEMA,
+  CASE_DRAFT_SCHEMA,
+  DRAFT_ALIGNMENT_SCHEMA,
+  DRAFT_INPUT_SCHEMA,
+  createAnalyzeAgentDefinition,
+} from "./analyze-agent.js";
+export type { AnalyzeAgentOptions } from "./analyze-agent.js";
 export {
   createBuiltInAgentDefinitions,
   createBuiltInToolProviders,

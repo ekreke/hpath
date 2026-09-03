@@ -88,6 +88,12 @@ export type AgentRunEventPayload =
   /** One structured observation recorded via the `record_evidence` tool. */
   | { kind: "evidence_recorded"; entry: Verdict }
   /**
+   * One kernel-stamped case draft recorded via the analyze-agent's
+   * `write_case_draft` tool (proto Case shape, status pending). Preserved
+   * even on later failure, like all evidence.
+   */
+  | { kind: "case_draft_recorded"; draft: Verdict }
+  /**
    * Screenshot captured by the browser provider; kept inline as base64 for
    * now — T8 redirects binary evidence to the artifact store.
    */
