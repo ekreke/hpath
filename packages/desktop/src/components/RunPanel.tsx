@@ -50,6 +50,34 @@ function cachePut(cache: Map<string, string>, id: string, url: string) {
   cache.set(id, url);
 }
 
+// In-flight downloads, shared so concurrent consumers of the same artifact
+// (live transcript + replay timeline render the same screenshot ids) issue
+// one gRPC download instead of one per consumer.
+const inflightArtifacts = new Map<string, Promise<string>>();
+
+function cacheGetOrFetch(
+  cache: Map<string, string>,
+  id: string,
+  mime: string,
+  onProgress?: (p: ArtifactProgress) => void,
+): Promise<string> {
+  const cached = cache.get(id);
+  if (cached) return Promise.resolve(cached);
+  let inflight = inflightArtifacts.get(id);
+  if (!inflight) {
+    inflight = invokeDownloadArtifact(id, onProgress).then((b64) => {
+      const url = `data:${mime};base64,${b64}`;
+      cachePut(cache, id, url);
+      return url;
+    });
+    inflightArtifacts.set(id, inflight);
+    // A failed download must not poison later retries: drop it so the next
+    // call (e.g. after the user clicks retry) downloads fresh.
+    inflight.catch(() => inflightArtifacts.delete(id));
+  }
+  return inflight;
+}
+
 // Progress-aware fetch of an artifact's bytes as a data URL: callers may
 // surface a per-chunk progress tick through the IPC progress channel, and a
 // failed download becomes an error state the caller can render with a retry.
@@ -69,10 +97,8 @@ function useArtifactDataUrl(
     if (!artifact || src) return;
     let cancelled = false;
     setError(null);
-    invokeDownloadArtifact(artifact.id, onProgress)
-      .then((b64) => {
-        const url = `data:${mime};base64,${b64}`;
-        cachePut(cache, artifact.id, url);
+    cacheGetOrFetch(cache, artifact.id, mime, onProgress)
+      .then((url) => {
         if (!cancelled) setSrc(url);
       })
       .catch((err) => {
@@ -111,14 +137,12 @@ function Screenshot({
   useEffect(() => {
     if (src) return;
     let cancelled = false;
-    invokeDownloadArtifact(artifactId, (p) => {
+    cacheGetOrFetch(thumbnailCache, artifactId, 'image/png', (p) => {
       if (sizeBytes) {
         setPct(Math.min(100, Math.round((p.bytesReceived / Math.max(sizeBytes, 1)) * 100)));
       }
     })
-      .then((b64) => {
-        const url = `data:image/png;base64,${b64}`;
-        cachePut(thumbnailCache, artifactId, url);
+      .then((url) => {
         if (!cancelled) setSrc(url);
       })
       .catch((err) => {
@@ -345,7 +369,10 @@ function RunPanel({
 
   useEffect(() => {
     if (!running) return;
-    const started = Date.now() - elapsedMs;
+    // A fresh run restarts the clock: without the reset the timer would carry
+    // the previous run's elapsed value into the new run.
+    setElapsedMs(0);
+    const started = Date.now();
     const timer = setInterval(() => setElapsedMs(Date.now() - started), 500);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
