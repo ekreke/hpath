@@ -1,0 +1,52 @@
+%PDF-1.4
+%Äåòåë§ó ÐÄÆ
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1622 >>
+stream
+BT /F1 12 Tf 1 0 0 1 72 740 Tm (Orders and Payments PRD - demo-bank) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 724 Tm () Tj ET
+BT /F1 12 Tf 1 0 0 1 72 708 Tm (Sample PRD bundled with the agent test fixtures - SPEC T9. Each section) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 692 Tm (below is an independently verifiable behavior; drafted cases reference) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 676 Tm (their section via source_prd_ref.) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 660 Tm () Tj ET
+BT /F1 12 Tf 1 0 0 1 72 644 Tm (Section: Order list [anchor:order-list]) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 628 Tm (The dashboard shows the recent orders of the user in a table with the) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 612 Tm (columns id, amount and status. Every rendered row must match exactly one) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 596 Tm (record from GET /api/orders; the UI must never invent or drop orders.) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 580 Tm () Tj ET
+BT /F1 12 Tf 1 0 0 1 72 564 Tm (Section: Order cancellation [anchor:cancel]) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 548 Tm (From the order detail view the user can cancel a pending order. After) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 532 Tm (cancellation POST /api/orders/cancel and the order detail view must both) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 516 Tm (report status cancelled.) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 500 Tm () Tj ET
+BT /F1 12 Tf 1 0 0 1 72 484 Tm (Section: Balance display [anchor:balance]) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 468 Tm (The dashboard balance card renders GET /api/balance with exactly two) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 452 Tm (decimal places and a currency code, default USD.) Tj ET
+BT /F1 12 Tf 1 0 0 1 72 436 Tm () Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000022 00000 n 
+0000000071 00000 n 
+0000000128 00000 n 
+0000000254 00000 n 
+0000001928 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R /ID [<5d128f221c636121bc9d3dee93b42074> <5d128f221c636121bc9d3dee93b42074>] >>
+startxref
+1998
+%%EOF

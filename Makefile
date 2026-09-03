@@ -63,7 +63,7 @@ test: build mock ## Full local verification: build, start mock, unit tests + smo
 	@pnpm --filter @hpath/server smoke; status=$$?; \
 	 $(MAKE) stop; exit $$status
 
-test-unit: ## Run @hpath/server unit tests (SQLite db layer)
+test-unit: ## Run @hpath/server unit tests (agent kernel, db layer, registries, schema)
 	pnpm --filter @hpath/server test
 
 restart: ## Restart the background mock server
