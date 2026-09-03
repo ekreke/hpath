@@ -3,6 +3,7 @@
 // definitions in @hpath/contract. The server address is not passed per call:
 // it lives Rust-side (see set_server_addr) and is set once from the UI.
 import type {
+  Artifact,
   Case,
   Env,
   Prd,
@@ -10,8 +11,10 @@ import type {
   Run,
   Verdict,
 } from '@hpath/contract';
+import { Channel } from '@tauri-apps/api/core';
 
 export type {
+  Artifact,
   Case,
   Env,
   Prd,
@@ -168,7 +171,49 @@ export function invokeRunCase(
   return invoke<RunResult>('run_case', { projectId, envId, caseId });
 }
 
-// Base64-encoded artifact bytes (screenshots in the run panel).
-export function invokeDownloadArtifact(artifactId: string): Promise<string> {
-  return invoke<string>('download_artifact', { artifactId });
+// Base64-encoded artifact bytes (screenshots in the run panel; video / trace
+// in the replay view). A channel always carries the download so callers can
+// optionally surface a progress tick per received chunk — the session video
+// always does, and timeline screenshots do when the artifact's sizeBytes is
+// known (transcript-only screenshots have no total to report against).
+export function invokeDownloadArtifact(
+  artifactId: string,
+  onProgress?: (progress: ArtifactProgress) => void,
+): Promise<string> {
+  const channel = new Channel<ArtifactProgress>();
+  if (onProgress) {
+    channel.onmessage = onProgress;
+  }
+  return invoke<string>('download_artifact', { artifactId, onProgress: channel });
+}
+
+// Progress tick for artifact downloads (bytes streamed so far; the expected
+// total is known from the artifact's sizeBytes).
+export type ArtifactProgress = {
+  bytesReceived: number;
+};
+
+// Full run payload for the replay view (T13): the finished run, its recorded
+// event stream (same tagged shape as the live `run-event` channel) and the
+// artifact index.
+export type RunDetailResult = {
+  run: Run;
+  events: RunEvent[];
+  artifacts: Artifact[];
+};
+
+export function invokeGetRun(runId: string): Promise<RunDetailResult> {
+  return invoke<RunDetailResult>('get_run', { runId });
+}
+
+// Writes the artifact bytes into the user's download dir; resolves with the
+// written file's absolute path (T13: trace.zip download).
+export function invokeSaveArtifact(artifactId: string, filename: string): Promise<string> {
+  return invoke<string>('save_artifact', { artifactId, filename });
+}
+
+// Caches the trace.zip temp-side and launches `playwright show-trace` on it;
+// resolves with the cached path (T13 one-click trace viewer).
+export function invokeShowTrace(artifactId: string, runId: string): Promise<string> {
+  return invoke<string>('show_trace', { artifactId, runId });
 }

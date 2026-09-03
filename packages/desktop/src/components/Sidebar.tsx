@@ -2,7 +2,7 @@
 import { useTranslation } from 'react-i18next';
 import type { Project } from '../lib/ipc';
 
-export type ViewId = 'chat' | 'cases' | 'envs' | 'prd';
+export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd';
 
 type SidebarProps = {
   projects: Project[];
@@ -118,7 +118,10 @@ function Sidebar({
           {t('sidebar.cases')}
           <span className="ct">{caseCount}</span>
         </button>
-        <button className="itm" disabled title={t('common.comingSoon')}>
+        <button
+          className={view === 'history' ? 'itm on' : 'itm'}
+          onClick={() => onSelectView('history')}
+        >
           <IconRuns />
           {t('sidebar.runHistory')}
         </button>

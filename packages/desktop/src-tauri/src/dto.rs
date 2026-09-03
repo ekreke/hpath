@@ -380,6 +380,52 @@ pub struct RunResultDto {
     pub verdict: Option<VerdictDto>,
 }
 
+/// Artifact index entry crossing the IPC boundary (T13 replay view).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactDto {
+    pub id: String,
+    pub run_id: String,
+    pub kind: i32,
+    pub key: String,
+    pub size_bytes: i32,
+    pub sha256: String,
+    pub created_at: String,
+}
+
+impl From<&pb::Artifact> for ArtifactDto {
+    fn from(a: &pb::Artifact) -> Self {
+        ArtifactDto {
+            id: a.id.clone(),
+            run_id: a.run_id.clone(),
+            kind: a.kind,
+            key: a.key.clone(),
+            size_bytes: a.size_bytes,
+            sha256: a.sha256.clone(),
+            created_at: a.created_at.clone(),
+        }
+    }
+}
+
+/// Full run payload for the replay view (T13): the run entity, its recorded
+/// event stream (same tagged shape the live `run-event` channel emits) and
+/// the artifact index.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDetailDto {
+    pub run: RunDto,
+    pub events: Vec<RunEventDto>,
+    pub artifacts: Vec<ArtifactDto>,
+}
+
+/// Progress tick for artifact downloads (T13): emitted per streamed chunk on
+/// the optional `download_artifact` progress channel.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactProgressDto {
+    pub bytes_received: i64,
+}
+
 /// Tagged run event for the webview (T12): `kind` selects which optional
 /// fields carry data (mirrors the proto Event oneof). Streamed to the webview
 /// on the `run-event` channel while `run_case` is in flight.

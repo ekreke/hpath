@@ -22,7 +22,7 @@ import {
   makePng,
   makeRequestLog,
   makeTraceZip,
-  makeVideoPlaceholder,
+  makeVideoWebm,
   registerArtifact,
 } from "./artifacts.js";
 
@@ -253,7 +253,7 @@ export async function simulateRun(options: SimulateRunOptions): Promise<Run> {
     },
   });
 
-  registerArtifact(store, run, project, env, ArtifactKind.ARTIFACT_KIND_VIDEO, "session.webm", makeVideoPlaceholder());
+  registerArtifact(store, run, project, env, ArtifactKind.ARTIFACT_KIND_VIDEO, "session.webm", makeVideoWebm());
   registerArtifact(store, run, project, env, ArtifactKind.ARTIFACT_KIND_TRACE, "trace.zip", makeTraceZip(run.id));
   registerArtifact(store, run, project, env, ArtifactKind.ARTIFACT_KIND_REQUEST_LOG, "requests.json", makeRequestLog(run.id, exchanges));
 

@@ -1,8 +1,20 @@
 # TODO — Current Iteration
 
-Iteration target: **T13 Run detail (replay)**
+Iteration target: **Review fixes for T13/T14** (both lane tasks committed; hardening pass from the code review)
 
 ## Working notes
+
+- Review-fix run (2026-09-03), one commit on `lane/desktop`:
+  - CasesView: the live panel badge now shows the env the run was actually triggered with (`runEnvId`), fixing the misleading TopBar-env label on replay re-runs; `openReplay` gained a ticket guard so rapid clicks cannot let a stale `get_run` response win.
+  - RunPanel: timeline screenshots now consume the download progress channel (percent when `sizeBytes` is known); `useArtifactDataUrl` surfaces download failures as an error state with a retry button (video no longer sticks at "loading… 0%"); thumbnail/video caches are capped (100 entries).
+  - HistoryView: table + health strip + cases load through one ticket-guarded loader (stale responses dropped on rapid filter changes; refresh button also refreshes the strip; no duplicate ListRuns on mount); wired to `refreshKey` so re-runs show up without a manual refresh; end-of-day filter bound is `23:59:59.999` (was dropping the last 999 ms of a day).
+  - global.css: health-strip dots now mirror RunStatusTag fill semantics (fail = solid, pass = outline).
+  - Rust `show_trace`: a launch only succeeds if the child survives a ~1.5 s probe (early non-zero exits surface with stderr); the `hpath-traces` temp dir prunes zips older than a day.
+  - i18n: `runPanel.videoFailed` / `runPanel.retry` added to en + zh.
+- Gates (all green at the fix commit): `pnpm build`, `cargo check` (src-tauri), `make test` (SMOKE PASS), `tsc --noEmit` (desktop package).
+- Still deferred to human acceptance: manual `make run` smoke on macOS for replay + history (unchanged from T14).
+
+## Prior iteration notes
 
 - T12 Live run panel checkpointed (branch `feat/t12-live-run-panel`):
   - `run_case` now forwards every stream event to the webview on the fixed `run-event` channel (`RunEventDto`, tagged by kind, carries `runId`/`seq`/`timestamp`); the command still resolves with the final `RunResultDto` (invoke end = run end).
