@@ -6,6 +6,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { EnvBinding, Verdict } from "./types.js";
 import type { AgentEventSink } from "./events.js";
 import type { VerdictChannel } from "./verdict.js";
+import type { RunEvidence } from "./evidence.js";
 
 /** Per-run context handed to providers when materializing their tools. */
 export interface ToolContext {
@@ -19,6 +20,8 @@ export interface ToolContext {
   events: AgentEventSink;
   /** Structured verdict channel (kernel-owned). */
   verdict: VerdictChannel;
+  /** Run-scoped evidence store + resource cleanup registry (kernel-owned). */
+  evidence: RunEvidence;
 }
 
 export interface ToolProvider {

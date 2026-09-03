@@ -3,7 +3,8 @@
 // plain-data verdicts and inputs, without pulling a full JSON Schema runtime.
 //
 // Supported keywords: type (incl. unions), properties, required,
-// additionalProperties, items, enum, minimum/maximum, minLength/maxLength.
+// additionalProperties, items, enum, minimum/maximum, minLength/maxLength,
+// minItems/maxItems.
 
 import type { JsonSchemaValue } from "./types.js";
 
@@ -89,9 +90,17 @@ export function validateSchema(
     }
   }
 
-  if (Array.isArray(value) && schema.items !== undefined) {
-    for (const [index, item] of value.entries()) {
-      validateSchema(item, schema.items as JsonSchemaValue, joinPath(path, index), issues);
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) {
+      issues.push({ path, message: `array shorter than minItems ${schema.minItems}` });
+    }
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      issues.push({ path, message: `array longer than maxItems ${schema.maxItems}` });
+    }
+    if (schema.items !== undefined) {
+      for (const [index, item] of value.entries()) {
+        validateSchema(item, schema.items as JsonSchemaValue, joinPath(path, index), issues);
+      }
     }
   }
 

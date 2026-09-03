@@ -85,6 +85,13 @@ export type AgentRunEventPayload =
   | { kind: "tool_started"; tool: string; argsJson: string }
   | { kind: "tool_finished"; tool: string; ok: boolean; resultSummary: string }
   | { kind: "verdict"; verdict: Verdict }
+  /** One structured observation recorded via the `record_evidence` tool. */
+  | { kind: "evidence_recorded"; entry: Verdict }
+  /**
+   * Screenshot captured by the browser provider; kept inline as base64 for
+   * now — T8 redirects binary evidence to the artifact store.
+   */
+  | { kind: "screenshot"; label: string; mime: string; base64: string }
   | { kind: "error"; errorKind: string; message: string };
 
 /** One recorded run event. `seq` is 1-based and ordered per run. */

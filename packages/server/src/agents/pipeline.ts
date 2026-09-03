@@ -25,6 +25,7 @@ import type {
 import { RunStatus } from "@hpath/contract";
 import type { AgentEventSink } from "./events.js";
 import { InMemoryEventSink } from "./events.js";
+import { RunEvidence } from "./evidence.js";
 import { createCatalogModelResolver, createDefaultModels } from "./model.js";
 import { assertSchema } from "./schema.js";
 import { renderTemplate } from "./template.js";
@@ -190,7 +191,10 @@ export class AgentKernel {
       return settle("agent_error");
     }
 
-    // 4. Tools from ToolProviders + the kernel verdict channel.
+    // 4. Tools from ToolProviders + the kernel verdict channel. Run-scoped
+    //    resources (the browser provider's Playwright session, ...) register
+    //    their cleanup on the run's evidence store.
+    const evidence = new RunEvidence();
     const context = {
       runId,
       agentId: definition.id,
@@ -198,6 +202,7 @@ export class AgentKernel {
       input: options.input,
       events: sink,
       verdict: channel,
+      evidence,
     };
     const tools: AgentTool[] = [];
     for (const binding of definition.toolBindings) {
@@ -305,6 +310,10 @@ export class AgentKernel {
       sink.append({ kind: "error", errorKind: "agent_error", message: errorMessage });
     } finally {
       clearTimeout(timer);
+      // Release run-scoped resources (browser, pages, ...). Runs after the
+      // agent loop stopped; disposal errors never mask the run outcome and
+      // evidence already in the sink/channel is preserved.
+      await evidence.dispose();
     }
 
     // 6. Settle through the structured verdict channel (see `settle`).

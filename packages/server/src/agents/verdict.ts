@@ -13,6 +13,7 @@ import type { JsonSchemaValue, Verdict } from "./types.js";
 import { assertSchema } from "./schema.js";
 import type { ToolProvider } from "./tools.js";
 import type { AgentEventSink } from "./events.js";
+import type { RunEvidence } from "./evidence.js";
 
 export class VerdictChannel {
   private recorded?: Verdict;
@@ -73,13 +74,54 @@ export function createFinishVerdictTool(options: {
   };
 }
 
-/** Kernel-owned evidence provider. Extended with recording tools in T7b. */
+/**
+ * The kernel's `record_evidence` tool (T7b). Records one structured
+ * observation (e.g. a three-way alignment entry) into the run's evidence
+ * store and the event stream. Evidence recorded here is preserved even if
+ * the run later fails or hits a hard limit. Unlike `finish_verdict`, this
+ * tool may be called any number of times.
+ */
+export function createRecordEvidenceTool(options: {
+  evidence: RunEvidence;
+  events: AgentEventSink;
+}): AgentTool {
+  return {
+    name: "record_evidence",
+    label: "Record evidence",
+    description:
+      "Record one structured evidence observation for this run (for example a "
+        + "three-way alignment entry with rule, api, ui, match, notes). Observations "
+        + "are preserved even if the run fails later. The final verdict is still "
+        + "submitted separately via finish_verdict.",
+    parameters: Type.Object({}, { additionalProperties: true }),
+    execute: async (_toolCallId, entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new Error("evidence entry must be a JSON object");
+      }
+      options.evidence.record(entry as Verdict);
+      options.events.append({ kind: "evidence_recorded", entry: entry as Verdict });
+      return {
+        content: [{ type: "text", text: "evidence recorded" }],
+        details: { recorded: true, total: options.evidence.entries.length },
+      };
+    },
+  };
+}
+
+/**
+ * Kernel-owned evidence provider: the structured verdict channel
+ * (`finish_verdict`) plus evidence recording (`record_evidence`). Auto-injected
+ * by the pipeline unless a definition binds its own evidence provider.
+ */
 export function createEvidenceToolProvider(): ToolProvider {
   return {
     id: "evidence",
-    description: "Kernel evidence tools: structured verdict channel (finish_verdict).",
+    description:
+      "Kernel evidence tools: structured verdict channel (finish_verdict) "
+        + "and evidence recording (record_evidence).",
     createTools: (context) => [
       createFinishVerdictTool({ channel: context.verdict, events: context.events }),
+      createRecordEvidenceTool({ evidence: context.evidence, events: context.events }),
     ],
   };
 }
