@@ -88,7 +88,7 @@ Use the Makefile / pnpm. Common targets:
 - `make mock` — start the mock server in background (log `/tmp/hpath-server.log`), waits until healthy.
 - `pnpm --filter @hpath/server dev` — dev server in mock mode (`tsx watch --mock`).
 - `make test` / `pnpm --filter @hpath/server test` — run server tests.
-- `make real` — start real-mode server (SQLite reads from T3; most RPCs still UNIMPLEMENTED until T8).
+- `make real` — start real-mode server (SQLite persistence; served: the read path, RunCase via the execute-agent with evidence in the artifact store, GetRun, DownloadArtifact, settings, status chat + chat sessions; still UNIMPLEMENTED: ParsePRD, ReviewCase).
 - `make up [PROFILE=s3]` — `docker compose up` the full stack (server + demo-app dev/staging; `s3` adds SeaweedFS).
 - `make dist` — build the macOS desktop `.app`/`.dmg` (`packages/desktop/src-tauri/target/release/bundle`).
 - `make verify` — combined gates (build + test).

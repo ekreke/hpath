@@ -45,7 +45,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   Tauri 2 project (src-tauri Rust tonic client + IPC commands; React shell); project/env switchers wired; connection status.
   *Verify: `tauri dev` on macOS lists mock project/envs via Rust gRPC.*
 
-- [ ] **T11 Management views**
+- [x] **T11 Management views**
   PRD management (upload/trigger/trace), case list (creator/status/last-run columns), case detail (info + review actions approve/reject/disable, env strip, run history), env management (CRUD), run trigger (approved only).
   *Verify: review a pending mock draft -> approved -> appears runnable; env CRUD works against mock.*
 
@@ -53,11 +53,11 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   Streaming event feed (thinking/tool calls/screenshots/request records), hard-limit status bar, trigger from case detail. `run_case` forwards every stream event to the webview on the `run-event` channel (`RunEventDto`, tagged by kind) while still resolving with the final outcome; `download_artifact` IPC fetches artifact bytes (base64) so screenshot events render inline with click-to-zoom; the status bar shows live steps (tool starts) and elapsed time, plus the finished run's duration/token cost (max/budget columns wait for T8's real limits — the proto carries no budget fields). Mock live-run outcomes follow a title-keyword convention (`outcomeForTitle` in handlers.ts): the seeded probe cases demo the hard-limit and alignment-fail paths on any env.
   *Verify: trigger mock run from UI; panel renders scripted events live (20 events over ~8s); final verdict shown; the seeded drift case ends FAILED with mismatch evidence; the limit probe ends FAILED on `limit:max_steps`.*
 
-- [ ] **T13 Run detail (replay)**
+- [x] **T13 Run detail (replay)**
   Inline webm player + screenshot timeline + agent transcript; trace.zip download with one-click `playwright show-trace`; re-run button.
   *Verify: replay the mock finished run through all three layers (synthetic artifacts).*
 
-- [ ] **T14 History view**
+- [x] **T14 History view**
   Run list filtered by project/env/case/status/date; per-case health strip (last N results).
   *Verify: mock runs visible and filterable.*
 
@@ -65,9 +65,9 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   Tauri bundler enabled (macOS `.app` + `.dmg`, unsigned); `make dist` builds the bundle locally. GitHub Actions workflow (`.github/workflows/release.yml`) builds the macOS dmg on release publish and attaches it to the release assets (workflow_dispatch runs the same build as a dry run). Server address is runtime-configurable: a `set_server_addr` IPC command validates and holds the address Rust-side (AppState); the TopBar input + Apply persists it client-side (localStorage) and no command hardcodes it.
   *Verify: `make dist` produces `.app`/`.dmg` under `src-tauri/target/release/bundle/`; publishing a release attaches the dmg; `tauri dev` smoke connects with a custom server address applied from the TopBar.*
 
-- [ ] **T17 Chat / system status view (default home)**
-  A conversational landing page (default view on launch). Shows a system overview (projects / cases by status / envs / run summary), live-ish answers to quick queries — "what is running now" (ListRuns with RUNNING), "recent runs" (ListRuns sorted by started_at), "case health" (per-case last-N results), "env overview" (ListEnvs) — rendered as chat messages (text + tables + status tags). 1.0 is client-side only: the view aggregates existing gRPC endpoints via the existing IPC surface; no NLP, no new contract. A free-text input maps common phrases to the same queries and falls back to a help hint. The server-side `status-agent` (natural-language answers over the same data) is reserved for 1.1 (see Out of Scope).
-  *Verify: `tauri dev` launches into the Chat view; each quick query renders correct mock data; switching project re-queries.*
+- [x] **T17 Chat / system status view (default home)**
+  Conversational landing page (default view on launch). Free-text questions and quick-query chips ("system overview", "what is running now", "recent runs", "case health", "env overview") are answered by the server-side status chat: the LLM answers from a live system snapshot embedded in its system prompt (projects / cases by status / envs / recent runs), streamed as markdown deltas with live token metrics. Sessions are persisted server-side (SQLite): lazy session creation on first question, session switcher with delete in the header, multi-turn context (recent history joins the prompt). This pulls the minimal 1.1 status-agent forward (chat.ts + the `Chat` RPC and the chat-session RPCs in the contract) — the original 1.0 plan (client-side aggregation, no new contract) was superseded.
+  *Verify: `tauri dev` launches into the Chat view; quick queries render live mock/real data; sessions survive tab switches and app restarts.*
 
 ## C. Real Server Topology
 
@@ -81,17 +81,17 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 
 ## D. Server Core (replace mock internals behind the same contract)
 
-- [ ] **T5 SQLite data model + CRUD**
+- [x] **T5 SQLite data model + CRUD**
   Tables: projects, envs, cases (creator, status workflow draft/pending/approved/disabled, version+changelog, source_prd_ref), runs, events, artifacts, prds. Migrations; repository layer.
   *Verify: repository unit tests; foreign-key namespace checks (project/env/run).*
 
-- [ ] **T3 Seed data (SQLite-backed)**
+- [x] **T3 Seed data (SQLite-backed)**
   On first server start (non-mock): demo project (with metadata repo_url), envs `dev` + `staging`, 5 example cases (4 approved + 1 pending agent draft), 2 finished sample runs (1 passed + 1 failed), 3 sample PRDs (md/docx/pdf) bundled under `fixtures/prds/`.
   *Verify: fresh boot -> ListProjects/ListEnvs/ListCases return seed data from SQLite.*
 
-- [ ] **T6 Artifact storage client (local first, S3 optional)**
+- [x] **T6 Artifact storage client (local first, S3 optional)**
   One `ArtifactStore` interface, two backends selected by `HPATH_ARTIFACT_STORE`: `local` (default; filesystem under `HPATH_ARTIFACT_DIR`) and `s3` (aws-sdk-js against SeaweedFS). putObject/getObject streaming, artifact index bookkeeping, shared key scheme `artifacts/{project}/{env}/{run}/...`.
-  *Verify: round-trip upload/download integration test for the `local` backend; `s3` backend round-trips against the compose `s3` profile SeaweedFS.*
+  *Verify: round-trip upload/download integration test for the `local` backend (covered by artifact-store.test.ts and exercised end to end by T8 acceptance); `s3` backend round-trip against the compose `s3` profile SeaweedFS still pending a live check.*
 
 - [x] **T7a Agent kernel**
   AgentRegistry + AgentDefinition interface; ToolProviderRegistry; shared run pipeline: fresh session per run, env-bound injection, event recording (pi hooks), hard limits (maxSteps/tokenBudget/timeoutMs with evidence preserved), structured verdict channel.
@@ -108,6 +108,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 - [ ] **T9 analyze-agent**
   PRD ingest (md direct, docx via mammoth, pdf via pdf-parse) -> case drafts (status pending) with creator `{type:agent}`, source_prd_ref; drafts appear in ListCases pending review.
   *Verify: all three PRD formats produce schema-valid pending drafts.*
+  Scope note: the analyze-agent kernel side (definition + prd-analysis provider + ingest, covered by tests) is done; what remains is the real-mode `ParsePRD` gRPC wiring. Also in this iteration's scope: real-mode `ReviewCase` wiring (the review workflow currently works in mock only).
 
 ## E. Wrap-up
 
@@ -121,7 +122,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 
 MCP facade, external MCP/skills ToolProviders, extra agents via registry, container-per-run, credential injection via env vars, scheduled runs, SUT source-aware agents.
 
-**status-agent (reserved for 1.1):** a registered `AgentDefinition` that answers natural-language questions about system state ("what is running?", "case health?", "env overview"). It reads the same data T17 surfaces client-side (projects/envs/cases/runs) via new `read_*` tools and a new gRPC endpoint `Chat(ChatRequest) returns (stream ChatResponse)`. The T17 chat UI is the future client for it; 1.0 keeps the UI client-side with no agent and no contract change.
+**status-agent (minimal version landed early with T17):** the server-side chat (`Chat(ChatRequest) returns (stream ChatResponse)` + chat-session RPCs) answers natural-language questions about system state from a live snapshot in the system prompt, with sessions persisted in SQLite. What remains for 1.1: registered `AgentDefinition` form with `read_*` tools instead of the static snapshot, richer query coverage (e.g. per-run drill-down), and cost/context tuning.
 
 ## Verification Matrix (per testing-stage)
 

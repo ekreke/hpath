@@ -17,6 +17,15 @@
   --w: #ffffff;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  /* Brand rainbow — sampled from the logo gradient (purple → red) */
+  --hc-1: #a748fb;
+  --hc-2: #675ffd;
+  --hc-3: #03affd;
+  --hc-4: #69d17f;
+  --hc-5: #feb310;
+  --hc-6: #fe6d4b;
+  --hc-7: #fc4c72;
+  --hc-8: #fe9233;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -52,7 +61,12 @@ body {
   overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 18px 18px 14px; font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
-.brand em { font-style: normal; color: var(--faint2); font-weight: 500; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; margin-left: auto; }
+.brand .hc-1 { color: var(--hc-1); }
+.brand .hc-w { color: var(--w); }
+.brand .hc-5 { color: var(--hc-5); }
+.brand .hc-6 { color: var(--hc-6); }
+.brand .hc-7 { color: var(--hc-7); }
+.brand .hc-8 { color: var(--hc-8); }
 
 .proj {
   margin: 2px 12px 12px;

@@ -1,35 +1,24 @@
 # TODO — Current Iteration
 
-Iteration target: **Review fixes for T13/T14** (both lane tasks committed; hardening pass from the code review)
+Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; human acceptance passed)
 
 ## Working notes
 
-- Review-fix run (2026-09-03), one commit on `lane/desktop`:
-  - CasesView: the live panel badge now shows the env the run was actually triggered with (`runEnvId`), fixing the misleading TopBar-env label on replay re-runs; `openReplay` gained a ticket guard so rapid clicks cannot let a stale `get_run` response win.
-  - RunPanel: timeline screenshots now consume the download progress channel (percent when `sizeBytes` is known); `useArtifactDataUrl` surfaces download failures as an error state with a retry button (video no longer sticks at "loading… 0%"); thumbnail/video caches are capped (100 entries).
-  - HistoryView: table + health strip + cases load through one ticket-guarded loader (stale responses dropped on rapid filter changes; refresh button also refreshes the strip; no duplicate ListRuns on mount); wired to `refreshKey` so re-runs show up without a manual refresh; end-of-day filter bound is `23:59:59.999` (was dropping the last 999 ms of a day).
-  - global.css: health-strip dots now mirror RunStatusTag fill semantics (fail = solid, pass = outline).
-  - Rust `show_trace`: a launch only succeeds if the child survives a ~1.5 s probe (early non-zero exits surface with stderr); the `hpath-traces` temp dir prunes zips older than a day.
-  - i18n: `runPanel.videoFailed` / `runPanel.retry` added to en + zh.
-- Gates (all green at the fix commit): `pnpm build`, `cargo check` (src-tauri), `make test` (SMOKE PASS), `tsc --noEmit` (desktop package).
-- Still deferred to human acceptance: manual `make run` smoke on macOS for replay + history (unchanged from T14).
+- T8 landed (2026-09-04), one pass on `develop`:
+  - New `grpc/run-execution.ts`: real-mode `RunCase` (validate APPROVED -> run row RUNNING -> kernel executes `execute-agent` while events stream mapped to proto `Event`, gapless seq; screenshots upload to the artifact store and stream as `screenshot{artifact_id}`; video/trace upload after settle; `runs.finish` writes verdict/tokens/duration/failReason; kernel crash settles a stranded RUNNING run as failed). Real-mode `GetRun` + `DownloadArtifact` (64 KiB chunks) wired too.
+  - Kernel hardening found by live acceptance:
+    - Seed env credentials now match the demo-app (`demo/demo1234` in mock + real seeds; the old `test/123456` burned agent steps on failed logins).
+    - `finish_verdict`/`record_evidence` advertise explicit optional parameter fields (an empty properties schema made GLM send an empty arguments object) and `finish_verdict` unwraps JSON-string / `{verdict:...}` shapes, reporting the received shape on schema failure so the model self-corrects.
+  - Kernel additions: `RunEvidence.pendingArtifacts` (browser registers `session.webm` + `trace.zip` after context close; Playwright recordVideo + tracing are always on), `AgentRunResult.pendingArtifacts`, and a `request_record` event kind appended by the http/grpc providers (desktop request panel shows real traffic).
+  - Chat persistence (same pass, desktop-driven): chat sessions + messages persist server-side (SQLite `0004_chat`, repositories, 4 session RPCs + `Chat` carries `session_id`); the desktop Chat view no longer auto-asks the LLM on mount (welcome state + lazy session creation) and keeps multi-turn context (last 10 messages join the prompt).
+- T8 acceptance (live, `--real` + compose demo-app dev): RunCase over gRPC yielded 44 ordered events ending PASSED with a three-way match verdict (UI ¥1,337.50 = HTTP = gRPC); artifacts complete in the store (screenshot PNG + 1.1 MB session.webm + 443 KB trace.zip); a failed run keeps its evidence; GetRun/DownloadArtifact verified (zip magic correct).
+- Gates (all green): `pnpm build`, `pnpm --filter @hpath/server test` (171 tests), SPEC checkboxes ticked: T5, T3, T6 (s3 round-trip pending a live check), T7a, T7b, T8, T11, T13, T14, T17 (description revised: server-side LLM chat + session persistence superseded the client-side-only plan).
 
-## Prior iteration notes
+## Next up
 
-- T12 Live run panel checkpointed (branch `feat/t12-live-run-panel`):
-  - `run_case` now forwards every stream event to the webview on the fixed `run-event` channel (`RunEventDto`, tagged by kind, carries `runId`/`seq`/`timestamp`); the command still resolves with the final `RunResultDto` (invoke end = run end).
-  - New `download_artifact` IPC command: collects the gRPC byte stream and returns base64 — screenshot events render inline in the panel with click-to-zoom (progress events deferred to T13's replay work).
-  - New `RunPanel` component (replaces the old result modal; embedded inline in the case detail view between the header and the info grid): per-kind event feed (thinking/text/tool started-finished/request records with expandable JSON/errors/status changes), steps + elapsed status bar, final verdict via the extracted shared `VerdictPanel`. CasesView subscribes to `run-event` before invoking and filters events by the triggered run's id.
-  - Status bar shows max/budget columns only as duration/token cost after completion — the proto carries no limit-budget fields; revisit when T8 wires real limits.
-  - Mock: live run outcome follows a title-keyword convention (`outcomeForTitle` in handlers.ts): seeded probe cases `Limit probe hits the hard step budget` (limit script) and `Balance drift fails the alignment check` (fail script) demo the hard-limit and fail paths; other titles (incl. the smoke suite's Login case) pass on any env.
-  - The panel's close does not cancel the server-side run (Tauri invoke has no cancellation in 1.0); replay of finished runs is T13.
-- Automated gates (all green):
-  - `pnpm build` (root) — contract + server + desktop build.
-  - `cargo check` (src-tauri) — Rust side compiles, command macros resolve.
-  - `make test` — full server smoke suite still green.
-- Manual gate (requires a macOS desktop session):
-  - `make run` — trigger the Login case: panel streams 20 events over ~8s and ends PASS; the drift probe ends FAILED with mismatch evidence; the limit probe ends FAILED on `limit:max_steps`.
-- Next up: T13 run detail (replay) — webm player + screenshot timeline + transcript, trace.zip download, re-run.
+- T9 analyze-agent: real-mode `ParsePRD` gRPC wiring (kernel side + tests already exist). Same iteration: real-mode `ReviewCase` wiring (review workflow is mock-only right now).
+- T15 E2E demo script + README (no README yet).
+- T6 leftover: `s3` backend round-trip against the compose `s3` profile SeaweedFS.
 
 ## Blockers
 

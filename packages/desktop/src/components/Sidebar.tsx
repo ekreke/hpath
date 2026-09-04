@@ -88,6 +88,21 @@ function IconSettings() {
   );
 }
 
+const BRAND_TEXT = 'HappyPath';
+const BRAND_STYLES = ['hc-1', 'hc-w', 'hc-w', 'hc-w', 'hc-w', 'hc-7', 'hc-6', 'hc-8', 'hc-5'];
+
+function BrandRainbow() {
+  return (
+    <span className="brand-name">
+      {Array.from(BRAND_TEXT).map((ch, i) => (
+        <span key={i} className={BRAND_STYLES[i]}>
+          {ch}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Sidebar({
   projects,
   selectedProjectId,
@@ -139,9 +154,7 @@ function Sidebar({
   return (
     <aside className="sb">
       <div className="brand">
-        <span style={{ fontSize: 12, transform: 'translateY(-1px)' }}>▲</span>
-        HPath
-        <em>desktop</em>
+        <BrandRainbow />
       </div>
 
       <div className="proj">
