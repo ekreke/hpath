@@ -256,9 +256,7 @@ function CasesView({
         <>
           <div className="ph">
             <div>
-              <h1>
-                {t('cases.title')} <span className="pill">{t('app.mock')}</span>
-              </h1>
+              <h1>{t('cases.title')}</h1>
               <div className="path">{t('cases.subtitle')}</div>
             </div>
           </div>

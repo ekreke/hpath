@@ -1,7 +1,4 @@
 {
-  "app": {
-    "mock": "mock"
-  },
   "common": {
     "back": "Back",
     "cancel": "Cancel",

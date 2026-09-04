@@ -158,9 +158,7 @@ function HistoryView({ appliedServerAddr, projectId, envs, refreshKey, onToast }
     <div className="page-inner">
       <div className="ph">
         <div>
-          <h1>
-            {t('history.title')} <span className="pill">{t('app.mock')}</span>
-          </h1>
+          <h1>{t('history.title')}</h1>
           <div className="path">{t('history.subtitle')}</div>
         </div>
         <div className="btns">

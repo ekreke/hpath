@@ -85,9 +85,7 @@ function PrdView({ projectId, onDraftsCreated, onToast }: PrdViewProps) {
     <div className="page-inner">
       <div className="ph">
         <div>
-          <h1>
-            {t('prd.title')} <span className="pill">{t('app.mock')}</span>
-          </h1>
+          <h1>{t('prd.title')}</h1>
           <div className="path">{t('prd.subtitle')}</div>
         </div>
         <div className="btns">

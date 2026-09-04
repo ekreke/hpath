@@ -344,9 +344,7 @@ function ChatView({ projectId, envs, onToast }: ChatViewProps) {
     <div className="page-inner chat">
       <div className="ph">
         <div>
-          <h1>
-            {t('chat.title')} <span className="pill">{t('app.mock')}</span>
-          </h1>
+          <h1>{t('chat.title')}</h1>
           <div className="path">{t('chat.subtitle')}</div>
         </div>
       </div>
