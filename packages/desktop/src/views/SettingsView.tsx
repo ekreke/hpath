@@ -157,18 +157,18 @@ function SettingsView({
           <h1>{t('settings.title')}</h1>
           <div className="path">{t('settings.subtitle')}</div>
         </div>
-        <div className="btns">
-          <div className="seg" aria-label={t('settings.title')}>
-            {tabs.map(({ id, label }) => (
-              <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
-      {tab === 'models' && (
+      <div className="settings-grid">
+        <aside className="set-nav">
+          {tabs.map(({ id, label }) => (
+            <button key={id} className={tab === id ? 'itm on' : 'itm'} onClick={() => setTab(id)}>
+              {label}
+            </button>
+          ))}
+        </aside>
+        <div className="set-content">
+          {tab === 'models' && (
         <section className="sec">
           <div className="field" style={{ maxWidth: 480 }}>
             <label>{t('settings.defaultModel')}</label>
@@ -250,6 +250,8 @@ function SettingsView({
           </div>
         </section>
       )}
+        </div>
+      </div>
 
       {editorOpen && (
         <div className="overlay" onClick={() => setEditorOpen(false)}>

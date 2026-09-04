@@ -7,6 +7,7 @@ import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
 import HistoryView from './views/HistoryView';
 import PrdView from './views/PrdView';
+import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
 import {
   invokeListEnvs,
@@ -17,6 +18,15 @@ import {
   type Project,
 } from './lib/ipc';
 import { useTranslation } from 'react-i18next';
+
+type ProjectTab = 'cases' | 'history' | 'prd' | 'envs';
+
+const PROJECT_TABS: ProjectTab[] = ['cases', 'history', 'prd', 'envs'];
+
+function initialProjectTab(): ProjectTab {
+  const stored = localStorage.getItem('hpath.projectTab');
+  return PROJECT_TABS.includes(stored as ProjectTab) ? (stored as ProjectTab) : 'cases';
+}
 
 function App() {
   const { t } = useTranslation();
@@ -36,6 +46,34 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem('hpath.sidebarOpen') !== '0',
+  );
+  const [projectTab, setProjectTab] = useState<ProjectTab>(initialProjectTab);
+  const [projectsPage, setProjectsPage] = useState<'list' | 'workspace'>('list');
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      const next = !open;
+      localStorage.setItem('hpath.sidebarOpen', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+
+  const selectProjectTab = useCallback((tab: ProjectTab) => {
+    setProjectTab(tab);
+    localStorage.setItem('hpath.projectTab', tab);
+  }, []);
+
+  const handleSelectView = useCallback((next: ViewId) => {
+    setView(next);
+    if (next === 'projects') setProjectsPage('list');
+  }, []);
+
+  const openProject = useCallback((id: string) => {
+    setSelectedProjectId(id);
+    setProjectsPage('workspace');
+  }, []);
 
   const onToast = useCallback((text: string, error?: boolean) => {
     setToast({ text, error });
@@ -102,10 +140,10 @@ function App() {
 
   const onProjectCreated = useCallback(
     (id: string) => {
-      setSelectedProjectId(id);
       setProjectRefreshKey((k) => k + 1);
+      openProject(id);
     },
-    [],
+    [openProject],
   );
 
   useEffect(() => {
@@ -139,70 +177,102 @@ function App() {
   }, []);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
-  const viewLabel = t(`sidebar.${view === 'prd' ? 'prdDocs' : view === 'history' ? 'runHistory' : view}`);
+  const projectTabs: { id: ProjectTab; label: string; count: number | null }[] = [
+    { id: 'cases', label: t('sidebar.cases'), count: caseCount },
+    { id: 'history', label: t('sidebar.runHistory'), count: null },
+    { id: 'prd', label: t('sidebar.prdDocs'), count: null },
+    { id: 'envs', label: t('sidebar.envs'), count: envs.length },
+  ];
+  const workspace = view === 'projects' && projectsPage === 'workspace' && selectedProjectId !== null;
+  const breadcrumb =
+    view === 'projects' && workspace && selectedProject
+      ? [
+          { label: t('sidebar.projects'), onClick: () => setProjectsPage('list') },
+          { label: selectedProject.name },
+          { label: projectTabs.find((tab) => tab.id === projectTab)?.label ?? '' },
+        ]
+      : [{ label: t(`sidebar.${view}`) }];
 
   return (
-    <div className="shell">
+    <div className={sidebarOpen ? 'shell' : 'shell sb-hidden'}>
       <Sidebar
-        projects={projects}
-        selectedProjectId={selectedProjectId}
         view={view}
         connectionStatus={connectionStatus}
         serverAddr={appliedServerAddr}
-        caseCount={caseCount}
-        envs={envs}
-        selectedEnvId={selectedEnvId}
-        onSelectProject={setSelectedProjectId}
-        onSelectView={setView}
-        onSelectEnv={setSelectedEnvId}
-        onProjectCreated={onProjectCreated}
-        onEnvChanged={refreshEnvs}
-        onToast={onToast}
+        sidebarOpen={sidebarOpen}
+        onSelectView={handleSelectView}
+        onToggleSidebar={toggleSidebar}
       />
       <div className="main">
-        <TopBar
-          projectName={selectedProject?.name ?? null}
-          viewLabel={viewLabel}
-        />
+        <TopBar segments={breadcrumb} />
         <div className="page">
           {view === 'chat' && <ChatView onToast={onToast} />}
-          {view === 'cases' && (
-            <CasesView
-              appliedServerAddr={appliedServerAddr}
-              projectId={selectedProjectId}
-              envs={envs}
-              selectedEnvId={selectedEnvId}
-              refreshKey={refreshKey}
-              onToast={onToast}
-              onCountChange={setCaseCount}
-              onOpenEnvs={() => setView('envs')}
-            />
-          )}
-          {view === 'history' && (
-            <HistoryView
-              appliedServerAddr={appliedServerAddr}
-              projectId={selectedProjectId}
-              envs={envs}
-              refreshKey={refreshKey}
-              onToast={onToast}
-              onProjectInvalidated={handleProjectInvalidated}
-            />
-          )}
-          {view === 'envs' && (
-            <EnvsView
-              projectId={selectedProjectId}
-              envs={envs}
-              onChanged={refreshEnvs}
+          {view === 'projects' && (!workspace ? (
+            <ProjectsView
+              projects={projects}
+              onOpened={openProject}
+              onCreated={onProjectCreated}
               onToast={onToast}
             />
-          )}
-          {view === 'prd' && (
-            <PrdView
-              projectId={selectedProjectId}
-              onDraftsCreated={refreshEnvs}
-              onToast={onToast}
-            />
-          )}
+          ) : (
+            <div className="workspace">
+                <aside className="set-nav">
+                  {projectTabs.map(({ id, label, count }) => (
+                    <button
+                      key={id}
+                      className={projectTab === id ? 'itm on' : 'itm'}
+                      onClick={() => selectProjectTab(id)}
+                    >
+                      {label}
+                      {count !== null && <span className="ct">{count}</span>}
+                    </button>
+                  ))}
+                </aside>
+                <div className="ws-content">
+                  {projectTab === 'cases' && (
+                    <CasesView
+                      appliedServerAddr={appliedServerAddr}
+                      projectId={selectedProjectId}
+                      envs={envs}
+                      selectedEnvId={selectedEnvId}
+                      refreshKey={refreshKey}
+                      onToast={onToast}
+                      onCountChange={setCaseCount}
+                      onOpenEnvs={() => {
+                        setProjectsPage('workspace');
+                        selectProjectTab('envs');
+                      }}
+                      onSelectEnv={setSelectedEnvId}
+                    />
+                  )}
+                  {projectTab === 'history' && (
+                    <HistoryView
+                      appliedServerAddr={appliedServerAddr}
+                      projectId={selectedProjectId}
+                      envs={envs}
+                      refreshKey={refreshKey}
+                      onToast={onToast}
+                      onProjectInvalidated={handleProjectInvalidated}
+                    />
+                  )}
+                  {projectTab === 'prd' && (
+                    <PrdView
+                      projectId={selectedProjectId}
+                      onDraftsCreated={refreshEnvs}
+                      onToast={onToast}
+                    />
+                  )}
+                  {projectTab === 'envs' && (
+                    <EnvsView
+                      projectId={selectedProjectId}
+                      envs={envs}
+                      onChanged={refreshEnvs}
+                      onToast={onToast}
+                    />
+                  )}
+                </div>
+            </div>
+          ))}
           {view === 'settings' && (
             <SettingsView
               onToast={onToast}

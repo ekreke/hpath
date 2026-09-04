@@ -4,6 +4,13 @@ Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; huma
 
 ## Working notes
 
+- Desktop IA & brand overhaul (2026-09-05, desktop-only; no contract/server changes, no SPEC checkbox impact):
+  - Brand: sidebar wordmark is now "HappyPath" (per-character rainbow sampled from the new logo: H purple, "appy" white, "Path" warm ramp); logo assets live in `docs/desigin/` (`logo-dark.png` + previews); Tauri app icons replaced (black rounded square + rainbow H, macOS transparent padding, regenerated icns + png set in `src-tauri/icons/`).
+  - Sidebar: three top-level destinations only — Chat / Projects / Settings (Settings merged into the main nav); the project switcher box is gone; collapse toggle sits in the brand row (collapsed = 48px icon rail, persisted in localStorage); sidebar fonts bumped (brand 18px, items 15px).
+  - Projects page: two-level flow — project list (`views/ProjectsView.tsx`: search + name/repo/created table + create modal) → workspace master-detail (Cases / History / PRD / Envs sub-nav, active tab persisted). TopBar is a segmented breadcrumb; the "Projects" segment is clickable and returns to the list.
+  - Env selection moved from the removed sidebar env tree into the Cases run panel as a Select; env CRUD stays in the workspace Envs tab.
+  - Settings page switched from horizontal seg tabs to the same master-detail sub-nav pattern; global font size +1px (body 14.5px).
+  - Gates: `tsc -b` + `vite build` green. SPEC "Next up" (T9/T15/T6-s3/T18) unaffected.
 - T8 landed (2026-09-04), one pass on `develop`:
   - New `grpc/run-execution.ts`: real-mode `RunCase` (validate APPROVED -> run row RUNNING -> kernel executes `execute-agent` while events stream mapped to proto `Event`, gapless seq; screenshots upload to the artifact store and stream as `screenshot{artifact_id}`; video/trace upload after settle; `runs.finish` writes verdict/tokens/duration/failReason; kernel crash settles a stranded RUNNING run as failed). Real-mode `GetRun` + `DownloadArtifact` (64 KiB chunks) wired too.
   - Kernel hardening found by live acceptance:
@@ -19,6 +26,7 @@ Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; huma
 - T9 analyze-agent: real-mode `ParsePRD` gRPC wiring (kernel side + tests already exist). Same iteration: real-mode `ReviewCase` wiring (review workflow is mock-only right now).
 - T15 E2E demo script + README (no README yet).
 - T6 leftover: `s3` backend round-trip against the compose `s3` profile SeaweedFS.
+- T18 desktop dogfooding (SPEC E section): debug bridge in the desktop app + one seeded dogfood case; schedule after T9/T15.
 
 ## Blockers
 

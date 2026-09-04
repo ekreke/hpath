@@ -21,3 +21,4 @@ Exit criteria: all checkboxes in `docs/1.0/SPEC.md` are complete and the end-to-
 - Failure diagnosis agent that analyzes run evidence and drafts case fixes.
 - Container-per-run execution isolation.
 - Credential injection via environment variables (placeholder syntax in env config).
+- Desktop SUT support beyond the 1.0 dogfood bridge (T18): CDP provider for WebView2/Electron targets, WebDriver/tauri-driver provider if macOS support lands upstream, Accessibility-driven true-window interaction.

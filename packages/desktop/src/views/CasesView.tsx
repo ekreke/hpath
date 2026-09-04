@@ -16,6 +16,7 @@ import {
   type RunEvent,
   type RunResult,
 } from '../lib/ipc';
+import { Select } from '../components/Select';
 import {
   CASE_STATUS,
   REVIEW_ACTION,
@@ -40,6 +41,7 @@ type CasesViewProps = {
   onToast: (text: string, error?: boolean) => void;
   onCountChange: (count: number) => void;
   onOpenEnvs: () => void;
+  onSelectEnv: (id: string | null) => void;
 };
 
 function creatorLabel(kase: Case, t: (key: string) => string): string {
@@ -63,6 +65,7 @@ function CasesView({
   onToast,
   onCountChange,
   onOpenEnvs,
+  onSelectEnv,
 }: CasesViewProps) {
   const { t } = useTranslation();
   const [cases, setCases] = useState<Case[]>([]);
@@ -88,9 +91,6 @@ function CasesView({
   // Ticket guard for openCase: rapid clicks must not let a stale get_case /
   // list_runs response overwrite the detail of a case opened later.
   const caseSeq = useRef(0);
-
-  const selectedEnv = envs.find((e) => e.id === selectedEnvId) ?? null;
-
   useEffect(() => {
     setSelectedCaseId(null);
     setDetail(null);
@@ -496,8 +496,17 @@ function CasesView({
                       <div className="kv" style={{ gridTemplateColumns: '70px 1fr', marginBottom: 12 }}>
                         <div className="k">{t('cases.runEnv')}</div>
                         <div className="v">
-                          {selectedEnv ? (
-                            <span className="badge">{selectedEnv.name}</span>
+                          {envs.length > 0 ? (
+                            <Select
+                              ariaLabel={t('cases.runEnv')}
+                              value={selectedEnvId}
+                              placeholder={t('cases.pickEnv')}
+                              options={envs.map((e) => ({
+                                value: e.id,
+                                label: e.isDefault ? `${e.name} ◆` : e.name,
+                              }))}
+                              onChange={(v) => onSelectEnv(v || null)}
+                            />
                           ) : (
                             <button className="btn sm" onClick={onOpenEnvs}>
                               {t('cases.pickEnv')}

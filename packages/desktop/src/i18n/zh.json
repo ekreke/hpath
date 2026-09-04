@@ -12,7 +12,19 @@
     "connected": "已连接",
     "connecting": "连接中",
     "offline": "离线",
-    "noProject": "未选项目"
+    "noProject": "未选项目",
+    "breadcrumb": "面包屑"
+  },
+  "projects": {
+    "title": "项目",
+    "subtitle": "选择一个项目进入工作区 — 用例、运行、PRD 与环境都在项目下",
+    "search": "搜索项目...",
+    "colName": "名称",
+    "colRepo": "仓库地址",
+    "colCreated": "创建时间",
+    "newProject": "新建项目",
+    "empty": "暂无项目 — 点击右上角新建",
+    "noMatch": "没有匹配的项目"
   },
   "sidebar": {
     "project": "项目",
@@ -23,12 +35,9 @@
     "projectNameRequired": "请填写项目名称",
     "projectCreated": "项目“{{name}}”已创建",
     "repoUrl": "仓库地址（可选）",
-    "env": "环境",
-    "allEnvs": "全部环境",
-    "addEnv": "新建环境",
-    "noEnvs": "暂无环境 — 点击 ＋ 新建",
-    "groupWorkbench": "工作台",
-    "groupConfig": "配置",
+    "collapse": "收起侧边栏",
+    "expand": "展开侧边栏",
+    "projects": "项目",
     "chat": "对话",
     "cases": "用例",
     "runHistory": "运行历史",

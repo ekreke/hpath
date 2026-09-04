@@ -12,7 +12,19 @@
     "connected": "Connected",
     "connecting": "Connecting",
     "offline": "Offline",
-    "noProject": "No project"
+    "noProject": "No project",
+    "breadcrumb": "Breadcrumb"
+  },
+  "projects": {
+    "title": "Projects",
+    "subtitle": "Pick a project to open its workspace — cases, runs, PRDs and envs live under it",
+    "search": "Search projects...",
+    "colName": "Name",
+    "colRepo": "Repository",
+    "colCreated": "Created",
+    "newProject": "New project",
+    "empty": "No projects yet — create one from the top right",
+    "noMatch": "No matching projects"
   },
   "sidebar": {
     "project": "Project",
@@ -23,12 +35,9 @@
     "projectNameRequired": "Project name is required",
     "projectCreated": "Project \"{{name}}\" created",
     "repoUrl": "Repository URL (optional)",
-    "env": "Environment",
-    "allEnvs": "All envs",
-    "addEnv": "New env",
-    "noEnvs": "No envs yet — use ＋ to add",
-    "groupWorkbench": "Workbench",
-    "groupConfig": "Configuration",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "projects": "Projects",
     "chat": "Chat",
     "cases": "Cases",
     "runHistory": "Run history",

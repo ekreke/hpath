@@ -15,7 +15,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T18.**
 
 ---
 
@@ -44,6 +44,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 - [x] **T10 Desktop skeleton**
   Tauri 2 project (src-tauri Rust tonic client + IPC commands; React shell); project/env switchers wired; connection status.
   *Verify: `tauri dev` on macOS lists mock project/envs via Rust gRPC.*
+  Scope note (2026-09): the desktop IA overhaul superseded the sidebar project/env switchers — project selection lives in the Projects page (list → workspace), env selection in the Cases run panel.
 
 - [x] **T11 Management views**
   PRD management (upload/trigger/trace), case list (creator/status/last-run columns), case detail (info + review actions approve/reject/disable, env strip, run history), env management (CRUD), run trigger (approved only).
@@ -62,8 +63,9 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   *Verify: mock runs visible and filterable.*
 
 - [x] **T16 Desktop packaging + release CI**
-  Tauri bundler enabled (macOS `.app` + `.dmg`, unsigned); `make dist` builds the bundle locally. GitHub Actions workflow (`.github/workflows/release.yml`) builds the macOS dmg on release publish and attaches it to the release assets (workflow_dispatch runs the same build as a dry run). Server address is runtime-configurable: a `set_server_addr` IPC command validates and holds the address Rust-side (AppState); the TopBar input + Apply persists it client-side (localStorage) and no command hardcodes it.
+  Tauri bundler enabled (macOS `.app` + `.dmg`, unsigned); `make dist` builds the bundle locally. GitHub Actions workflow (`.github/workflows/release.yml`) builds the macOS dmg on release publish and attaches it to the release assets (workflow_dispatch runs the same build as a dry run). Server address is runtime-configurable: a `set_server_addr` IPC command validates and holds the address Rust-side (AppState); the input + Apply persists it client-side (localStorage) and no command hardcodes it.
   *Verify: `make dist` produces `.app`/`.dmg` under `src-tauri/target/release/bundle/`; publishing a release attaches the dmg; `tauri dev` smoke connects with a custom server address applied from the TopBar.*
+  Scope note (2026-09): the server-address input moved from the TopBar into the Settings view (Server section); the TopBar is breadcrumb-only.
 
 - [x] **T17 Chat / system status view (default home)**
   Conversational landing page (default view on launch). Free-text questions and quick-query chips ("system overview", "what is running now", "recent runs", "case health", "env overview") are answered by the server-side status chat: the LLM answers from a live system snapshot embedded in its system prompt (projects / cases by status / envs / recent runs), streamed as markdown deltas with live token metrics. Sessions are persisted server-side (SQLite): lazy session creation on first question, session switcher with delete in the header, multi-turn context (recent history joins the prompt). This pulls the minimal 1.1 status-agent forward (chat.ts + the `Chat` RPC and the chat-session RPCs in the contract) — the original 1.0 plan (client-side aggregation, no new contract) was superseded.
@@ -115,6 +117,11 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 - [ ] **T15 E2E demo script + README**
   Script: compose up -> parse sample PRD -> review draft -> run case on dev vs staging -> replay run -> browse history. README (English): quickstart, architecture pointer to docs/, env vars (`OPENAI_API_KEY`).
   *Verify: script runs green on a clean checkout.*
+
+- [ ] **T18 Desktop dogfooding — the platform tests its own client**
+  Prove the SUT model generalizes beyond web apps by pointing the execute-agent at HPath's own desktop client (Tauri 2, macOS). Three observation layers, no new ToolProvider required: UI logic via the existing browser provider against the vite dev URL (same code + same server, equivalent rendering); shell state (IPC chain, connectionStatus, selected project/env, run/chat event channels) via a debug-only HTTP bridge inside the desktop app (`#[cfg(debug_assertions)]`, loopback only, command invocation behind an allowlist), reached by the agent through the http provider's allowed origins; true-window visual evidence via macOS window screenshots routed through the artifact store. One seeded dogfood case verifies three-way alignment: PRD rule (apply server address, list the seeded project) <-> frontend display (browser + debug bridge) <-> backend output (gRPC ListProjects).
+  *Verify: debug bridge absent in release builds; the dogfood case ends PASSED with all three sides evidenced; killing and restarting the server flips the bridge-reported connection status offline -> connected.*
+  Scope note: tauri-driver/WebDriver is upstream `[Todo]` for macOS, so true-window interaction automation is out of scope here; a CDP provider for WebView2/Electron targets is a 1.1 candidate (see milestones.md).
 
 ---
 
