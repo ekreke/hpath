@@ -40,7 +40,13 @@ export function buildSystemSnapshot(db: HpathDb): string {
   lines.push(`Projects (${projects.length}): ${projects.map((p) => p.name).join(", ") || "none"}`);
   for (const project of projects) {
     const envs = db.envs.listByProject(project.id);
-    lines.push(`- ${project.name}: envs ${envs.map((e) => e.name).join(", ") || "none"}`);
+    lines.push(`- ${project.name} envs (${envs.length}):`);
+    for (const env of envs) {
+      const vars = Object.keys(env.vars ?? {}).length;
+      lines.push(
+        `    ${env.name}: web ${env.webBaseUrl || "n/a"}, grpc ${env.grpcAddress || "n/a"}, ${vars} vars`,
+      );
+    }
     const cases = db.cases.listByProject(project.id);
     const byStatus = new Map<string, number>();
     for (const kase of cases) {
@@ -50,11 +56,16 @@ export function buildSystemSnapshot(db: HpathDb): string {
     lines.push(
       `  cases (${cases.length}): ${[...byStatus.entries()].map(([label, count]) => `${count} ${label}`).join(", ") || "none"}`,
     );
+    for (const kase of cases) {
+      lines.push(
+        `    ${CASE_STATUS_LABELS[kase.status] ?? "unknown"} — ${kase.title}`,
+      );
+    }
     const runs = db.runs.list({ projectId: project.id }).slice(0, 10);
     if (runs.length > 0) {
       lines.push("  recent runs (newest first):");
-      for (const run of runs.slice(0, 5)) {
-        const env = run.envId;
+      for (const run of runs) {
+        const env = db.envs.get(run.envId)?.name ?? run.envId;
         const kase = (() => {
           try {
             return db.cases.getRequired(run.caseId).title;
@@ -62,8 +73,13 @@ export function buildSystemSnapshot(db: HpathDb): string {
             return run.caseId;
           }
         })();
-        lines.push(`    ${run.startedAt} ${RUN_STATUS_LABELS[run.status] ?? run.status} — ${kase} @ ${env}`);
+        const duration = run.durationMs > 0 ? `${Math.round(run.durationMs / 1000)}s` : "n/a";
+        lines.push(
+          `    ${run.startedAt} ${RUN_STATUS_LABELS[run.status] ?? run.status} — ${kase} @ ${env} (${duration})`,
+        );
       }
+    } else {
+      lines.push("  recent runs: none");
     }
   }
   return lines.join("\n");
@@ -71,6 +87,7 @@ export function buildSystemSnapshot(db: HpathDb): string {
 
 const CHAT_SYSTEM_PROMPT = `You are HPath's assistant: a desktop AI-testing platform that reviews PRDs into cases, runs them with browser agents, and records evidence.
 Answer questions about the current system state concisely using ONLY the snapshot below; never invent projects, cases, runs, or numbers.
+Snapshot format per project: env list (web/grpc endpoints + var count), case count by status followed by one line per case ("<status> — <title>"), and up to 10 recent runs ("<ISO time> <status> — <case> @ <env> (<duration>)", newest first).
 If the snapshot does not contain the answer, say what is missing. Reply in the language of the user's question.
 
 Current system snapshot:

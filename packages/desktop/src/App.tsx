@@ -132,13 +132,7 @@ function App() {
           onSelectEnv={setSelectedEnvId}
         />
         <div className="page">
-          {view === 'chat' && (
-            <ChatView
-              projectId={selectedProjectId}
-              envs={envs}
-              onToast={onToast}
-            />
-          )}
+          {view === 'chat' && <ChatView onToast={onToast} />}
           {view === 'cases' && (
             <CasesView
               appliedServerAddr={appliedServerAddr}

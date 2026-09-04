@@ -10,6 +10,7 @@
 //   - General: UI language toggle (moved here from the top bar).
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Select } from '../components/Select';
 import { invokeGetSettings, invokeUpdateSettings, type AppSettings } from '../lib/ipc';
 
 type SettingsViewProps = {
@@ -171,19 +172,18 @@ function SettingsView({
         <section className="sec">
           <div className="field" style={{ maxWidth: 480 }}>
             <label>{t('settings.defaultModel')}</label>
-            <select
-              value={defaultModel}
-              disabled={busy || models.length === 0}
-              onChange={(e) => void saveDefaultModel(e.target.value)}
-            >
-              {models.length === 0 && <option value="">{t('settings.noModels')}</option>}
-              {models.map(({ providerId, model }) => (
-                <option key={`${providerId}/${model.id}`} value={model.id} disabled={!model.multimodal}>
-                  {model.name ?? model.id}
-                  {!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''}
-                </option>
-              ))}
-            </select>
+            <Select
+              value={defaultModel || null}
+              ariaLabel={t('settings.defaultModel')}
+              placeholder={t('settings.noModels')}
+              disabled={busy}
+              options={models.map(({ model }) => ({
+                value: model.id,
+                label: (model.name ?? model.id) + (!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''),
+                disabled: !model.multimodal,
+              }))}
+              onChange={(v) => void saveDefaultModel(v)}
+            />
             <div className="hint">{t('settings.defaultModelHint')}</div>
           </div>
 
@@ -238,13 +238,15 @@ function SettingsView({
         <section className="sec">
           <div className="field" style={{ maxWidth: 480 }}>
             <label>{t('settings.language')}</label>
-            <select
+            <Select
               value={i18n.language.startsWith('zh') ? 'zh' : 'en'}
-              onChange={(e) => changeLanguage(e.target.value)}
-            >
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-            </select>
+              ariaLabel={t('settings.language')}
+              options={[
+                { value: 'zh', label: '中文' },
+                { value: 'en', label: 'English' },
+              ]}
+              onChange={changeLanguage}
+            />
           </div>
         </section>
       )}
