@@ -7,6 +7,7 @@ import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
 import HistoryView from './views/HistoryView';
 import PrdView from './views/PrdView';
+import SettingsView from './views/SettingsView';
 import {
   invokeListEnvs,
   invokeListProjects,
@@ -180,6 +181,7 @@ function App() {
               onToast={onToast}
             />
           )}
+          {view === 'settings' && <SettingsView onToast={onToast} />}
         </div>
       </div>
       {toast && <Toast text={toast.text} error={toast.error} onDone={() => setToast(null)} />}

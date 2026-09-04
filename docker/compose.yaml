@@ -23,6 +23,8 @@ services:
       HPATH_PORT: 50051
       HPATH_ARTIFACT_STORE: local
       HPATH_ARTIFACT_DIR: /data/artifacts
+      # Persist the model provider settings across container restarts
+      HPATH_SETTINGS_PATH: /data/settings/settings.json
       # Forward-compatible endpoints for T6/T7 (unused by the mock server):
       # SEAWEED_S3_ENDPOINT: http://seaweedfs:8333
       # DEMO_APP_DEV_URL: http://demo-app-dev:8080
@@ -32,6 +34,7 @@ services:
       # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - hpath-artifacts:/data/artifacts
+      - hpath-settings:/data/settings
     ports:
       - "${HPATH_PORT:-50051}:50051"
     healthcheck:
@@ -94,4 +97,5 @@ services:
 
 volumes:
   hpath-artifacts:
+  hpath-settings:
   seaweed-data:

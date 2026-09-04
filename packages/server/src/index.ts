@@ -2,7 +2,8 @@
 //   node dist/index.js --mock            (default) mock mode, in-memory data
 //   node dist/index.js --real            SQLite-backed reads (ListProjects/
 //                                        ListEnvs/ListCases/GetCase, seeded on
-//                                        first boot); other RPCs UNIMPLEMENTED
+//                                        first boot), settings + status chat;
+//                                        other RPCs UNIMPLEMENTED
 //   node dist/index.js --port 50051
 //   node dist/index.js --host 0.0.0.0    bind address (env: HPATH_HOST)
 
@@ -13,6 +14,7 @@ import { startServer } from "./grpc/server.js";
 import type { ServerMode } from "./grpc/hpath.js";
 import { HpathDb, defaultDbPath } from "./db/index.js";
 import { seedDatabase } from "./db/seed.js";
+import { SettingsStore } from "./settings.js";
 
 function parseArgs(argv: string[]): { mode: ServerMode; port: number; host: string } {
   let mode: ServerMode = "mock";
@@ -43,6 +45,7 @@ async function main(): Promise<void> {
 
   let store: MockStore | undefined;
   let db: HpathDb | undefined;
+  let settings: SettingsStore | undefined;
   if (mode === "mock") {
     store = createMockStore();
     seedMockStore(store);
@@ -53,9 +56,12 @@ async function main(): Promise<void> {
     if (seedDatabase(db)) {
       console.log(`[hpath-server] seeded demo data into ${defaultDbPath()}`);
     }
+    // Model provider settings (chat + agents); seeded on first boot.
+    settings = SettingsStore.load();
+    console.log(`[hpath-server] settings loaded from ${process.env.HPATH_SETTINGS_PATH ?? "data/settings.json"}`);
   }
 
-  const server = await startServer({ mode, port, host, store, db });
+  const server = await startServer({ mode, port, host, store, db, settings });
   console.log(`[hpath-server] mode=${mode} listening on ${host}:${server.port}`);
 
   const shutdown = (): void => {

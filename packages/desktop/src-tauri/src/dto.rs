@@ -518,3 +518,57 @@ impl From<&pb::Event> for RunEventDto {
         dto
     }
 }
+
+/// Model provider settings (Settings view): the provider document travels as
+/// an opaque JSON string; the server validates it and the default model.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsDto {
+    pub provider_config_json: String,
+    pub default_model: String,
+}
+
+impl From<&pb::AppSettings> for SettingsDto {
+    fn from(s: &pb::AppSettings) -> Self {
+        SettingsDto {
+            provider_config_json: s.provider_config_json.clone(),
+            default_model: s.default_model.clone(),
+        }
+    }
+}
+
+impl From<SettingsDto> for pb::AppSettings {
+    fn from(s: SettingsDto) -> Self {
+        pb::AppSettings {
+            provider_config_json: s.provider_config_json,
+            default_model: s.default_model,
+        }
+    }
+}
+
+/// Tagged chat event for the webview: one text delta or a terminal error.
+/// Streamed on the `chat-event` channel while `chat` is in flight.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ChatEventDto {
+    #[serde(rename_all = "camelCase")]
+    TextDelta { text: String },
+    #[serde(rename_all = "camelCase")]
+    Error { message: String },
+}
+
+impl From<&pb::ChatResponse> for ChatEventDto {
+    fn from(r: &pb::ChatResponse) -> Self {
+        match &r.kind {
+            Some(pb::chat_response::Kind::TextDelta(delta)) => ChatEventDto::TextDelta {
+                text: delta.clone(),
+            },
+            Some(pb::chat_response::Kind::Error(message)) => ChatEventDto::Error {
+                message: message.clone(),
+            },
+            None => ChatEventDto::Error {
+                message: "empty chat response".to_string(),
+            },
+        }
+    }
+}

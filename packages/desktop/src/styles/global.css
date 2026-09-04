@@ -80,6 +80,8 @@ body {
 .proj .s { font-size: 10.5px; color: var(--faint); margin-top: 2px; font-family: var(--mono); }
 
 .nav { padding: 0 12px 12px; }
+.sb-settings { margin-top: auto; padding: 0 12px 12px; border-top: 1px solid var(--border2); }
+.sb-settings .itm { width: 100%; }
 .nav .g { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint2); padding: 16px 8px 6px; }
 .itm {
   display: flex;

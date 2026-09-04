@@ -230,3 +230,34 @@ export function invokeSaveArtifact(artifactId: string, filename: string): Promis
 export function invokeShowTrace(artifactId: string, runId: string): Promise<string> {
   return invoke<string>('show_trace', { artifactId, runId });
 }
+
+// Model provider settings (Settings view). providerConfigJson is an
+// opencode-style provider document (baseUrl / apiKey / models with a
+// multimodal flag); the server validates the shape and that defaultModel is
+// multimodal-capable, failing with INVALID_ARGUMENT otherwise.
+export type AppSettings = {
+  providerConfigJson: string;
+  defaultModel: string;
+};
+
+export function invokeGetSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>('get_settings');
+}
+
+export function invokeUpdateSettings(settings: AppSettings): Promise<AppSettings> {
+  return invoke<AppSettings>('update_settings', { settings });
+}
+
+// Tagged chat event streamed from the Rust side on the `chat-event` global
+// channel (same pattern as `run-event`): one text delta per message or a
+// terminal error.
+export type ChatEvent =
+  | { kind: 'textDelta'; text: string }
+  | { kind: 'error'; message: string };
+
+// Stream one chat turn against the configured default model; text deltas
+// arrive via the `chat-event` channel and the promise resolves when the
+// server ends the stream.
+export function invokeChat(message: string): Promise<void> {
+  return invoke<void>('chat', { message });
+}

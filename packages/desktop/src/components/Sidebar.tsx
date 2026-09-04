@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { Project } from '../lib/ipc';
 import { invokeCreateProject } from '../lib/ipc';
 
-export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd';
+export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd' | 'settings';
 
 type SidebarProps = {
   projects: Project[];
@@ -67,6 +67,15 @@ function IconRuns() {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
       <circle cx="8" cy="8" r="6" />
       <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
+  );
+}
+
+function IconSettings() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="8" cy="8" r="2.4" />
+      <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4" />
     </svg>
   );
 }
@@ -180,6 +189,16 @@ function Sidebar({
           <span className="ct">{envCount}</span>
         </button>
       </nav>
+
+      <div className="sb-settings">
+        <button
+          className={view === 'settings' ? 'itm on' : 'itm'}
+          onClick={() => onSelectView('settings')}
+        >
+          <IconSettings />
+          {t('sidebar.settings')}
+        </button>
+      </div>
 
       <div className="sbfoot">
         <i className={connectionStatus === 'connected' ? 'ok' : connectionStatus === 'connecting' ? 'warn' : 'err'} />

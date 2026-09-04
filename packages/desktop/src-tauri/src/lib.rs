@@ -12,8 +12,9 @@ pub mod hpath {
 pub mod grpc;
 
 use dto::{
-    ArtifactDto, ArtifactProgressDto, CaseDto, EnvDto, ParseEventDto, ParsePrdResultDto,
-    ProjectDto, RunDetailDto, RunEventDto, RunResultDto, VerdictDto,
+    ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, EnvDto, ParseEventDto,
+    ParsePrdResultDto, ProjectDto, RunDetailDto, RunEventDto, RunResultDto, SettingsDto,
+    VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -80,6 +81,56 @@ async fn create_project(
         .map_err(|e| e.to_string())?;
 
     Ok(ProjectDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get_settings(Request::new(hpath::Empty {}))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(SettingsDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn update_settings(state: State<'_, AppState>, settings: SettingsDto) -> Result<SettingsDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .update_settings(Request::new(settings.into()))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(SettingsDto::from(&response.into_inner()))
+}
+
+/// Stream one chat turn: each gRPC ChatResponse is forwarded to the webview
+/// on the `chat-event` channel (text deltas + terminal errors); the command
+/// resolves with Ok(()) once the stream ends.
+#[tauri::command]
+async fn chat(app: AppHandle, state: State<'_, AppState>, message: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut stream = client
+        .chat(Request::new(hpath::ChatRequest { message }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+
+    while let Some(response) = stream.message().await.map_err(|e| e.to_string())? {
+        let _ = app.emit("chat-event", ChatEventDto::from(&response));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -544,6 +595,9 @@ pub fn run() {
             get_run,
             save_artifact,
             show_trace,
+            get_settings,
+            update_settings,
+            chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

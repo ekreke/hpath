@@ -4,6 +4,9 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { join } from "node:path";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { credentials, makeClientConstructor, status } from "@grpc/grpc-js";
 import {
   CaseStatus,
@@ -22,6 +25,7 @@ import type {
 } from "@hpath/contract";
 import { HpathDb } from "../src/db/index.js";
 import { seedDatabase } from "../src/db/seed.js";
+import { SettingsStore } from "../src/settings.js";
 import { startServer } from "../src/grpc/server.js";
 import type { RunningServer } from "../src/grpc/server.js";
 
@@ -63,7 +67,13 @@ before(async () => {
   projectId = seed!.project.id;
   pendingCaseId = seed!.cases.ordersDraft.id;
 
-  running = await startServer({ mode: "real", port: 0, host: "127.0.0.1", db });
+  // Real mode now also carries a settings store (Get/UpdateSettings + Chat);
+  // load it from a throwaway path so the suite never touches data/.
+  const settingsPath = join(tmpdir(), `hpath-test-settings-${process.pid}.json`);
+  rmSync(settingsPath, { force: true });
+  const settings = SettingsStore.load(settingsPath);
+
+  running = await startServer({ mode: "real", port: 0, host: "127.0.0.1", db, settings });
   client = new (
     makeClientConstructor(HpathService as never, "HpathService") as unknown as {
       new (address: string, credentials: never): TestClient;

@@ -39,7 +39,24 @@
     "prdDocs": "PRD 文档",
     "envs": "环境 Environments",
     "casesView": "用例",
-    "envsView": "环境"
+    "envsView": "环境",
+    "settings": "设置"
+  },
+  "settings": {
+    "title": "设置",
+    "subtitle": "Chat 页面与 agent 共用的模型 Provider 配置",
+    "defaultModel": "默认模型",
+    "defaultModelHint": "仅多模态（支持图片输入）的模型可设为默认——agent 和 chat 需要发送截图。",
+    "notMultimodal": "不支持多模态",
+    "noModels": "尚未配置任何模型",
+    "endpoint": "接入点",
+    "models": "模型列表",
+    "multimodalMark": "支持图片输入",
+    "editProvider": "编辑 Provider JSON",
+    "editTitle": "Provider 配置",
+    "providerJson": "Provider JSON（baseUrl / apiKey / models）",
+    "invalidJson": "JSON 无效：{{reason}}",
+    "saved": "设置已保存"
   },
   "status": {
     "unspecified": "未知",
@@ -210,6 +227,7 @@
     "runSummary": "运行:共 {{total}} 次 · 通过 {{passed}} · 失败 {{failed}} · 运行中 {{running}}",
     "noEnvs": "暂无环境 — 在环境视图创建。",
     "help": "可以问我:运行状态(有哪些任务在跑)、最近运行、用例健康度、环境概览。也可以点击下方快捷按钮。",
+    "modelError": "模型错误",
     "casesApproved": "已批准用例",
     "casesPending": "待评审用例",
     "casesDrafts": "草稿用例",

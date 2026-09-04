@@ -26,6 +26,7 @@ import { RunStatus } from "@hpath/contract";
 import type { AgentEventSink } from "./events.js";
 import { InMemoryEventSink } from "./events.js";
 import { RunEvidence } from "./evidence.js";
+import type { MutableModels } from "@earendil-works/pi-ai";
 import { createCatalogModelResolver, createDefaultModels } from "./model.js";
 import { assertSchema } from "./schema.js";
 import { renderTemplate } from "./template.js";
@@ -92,7 +93,7 @@ export class AgentKernel {
   private readonly streamFn: StreamFn;
   private readonly resolveModel: ModelResolver;
   private readonly now: () => Date;
-  private defaultModels?: Models;
+  private defaultModels?: MutableModels;
 
   constructor(options: AgentKernelOptions) {
     this.agents = options.agents;

@@ -39,7 +39,24 @@
     "prdDocs": "PRD documents",
     "envs": "Environments",
     "casesView": "Cases",
-    "envsView": "Environments"
+    "envsView": "Environments",
+    "settings": "Settings"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Model provider for the chat page and the agents",
+    "defaultModel": "Default model",
+    "defaultModelHint": "Only multimodal (vision) models can be the default — agents and chat send screenshots.",
+    "notMultimodal": "not multimodal",
+    "noModels": "No models configured",
+    "endpoint": "Endpoint",
+    "models": "Models",
+    "multimodalMark": "supports image input",
+    "editProvider": "Edit provider JSON",
+    "editTitle": "Provider configuration",
+    "providerJson": "Provider JSON (baseUrl / apiKey / models)",
+    "invalidJson": "Invalid JSON: {{reason}}",
+    "saved": "Settings saved"
   },
   "status": {
     "unspecified": "unknown",
@@ -210,6 +227,7 @@
     "runSummary": "Runs: {{total}} total · {{passed}} passed · {{failed}} failed · {{running}} running",
     "noEnvs": "No envs yet — create one in the Env view.",
     "help": "Ask me about: running tasks, recent runs, case health, or env overview. Or use the quick buttons below.",
+    "modelError": "Model error",
     "casesApproved": "Approved cases",
     "casesPending": "Pending cases",
     "casesDrafts": "Draft cases",

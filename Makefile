@@ -30,10 +30,12 @@ mock: ## Start mock server in background (log: $(LOG)), wait until healthy
 	@$(MAKE) stop
 	@nohup node packages/server/dist/index.js --mock --port $(PORT) > $(LOG) 2>&1 & \
 	 echo "mock server starting on 127.0.0.1:$(PORT) (pid $$!, log $(LOG))"
-	@sleep 1.5
-	@grpcurl -plaintext 127.0.0.1:$(PORT) list hpath.v1.Hpath > /dev/null 2>&1 \
-		&& echo "healthy: reflection OK" \
-		|| (echo "FAILED to start, log tail:"; tail -5 $(LOG); exit 1)
+	@ok=0; for i in $$(seq 1 15); do \
+	  grpcurl -plaintext 127.0.0.1:$(PORT) list hpath.v1.Hpath > /dev/null 2>&1 && { ok=1; break; }; \
+	  sleep 1; \
+	done; \
+	[ $$ok -eq 1 ] && echo "healthy: reflection OK" \
+	  || (echo "FAILED to start, log tail:"; tail -5 $(LOG); exit 1)
 
 real: ## Start real-mode server in background (SQLite reads from T3; rest UNIMPLEMENTED until T8)
 	@$(MAKE) stop

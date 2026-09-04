@@ -10,8 +10,11 @@ import type {
   ServiceError,
 } from "@grpc/grpc-js";
 import type {
+  AppSettings,
   Case,
   BytesChunk,
+  ChatRequest,
+  ChatResponse,
   HpathServer,
   Event,
   ParseEvent,
@@ -409,6 +412,67 @@ export function createMockHandlers(store: MockStore): HpathServer {
         call.write({ data: Buffer.from(data.buffer, data.byteOffset + offset, length) });
       }
       call.end();
+    },
+
+    // ------------------------------------------------------------------
+    // Settings & chat (mock: in-memory settings, scripted chat answer)
+    // ------------------------------------------------------------------
+    getSettings: (
+      _call: ServerUnaryCall<Empty, AppSettings>,
+      callback: sendUnaryData<AppSettings>,
+    ) => {
+      callback(null, { ...store.settings });
+    },
+
+    updateSettings: (
+      call: ServerUnaryCall<AppSettings, AppSettings>,
+      callback: sendUnaryData<AppSettings>,
+    ) => {
+      try {
+        const next = call.request;
+        // Shape checks only (real mode validates against the full schema):
+        // the JSON must parse and defaultModel must not be empty. Mock mode
+        // has no provider runtime, so multimodal enforcement is a no-op.
+        try {
+          const parsed = JSON.parse(next.providerConfigJson || "{}") as { defaultModel?: unknown };
+          if (!next.defaultModel && typeof parsed.defaultModel !== "string") {
+            throw new Error("defaultModel is required");
+          }
+        } catch (err) {
+          throw grpcError(
+            status.INVALID_ARGUMENT,
+            `invalid settings: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        store.settings = { providerConfigJson: next.providerConfigJson, defaultModel: next.defaultModel };
+        callback(null, { ...store.settings });
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    chat: (call: ServerWritableStream<ChatRequest, ChatResponse>) => {
+      void (async () => {
+        try {
+          const question = call.request.message?.trim();
+          if (!question) {
+            throw grpcError(status.INVALID_ARGUMENT, "message is required");
+          }
+          for (const delta of [
+            `[mock] You asked: “${question}”. `,
+            "In mock mode the chat answers with this canned reply — ",
+            "start the server in real mode with a configured provider key to get live answers. ",
+            "Snapshot: 1 demo project (dev + staging), 5 cases (4 approved, 1 pending), 2 finished sample runs.",
+          ]) {
+            if (call.cancelled) return;
+            call.write({ textDelta: delta });
+            await sleep(120);
+          }
+          call.end();
+        } catch (err) {
+          call.emit("error", err as ServiceError);
+        }
+      })();
     },
   };
 }

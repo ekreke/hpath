@@ -744,6 +744,32 @@ export interface BytesChunk {
 }
 
 /**
+ * Application-level settings. The provider configuration travels as an opaque
+ * JSON document (opencode-style provider descriptors: baseUrl / apiKey /
+ * models with a multimodal flag); the server validates the shape and that the
+ * default model is multimodal-capable.
+ */
+export interface AppSettings {
+  providerConfigJson: string;
+  /** must reference a multimodal model in the config */
+  defaultModel: string;
+}
+
+export interface ChatRequest {
+  /** free-text user question */
+  message: string;
+}
+
+/**
+ * Streamed chat answer. Kept minimal for 1.0 (text deltas + terminal error);
+ * the 1.1 status-agent extends this with structured payloads.
+ */
+export interface ChatResponse {
+  textDelta?: string | undefined;
+  error?: string | undefined;
+}
+
+/**
  * Local empty message. Deliberately not google.protobuf.Empty: proto-loader's
  * reflection pipeline strips cross-file dependencies, which breaks grpcurl
  * against services importing well-known types. A local message keeps the
@@ -5782,6 +5808,255 @@ export const BytesChunk: MessageFns<BytesChunk> = {
   },
 };
 
+function createBaseAppSettings(): AppSettings {
+  return { providerConfigJson: "", defaultModel: "" };
+}
+
+export const AppSettings: MessageFns<AppSettings> = {
+  encode(message: AppSettings, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.providerConfigJson !== "") {
+      writer.uint32(10).string(message.providerConfigJson);
+    }
+    if (message.defaultModel !== "") {
+      writer.uint32(18).string(message.defaultModel);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AppSettings {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAppSettings();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.providerConfigJson = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.defaultModel = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): AppSettings {
+    return {
+      providerConfigJson: isSet(object.providerConfigJson)
+        ? globalThis.String(object.providerConfigJson)
+        : isSet(object.provider_config_json)
+        ? globalThis.String(object.provider_config_json)
+        : "",
+      defaultModel: isSet(object.defaultModel)
+        ? globalThis.String(object.defaultModel)
+        : isSet(object.default_model)
+        ? globalThis.String(object.default_model)
+        : "",
+    };
+  },
+
+  toJSON(message: AppSettings): unknown {
+    const obj: any = {};
+    if (message.providerConfigJson !== "") {
+      obj.providerConfigJson = message.providerConfigJson;
+    }
+    if (message.defaultModel !== "") {
+      obj.defaultModel = message.defaultModel;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AppSettings>, I>>(base?: I): AppSettings {
+    return AppSettings.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AppSettings>, I>>(object: I): AppSettings {
+    const message = createBaseAppSettings();
+    message.providerConfigJson = object.providerConfigJson ?? "";
+    message.defaultModel = object.defaultModel ?? "";
+    return message;
+  },
+};
+
+function createBaseChatRequest(): ChatRequest {
+  return { message: "" };
+}
+
+export const ChatRequest: MessageFns<ChatRequest> = {
+  encode(message: ChatRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.message !== "") {
+      writer.uint32(10).string(message.message);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.message = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatRequest {
+    return { message: isSet(object.message) ? globalThis.String(object.message) : "" };
+  },
+
+  toJSON(message: ChatRequest): unknown {
+    const obj: any = {};
+    if (message.message !== "") {
+      obj.message = message.message;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatRequest>, I>>(base?: I): ChatRequest {
+    return ChatRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatRequest>, I>>(object: I): ChatRequest {
+    const message = createBaseChatRequest();
+    message.message = object.message ?? "";
+    return message;
+  },
+};
+
+function createBaseChatResponse(): ChatResponse {
+  return { textDelta: undefined, error: undefined };
+}
+
+export const ChatResponse: MessageFns<ChatResponse> = {
+  encode(message: ChatResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.textDelta !== undefined) {
+      writer.uint32(10).string(message.textDelta);
+    }
+    if (message.error !== undefined) {
+      writer.uint32(18).string(message.error);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.textDelta = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.error = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatResponse {
+    return {
+      textDelta: isSet(object.textDelta)
+        ? globalThis.String(object.textDelta)
+        : isSet(object.text_delta)
+        ? globalThis.String(object.text_delta)
+        : undefined,
+      error: isSet(object.error) ? globalThis.String(object.error) : undefined,
+    };
+  },
+
+  toJSON(message: ChatResponse): unknown {
+    const obj: any = {};
+    if (message.textDelta !== undefined) {
+      obj.textDelta = message.textDelta;
+    }
+    if (message.error !== undefined) {
+      obj.error = message.error;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatResponse>, I>>(base?: I): ChatResponse {
+    return ChatResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatResponse>, I>>(object: I): ChatResponse {
+    const message = createBaseChatResponse();
+    message.textDelta = object.textDelta ?? undefined;
+    message.error = object.error ?? undefined;
+    return message;
+  },
+};
+
 function createBaseEmpty(): Empty {
   return {};
 }
@@ -5972,6 +6247,43 @@ export const HpathService = {
     responseSerialize: (value: BytesChunk): Buffer => Buffer.from(BytesChunk.encode(value).finish()),
     responseDeserialize: (value: Buffer): BytesChunk => BytesChunk.decode(value),
   },
+  /**
+   * Model provider settings (JSON document + default multimodal model).
+   * UpdateSettings validates the JSON shape and rejects non-multimodal
+   * defaults with INVALID_ARGUMENT.
+   */
+  getSettings: {
+    path: "/hpath.v1.Hpath/GetSettings" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    requestDeserialize: (value: Buffer): Empty => Empty.decode(value),
+    responseSerialize: (value: AppSettings): Buffer => Buffer.from(AppSettings.encode(value).finish()),
+    responseDeserialize: (value: Buffer): AppSettings => AppSettings.decode(value),
+  },
+  updateSettings: {
+    path: "/hpath.v1.Hpath/UpdateSettings" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: AppSettings): Buffer => Buffer.from(AppSettings.encode(value).finish()),
+    requestDeserialize: (value: Buffer): AppSettings => AppSettings.decode(value),
+    responseSerialize: (value: AppSettings): Buffer => Buffer.from(AppSettings.encode(value).finish()),
+    responseDeserialize: (value: Buffer): AppSettings => AppSettings.decode(value),
+  },
+  /**
+   * Free-text status chat answered by the configured LLM (system prompt +
+   * system data snapshot). Streams text deltas; errors surface on the error
+   * branch of ChatResponse.
+   */
+  chat: {
+    path: "/hpath.v1.Hpath/Chat" as const,
+    requestStream: false as const,
+    responseStream: true as const,
+    requestSerialize: (value: ChatRequest): Buffer => Buffer.from(ChatRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ChatRequest => ChatRequest.decode(value),
+    responseSerialize: (value: ChatResponse): Buffer => Buffer.from(ChatResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ChatResponse => ChatResponse.decode(value),
+  },
 } as const;
 
 export interface HpathServer extends UntypedServiceImplementation {
@@ -6005,6 +6317,19 @@ export interface HpathServer extends UntypedServiceImplementation {
    * proxies SeaweedFS).
    */
   downloadArtifact: handleServerStreamingCall<DownloadArtifactRequest, BytesChunk>;
+  /**
+   * Model provider settings (JSON document + default multimodal model).
+   * UpdateSettings validates the JSON shape and rejects non-multimodal
+   * defaults with INVALID_ARGUMENT.
+   */
+  getSettings: handleUnaryCall<Empty, AppSettings>;
+  updateSettings: handleUnaryCall<AppSettings, AppSettings>;
+  /**
+   * Free-text status chat answered by the configured LLM (system prompt +
+   * system data snapshot). Streams text deltas; errors surface on the error
+   * branch of ChatResponse.
+   */
+  chat: handleServerStreamingCall<ChatRequest, ChatResponse>;
 }
 
 function bytesFromBase64(b64: string): Uint8Array {

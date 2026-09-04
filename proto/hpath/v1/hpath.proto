@@ -388,6 +388,32 @@ message BytesChunk {
 }
 
 // ---------------------------------------------------------------------------
+// Settings & chat
+// ---------------------------------------------------------------------------
+
+// Application-level settings. The provider configuration travels as an opaque
+// JSON document (opencode-style provider descriptors: baseUrl / apiKey /
+// models with a multimodal flag); the server validates the shape and that the
+// default model is multimodal-capable.
+message AppSettings {
+  string provider_config_json = 1;
+  string default_model = 2; // must reference a multimodal model in the config
+}
+
+message ChatRequest {
+  string message = 1; // free-text user question
+}
+
+// Streamed chat answer. Kept minimal for 1.0 (text deltas + terminal error);
+// the 1.1 status-agent extends this with structured payloads.
+message ChatResponse {
+  oneof kind {
+    string text_delta = 1;
+    string error = 2;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -425,4 +451,15 @@ service Hpath {
   // Streams artifact bytes in chunks (mock serves synthetic bytes; real impl
   // proxies SeaweedFS).
   rpc DownloadArtifact(DownloadArtifactRequest) returns (stream BytesChunk);
+
+  // Model provider settings (JSON document + default multimodal model).
+  // UpdateSettings validates the JSON shape and rejects non-multimodal
+  // defaults with INVALID_ARGUMENT.
+  rpc GetSettings(Empty) returns (AppSettings);
+  rpc UpdateSettings(AppSettings) returns (AppSettings);
+
+  // Free-text status chat answered by the configured LLM (system prompt +
+  // system data snapshot). Streams text deltas; errors surface on the error
+  // branch of ChatResponse.
+  rpc Chat(ChatRequest) returns (stream ChatResponse);
 }

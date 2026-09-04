@@ -1,13 +1,12 @@
-// Chat / system status view (T17). Default landing page: a conversational
-// interface that answers questions about system state by aggregating the
-// existing gRPC endpoints through the IPC surface. Client-side only in 1.0 —
-// the server-side status-agent (natural-language over the same data) is
-// reserved for 1.1. The Rust side holds the server address, so no command
-// here carries an addr argument.
+// Chat / system status view (T17 + settings chat). Default landing page:
+// quick queries aggregate the existing gRPC endpoints client-side; free-text
+// questions go to the server-side LLM chat (configured in Settings) and the
+// streamed text deltas render into a bot bubble.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
-import { invokeListCases, invokeListEnvs, invokeListRuns } from '../lib/ipc';
+import { invokeChat, invokeListCases, invokeListEnvs, invokeListRuns, type ChatEvent } from '../lib/ipc';
 import { CaseStatusBadge, RunStatusTag } from '../components/Ui';
 import {
   CASE_STATUS,
@@ -30,6 +29,7 @@ type Message = {
   role: 'user' | 'bot';
   text: string;
   kind?: Query;
+  streaming?: boolean;
   cases?: Case[];
   runs?: Run[];
   envs?: Env[];
@@ -165,7 +165,12 @@ function BotMessage({ msg, envs }: { msg: Message; envs: Env[] }) {
     );
   }
 
-  return <p>{msg.text}</p>;
+  return (
+    <p>
+      {msg.text || (msg.streaming ? '…' : '')}
+      {msg.streaming && msg.text ? <span className="dim">▍</span> : null}
+    </p>
+  );
 }
 
 function ChatView({ projectId, envs, onToast }: ChatViewProps) {
@@ -281,6 +286,47 @@ function ChatView({ projectId, envs, onToast }: ChatViewProps) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Free-text questions go to the server-side LLM chat: text deltas stream on
+  // the `chat-event` channel and render into a single bot bubble.
+  const askModel = useCallback(
+    async (text: string) => {
+      push({ id: nextId++, role: 'user', text });
+      setBusy(true);
+      const botId = nextId++;
+      push({ id: botId, role: 'bot', text: '', streaming: true });
+      const append = (patch: Partial<Message>) =>
+        setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, ...patch } : m)));
+      let active = true;
+      const unlisten = await listen<ChatEvent>('chat-event', (e) => {
+        if (!active) return;
+        const ev = e.payload;
+        if (ev.kind === 'textDelta') {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === botId ? { ...m, text: m.text + ev.text } : m)),
+          );
+        } else {
+          append({
+            streaming: false,
+            text: `${t('chat.modelError')}: ${ev.message}`,
+          });
+        }
+      });
+      try {
+        await invokeChat(text);
+      } catch (err) {
+        append({ streaming: false, text: String(err) });
+        onToast(String(err), true);
+      } finally {
+        active = false;
+        unlisten();
+        append({ streaming: false });
+        setBusy(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [push, onToast],
+  );
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
@@ -290,8 +336,7 @@ function ChatView({ projectId, envs, onToast }: ChatViewProps) {
     if (query) {
       void runQuery(query, text);
     } else {
-      push({ id: nextId++, role: 'user', text });
-      push({ id: nextId++, role: 'bot', text: t('chat.help') });
+      void askModel(text);
     }
   };
 

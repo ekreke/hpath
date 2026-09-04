@@ -1,15 +1,24 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
 // and the real one (SQLite-backed). Real mode serves the minimal read path
-// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3) plus project
-// creation (CreateProject, T5 repository); every other method reports
-// UNIMPLEMENTED until its wiring task lands (runs/artifacts in T8, PRD parse
-// in later tasks).
+// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3), project
+// creation (CreateProject, T5 repository), model settings (Get/UpdateSettings
+// over the settings.ts JSON document) and status chat (Chat via the
+// configured provider, chat.ts). Every other method reports UNIMPLEMENTED
+// until its wiring task lands (runs/artifacts in T8, PRD parse later).
 
 import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
-import type { sendUnaryData, ServerUnaryCall, ServiceError } from "@grpc/grpc-js";
 import type {
+  sendUnaryData,
+  ServerUnaryCall,
+  ServerWritableStream,
+  ServiceError,
+} from "@grpc/grpc-js";
+import type {
+  AppSettings,
   Case,
+  ChatRequest,
+  ChatResponse,
   CreateProjectRequest,
   GetCaseRequest,
   HpathServer,
@@ -22,6 +31,8 @@ import type {
 } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
+import { ChatService } from "../chat.js";
+import { InvalidSettingsError, parseSettingsJson, type SettingsStore } from "../settings.js";
 import {
   ConflictError,
   ForeignKeyError,
@@ -36,7 +47,7 @@ export type ServerMode = "mock" | "real";
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase over SQLite — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/GetSettings/UpdateSettings/Chat — start with --mock for the full contract",
   );
 }
 
@@ -61,6 +72,9 @@ function createUnimplementedHandlers(): HpathServer {
     listRuns: unary,
     getRun: unary,
     downloadArtifact: streaming,
+    getSettings: unary,
+    updateSettings: unary,
+    chat: streaming,
   } as unknown as HpathServer;
 }
 
@@ -89,11 +103,13 @@ function toGrpcError(err: unknown): ServiceError {
 }
 
 /**
- * Real-mode handlers: the minimal SQLite read path (T3) plus CreateProject
- * (T5 repository). Runs and artifact streaming stay UNIMPLEMENTED until their
+ * Real-mode handlers: the minimal SQLite read path (T3), CreateProject (T5
+ * repository), model settings (settings.ts JSON document) and status chat
+ * (chat.ts). Runs and artifact streaming stay UNIMPLEMENTED until their
  * wiring tasks.
  */
-function createRealHandlers(db: HpathDb): HpathServer {
+function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
+  const chat = new ChatService(db, settings);
   return {
     ...createUnimplementedHandlers(),
 
@@ -127,6 +143,50 @@ function createRealHandlers(db: HpathDb): HpathServer {
       } catch (err) {
         callback(toGrpcError(err));
       }
+    },
+
+    getSettings: (
+      _call: ServerUnaryCall<Record<string, never>, AppSettings>,
+      callback: sendUnaryData<AppSettings>,
+    ): void => {
+      const doc = settings.get();
+      callback(null, {
+        providerConfigJson: JSON.stringify(doc, null, 2),
+        defaultModel: doc.defaultModel,
+      });
+    },
+
+    updateSettings: (
+      call: ServerUnaryCall<AppSettings, AppSettings>,
+      callback: sendUnaryData<AppSettings>,
+    ): void => {
+      try {
+        const saved = settings.update(parseSettingsJson(call.request.providerConfigJson, call.request.defaultModel));
+        callback(null, {
+          providerConfigJson: JSON.stringify(saved, null, 2),
+          defaultModel: saved.defaultModel,
+        });
+      } catch (err) {
+        if (err instanceof InvalidSettingsError) {
+          callback(grpcError(status.INVALID_ARGUMENT, err.message));
+          return;
+        }
+        callback(toGrpcError(err));
+      }
+    },
+
+    chat: (call: ServerWritableStream<ChatRequest, ChatResponse>): void => {
+      void (async () => {
+        try {
+          for await (const response of chat.respond(call.request.message)) {
+            if (call.cancelled) return;
+            call.write(response);
+          }
+          call.end();
+        } catch (err) {
+          call.emit("error", toGrpcError(err));
+        }
+      })();
     },
 
     listEnvs: (
@@ -172,6 +232,7 @@ export function createHpathService(
   mode: ServerMode,
   store?: MockStore,
   db?: HpathDb,
+  settings?: SettingsStore,
 ): HpathServer {
   if (mode === "mock") {
     if (!store) {
@@ -182,5 +243,8 @@ export function createHpathService(
   if (!db) {
     throw new Error("real mode requires a database (HpathDb)");
   }
-  return createRealHandlers(db);
+  if (!settings) {
+    throw new Error("real mode requires a settings store (SettingsStore)");
+  }
+  return createRealHandlers(db, settings);
 }
