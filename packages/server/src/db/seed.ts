@@ -138,6 +138,7 @@ function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
     grpcAddress: "localhost:9091",
     vars: { region: "local" },
     credentials: { account: "test/123456" },
+    isDefault: true,
   };
   const staging: Env = {
     id: randomUUID(),
@@ -147,6 +148,7 @@ function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
     grpcAddress: "localhost:9092",
     vars: { region: "staging" },
     credentials: { account: "qa/abcdef" },
+    isDefault: false,
   };
   db.envs.create(dev);
   db.envs.create(staging);

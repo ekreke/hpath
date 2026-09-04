@@ -89,8 +89,10 @@ function App() {
         const list = await invokeListEnvs(selectedProjectId);
         if (cancelled) return;
         setEnvs(list);
+        // Keep a valid selection; otherwise fall back to the project's
+        // default env so cases are runnable out of the box.
         setSelectedEnvId((prev) =>
-          prev && list.some((e) => e.id === prev) ? prev : null,
+          prev && list.some((e) => e.id === prev) ? prev : (list.find((e) => e.isDefault)?.id ?? null),
         );
       } catch {
         if (!cancelled) setEnvs([]);
@@ -117,19 +119,19 @@ function App() {
         connectionStatus={connectionStatus}
         serverAddr={appliedServerAddr}
         caseCount={caseCount}
-        envCount={envs.length}
+        envs={envs}
+        selectedEnvId={selectedEnvId}
         onSelectProject={setSelectedProjectId}
         onSelectView={setView}
+        onSelectEnv={setSelectedEnvId}
         onProjectCreated={onProjectCreated}
+        onEnvChanged={refreshEnvs}
         onToast={onToast}
       />
       <div className="main">
         <TopBar
           projectName={selectedProject?.name ?? null}
           viewLabel={viewLabel}
-          envs={envs}
-          selectedEnvId={selectedEnvId}
-          onSelectEnv={setSelectedEnvId}
         />
         <div className="page">
           {view === 'chat' && <ChatView onToast={onToast} />}

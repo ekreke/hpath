@@ -30,6 +30,7 @@ export function makeEnv(project: Project, overrides: Partial<Env> = {}): Env {
     grpcAddress: "localhost:9091",
     vars: { region: "local" },
     credentials: { account: "test/123456" },
+    isDefault: false,
     ...overrides,
   };
 }

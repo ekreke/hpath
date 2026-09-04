@@ -114,6 +114,7 @@ pub struct EnvDto {
     pub grpc_address: String,
     pub vars: std::collections::HashMap<String, String>,
     pub credentials: std::collections::HashMap<String, String>,
+    pub is_default: bool,
 }
 
 impl From<&pb::Env> for EnvDto {
@@ -126,6 +127,7 @@ impl From<&pb::Env> for EnvDto {
             grpc_address: e.grpc_address.clone(),
             vars: e.vars.clone(),
             credentials: e.credentials.clone(),
+            is_default: e.is_default,
         }
     }
 }
@@ -140,6 +142,7 @@ impl From<EnvDto> for pb::Env {
             grpc_address: e.grpc_address,
             vars: e.vars,
             credentials: e.credentials,
+            is_default: e.is_default,
         }
     }
 }

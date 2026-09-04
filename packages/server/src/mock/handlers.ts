@@ -64,6 +64,15 @@ function requireProject(store: MockStore, projectId: string): Project {
   return project;
 }
 
+/** Clear the default flag on every env of a project (keepId stays default). */
+function clearProjectDefault(store: MockStore, projectId: string, keepId?: string): void {
+  for (const env of store.envs.values()) {
+    if (env.projectId === projectId && env.isDefault && env.id !== keepId) {
+      store.envs.set(env.id, { ...env, isDefault: false });
+    }
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -137,7 +146,13 @@ export function createMockHandlers(store: MockStore): HpathServer {
         }
         requireProject(store, env.projectId);
         if (env.id === "") {
-          const created: Env = { ...env, id: randomUUID() };
+          // The first env of a project becomes the default automatically.
+          const wantsDefault =
+            env.isDefault || ![...store.envs.values()].some((e) => e.projectId === env.projectId && e.isDefault);
+          if (wantsDefault) {
+            clearProjectDefault(store, env.projectId);
+          }
+          const created: Env = { ...env, id: randomUUID(), isDefault: wantsDefault };
           store.envs.set(created.id, created);
           callback(null, created);
           return;
@@ -145,6 +160,9 @@ export function createMockHandlers(store: MockStore): HpathServer {
         const existing = store.envs.get(env.id);
         if (!existing) {
           throw grpcError(status.NOT_FOUND, `env not found: ${env.id}`);
+        }
+        if (env.isDefault) {
+          clearProjectDefault(store, env.projectId, env.id);
         }
         const updated: Env = { ...env };
         store.envs.set(updated.id, updated);
@@ -169,6 +187,16 @@ export function createMockHandlers(store: MockStore): HpathServer {
           throw grpcError(status.ALREADY_EXISTS, "env has runs and cannot be deleted");
         }
         store.envs.delete(envId);
+        // Deleting the default env promotes the project's next env by name,
+        // mirroring the SQLite repository.
+        if (env.isDefault) {
+          const next = [...store.envs.values()]
+            .filter((e) => e.projectId === env.projectId)
+            .sort((a, b) => a.name.localeCompare(b.name))[0];
+          if (next) {
+            store.envs.set(next.id, { ...next, isDefault: true });
+          }
+        }
         callback(null, Empty.create());
       } catch (err) {
         callback(err as ServiceError);

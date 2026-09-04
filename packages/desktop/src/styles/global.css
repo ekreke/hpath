@@ -71,6 +71,29 @@ body {
 .sb-settings { margin-top: auto; padding: 0 12px 12px; border-top: 1px solid var(--border2); }
 .sb-settings .itm { width: 100%; }
 .nav .g { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint2); padding: 16px 8px 6px; }
+
+/* Env tree: the project's envs nested under the project box (hierarchy
+   project → env). The head row carries the quick-create button. */
+.envtree { padding-top: 0; }
+.envtree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+}
+.envtree-head .btn { line-height: 16px; padding: 0 6px; }
+.envtree .itm { font-size: 12.5px; padding: 5px 8px; }
+.envtree .envnode { padding-left: 22px; }
+.envtree .envnode .envdot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: 0 0 auto;
+}
+.envtree .envnode.on .envdot { background: var(--w); }
+.envtree .envempty { font-size: 11.5px; color: var(--faint2); padding: 2px 8px 4px 22px; }
+
 .itm {
   display: flex;
   align-items: center;

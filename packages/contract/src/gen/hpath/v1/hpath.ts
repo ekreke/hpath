@@ -432,6 +432,12 @@ export interface Env {
   vars: { [key: string]: string };
   /** plaintext in 1.0 spike */
   credentials: { [key: string]: string };
+  /**
+   * Project-scoped default env: at most one per project (enforced by a
+   * partial unique index in SQLite). The first env of a project becomes the
+   * default automatically; deleting the default promotes the next env.
+   */
+  isDefault: boolean;
 }
 
 export interface Env_VarsEntry {
@@ -1031,7 +1037,16 @@ export const Project: MessageFns<Project> = {
 };
 
 function createBaseEnv(): Env {
-  return { id: "", projectId: "", name: "", webBaseUrl: "", grpcAddress: "", vars: {}, credentials: {} };
+  return {
+    id: "",
+    projectId: "",
+    name: "",
+    webBaseUrl: "",
+    grpcAddress: "",
+    vars: {},
+    credentials: {},
+    isDefault: false,
+  };
 }
 
 export const Env: MessageFns<Env> = {
@@ -1057,6 +1072,9 @@ export const Env: MessageFns<Env> = {
     globalThis.Object.entries(message.credentials).forEach(([key, value]: [string, string]) => {
       Env_CredentialsEntry.encode({ key: key as any, value }, writer.uint32(58).fork()).join();
     });
+    if (message.isDefault !== false) {
+      writer.uint32(64).bool(message.isDefault);
+    }
     return writer;
   },
 
@@ -1135,6 +1153,14 @@ export const Env: MessageFns<Env> = {
             }
             continue;
           }
+          case 8: {
+            if (tag !== 64) {
+              break;
+            }
+
+            message.isDefault = reader.bool();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -1194,6 +1220,11 @@ export const Env: MessageFns<Env> = {
           {},
         )
         : {},
+      isDefault: isSet(object.isDefault)
+        ? globalThis.Boolean(object.isDefault)
+        : isSet(object.is_default)
+        ? globalThis.Boolean(object.is_default)
+        : false,
     };
   },
 
@@ -1232,6 +1263,9 @@ export const Env: MessageFns<Env> = {
         });
       }
     }
+    if (message.isDefault !== false) {
+      obj.isDefault = message.isDefault;
+    }
     return obj;
   },
 
@@ -1263,6 +1297,7 @@ export const Env: MessageFns<Env> = {
       },
       {},
     );
+    message.isDefault = object.isDefault ?? false;
     return message;
   },
 };

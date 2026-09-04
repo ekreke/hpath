@@ -29,6 +29,7 @@ export function seedMockStore(store: MockStore): void {
     grpcAddress: "localhost:9091",
     vars: { region: "local" },
     credentials: { account: "test/123456" },
+    isDefault: true,
   };
   const staging: Env = {
     id: randomUUID(),
@@ -38,6 +39,7 @@ export function seedMockStore(store: MockStore): void {
     grpcAddress: "localhost:9092",
     vars: { region: "staging" },
     credentials: { account: "qa/abcdef" },
+    isDefault: false,
   };
   store.envs.set(dev.id, dev);
   store.envs.set(staging.id, staging);

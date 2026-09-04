@@ -12,7 +12,6 @@
     "connected": "已连接",
     "connecting": "连接中",
     "offline": "离线",
-    "allEnvs": "全部环境",
     "noProject": "未选项目"
   },
   "sidebar": {
@@ -25,6 +24,9 @@
     "projectCreated": "项目“{{name}}”已创建",
     "repoUrl": "仓库地址（可选）",
     "env": "环境",
+    "allEnvs": "全部环境",
+    "addEnv": "新建环境",
+    "noEnvs": "暂无环境 — 点击 ＋ 新建",
     "groupWorkbench": "工作台",
     "groupConfig": "配置",
     "chat": "Chat",
@@ -197,7 +199,11 @@
     "created": "环境已创建",
     "saved": "环境已保存",
     "deleted": "已删除环境 {{name}}",
-    "empty": "暂无环境 — 点击右上角新建"
+    "empty": "暂无环境 — 点击右上角新建",
+    "colDefault": "默认",
+    "defaultMark": "默认",
+    "setDefault": "设为默认",
+    "defaultSet": "已将 {{name}} 设为默认环境"
   },
   "prd": {
     "title": "PRD 文档",

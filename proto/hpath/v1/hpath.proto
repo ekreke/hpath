@@ -116,6 +116,10 @@ message Env {
   string grpc_address = 5;
   map<string, string> vars = 6;        // free-form variables injected into agent context
   map<string, string> credentials = 7; // plaintext in 1.0 spike
+  // Project-scoped default env: at most one per project (enforced by a
+  // partial unique index in SQLite). The first env of a project becomes the
+  // default automatically; deleting the default promotes the next env.
+  bool is_default = 8;
 }
 
 // One three-way alignment declaration of a case.

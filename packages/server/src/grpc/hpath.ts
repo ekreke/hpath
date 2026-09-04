@@ -20,6 +20,8 @@ import type {
   ChatRequest,
   ChatResponse,
   CreateProjectRequest,
+  DeleteEnvRequest,
+  Env,
   GetCaseRequest,
   HpathServer,
   ListCasesRequest,
@@ -28,7 +30,9 @@ import type {
   ListEnvsResponse,
   ListProjectsResponse,
   Project,
+  UpsertEnvRequest,
 } from "@hpath/contract";
+import { Empty } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
@@ -196,6 +200,38 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
       try {
         db.projects.getRequired(call.request.projectId);
         callback(null, { envs: db.envs.listByProject(call.request.projectId) });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    upsertEnv: (
+      call: ServerUnaryCall<UpsertEnvRequest, Env>,
+      callback: sendUnaryData<Env>,
+    ): void => {
+      try {
+        const env = call.request.env;
+        if (!env) {
+          throw grpcError(status.INVALID_ARGUMENT, "env is required");
+        }
+        if (env.id === "") {
+          db.projects.getRequired(env.projectId);
+          callback(null, db.envs.create({ ...env, id: randomUUID() }));
+          return;
+        }
+        callback(null, db.envs.update(env));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    deleteEnv: (
+      call: ServerUnaryCall<DeleteEnvRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ): void => {
+      try {
+        db.envs.delete(call.request.envId);
+        callback(null, Empty.create());
       } catch (err) {
         callback(toGrpcError(err));
       }

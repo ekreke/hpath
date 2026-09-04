@@ -149,6 +149,27 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX idx_artifacts_run_key ON artifacts(run_id, key);
     `,
   },
+  {
+    name: "0003_envs_is_default",
+    sql: `
+      -- Project-scoped default env flag. At most one env per project may be
+      -- the default (partial unique index below); existing databases are
+      -- backfilled by promoting each project's first env by name.
+      ALTER TABLE envs ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+
+      UPDATE envs
+      SET is_default = 1
+      WHERE id = (
+        SELECT id FROM envs AS e
+        WHERE e.project_id = envs.project_id
+        ORDER BY e.name
+        LIMIT 1
+      );
+
+      CREATE UNIQUE INDEX idx_envs_default_per_project
+        ON envs(project_id) WHERE is_default = 1;
+    `,
+  },
 ];
 
 function nowIso(): string {

@@ -77,11 +77,82 @@ describe("EnvRepository", () => {
       const project = makeProject();
       db.projects.create(project);
       const env = makeEnv(project, {
+        isDefault: true,
         vars: { region: "staging", tier: "qa" },
         credentials: { account: "qa/abcdef" },
       });
       db.envs.create(env);
       assert.deepEqual(db.envs.getRequired(env.id), env);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("makes the project's first env the default automatically", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const first = db.envs.create(makeEnv(project, { name: "dev" }));
+      const second = db.envs.create(makeEnv(project, { name: "staging" }));
+      assert.equal(first.isDefault, true);
+      assert.equal(second.isDefault, false);
+      assert.deepEqual(
+        db.envs.listByProject(project.id).map((e) => e.isDefault),
+        [true, false],
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps at most one default per project when switching via update", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      db.envs.create(makeEnv(project, { name: "dev" }));
+      const staging = db.envs.create(makeEnv(project, { name: "staging" }));
+      db.envs.update({ ...staging, isDefault: true });
+      assert.deepEqual(
+        db.envs.listByProject(project.id).map((e) => e.isDefault),
+        [false, true],
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("defaults stay independent across projects", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const p1 = makeProject();
+      const p2 = makeProject();
+      db.projects.create(p1);
+      db.projects.create(p2);
+      db.envs.create(makeEnv(p1, { name: "dev" }));
+      db.envs.create(makeEnv(p2, { name: "prod" }));
+      assert.equal(db.envs.listByProject(p1.id)[0]!.isDefault, true);
+      assert.equal(db.envs.listByProject(p2.id)[0]!.isDefault, true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("deleting the default env promotes the next env by name", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      db.envs.create(makeEnv(project, { name: "alpha", isDefault: true }));
+      db.envs.create(makeEnv(project, { name: "zeta" }));
+      db.envs.create(makeEnv(project, { name: "mid" }));
+      const alpha = db.envs.listByProject(project.id).find((e) => e.name === "alpha")!;
+      db.envs.delete(alpha.id);
+      assert.deepEqual(
+        db.envs.listByProject(project.id).map((e) => [e.name, e.isDefault]),
+        [["mid", true], ["zeta", false]],
+      );
     } finally {
       db.close();
     }

@@ -1,9 +1,13 @@
-// Left sidebar: brand, project switcher (+ create), view navigation, connection footer.
+// Left sidebar: brand, project switcher (+ create), the project's env tree
+// (hierarchy: project → envs, with quick-create), view navigation, and the
+// connection footer. Env selection here replaces the old top-bar segment
+// switcher; full env CRUD stays in the Envs view.
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Project } from '../lib/ipc';
+import type { Env, Project } from '@hpath/contract';
 import { invokeCreateProject } from '../lib/ipc';
 import { Select } from './Select';
+import EnvFormModal from './EnvFormModal';
 
 export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd' | 'settings';
 
@@ -14,10 +18,13 @@ type SidebarProps = {
   connectionStatus: 'connected' | 'connecting' | 'offline';
   serverAddr: string;
   caseCount: number;
-  envCount: number;
+  envs: Env[];
+  selectedEnvId: string | null;
   onSelectProject: (id: string | null) => void;
   onSelectView: (view: ViewId) => void;
+  onSelectEnv: (id: string | null) => void;
   onProjectCreated: (id: string) => void;
+  onEnvChanged: () => void;
   onToast: (text: string, error?: boolean) => void;
 };
 
@@ -88,10 +95,13 @@ function Sidebar({
   connectionStatus,
   serverAddr,
   caseCount,
-  envCount,
+  envs,
+  selectedEnvId,
   onSelectProject,
   onSelectView,
+  onSelectEnv,
   onProjectCreated,
+  onEnvChanged,
   onToast,
 }: SidebarProps) {
   const { t } = useTranslation();
@@ -99,6 +109,7 @@ function Sidebar({
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
+  const [envCreateOpen, setEnvCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const openCreate = () => {
@@ -157,6 +168,40 @@ function Sidebar({
         </div>
       </div>
 
+      {selectedProjectId && (
+        <div className="nav envtree">
+          <div className="g envtree-head">
+            {t('sidebar.env')}
+            <button
+              className="btn sm ghost"
+              aria-label={t('sidebar.addEnv')}
+              title={t('sidebar.addEnv')}
+              onClick={() => setEnvCreateOpen(true)}
+            >
+              ＋
+            </button>
+          </div>
+          <button
+            className={!selectedEnvId ? 'itm on' : 'itm'}
+            onClick={() => onSelectEnv(null)}
+          >
+            {t('sidebar.allEnvs')}
+          </button>
+          {envs.map((env) => (
+            <button
+              key={env.id}
+              className={selectedEnvId === env.id ? 'itm envnode on' : 'itm envnode'}
+              onClick={() => onSelectEnv(env.id)}
+            >
+              <span className="envdot" title={env.isDefault ? t('envs.defaultMark') : undefined} />
+              {env.name}
+              {env.isDefault && <span className="ct">◆</span>}
+            </button>
+          ))}
+          {envs.length === 0 && <div className="envempty">{t('sidebar.noEnvs')}</div>}
+        </div>
+      )}
+
       <nav className="nav">
         <div className="g">{t('sidebar.groupWorkbench')}</div>
         <button className={view === 'chat' ? 'itm on' : 'itm'} onClick={() => onSelectView('chat')}>
@@ -183,7 +228,7 @@ function Sidebar({
         <button className={view === 'envs' ? 'itm on' : 'itm'} onClick={() => onSelectView('envs')}>
           <IconEnvs />
           {t('sidebar.envs')}
-          <span className="ct">{envCount}</span>
+          <span className="ct">{envs.length}</span>
         </button>
       </nav>
 
@@ -236,6 +281,20 @@ function Sidebar({
             </div>
           </div>
         </div>
+      )}
+
+      {envCreateOpen && selectedProjectId && (
+        <EnvFormModal
+          projectId={selectedProjectId}
+          env={null}
+          onSaved={(env) => {
+            setEnvCreateOpen(false);
+            onEnvChanged();
+            onSelectEnv(env.id);
+          }}
+          onClose={() => setEnvCreateOpen(false)}
+          onToast={onToast}
+        />
       )}
     </aside>
   );

@@ -12,7 +12,6 @@
     "connected": "Connected",
     "connecting": "Connecting",
     "offline": "Offline",
-    "allEnvs": "All envs",
     "noProject": "No project"
   },
   "sidebar": {
@@ -25,6 +24,9 @@
     "projectCreated": "Project \"{{name}}\" created",
     "repoUrl": "Repository URL (optional)",
     "env": "Environment",
+    "allEnvs": "All envs",
+    "addEnv": "New env",
+    "noEnvs": "No envs yet — use ＋ to add",
     "groupWorkbench": "Workbench",
     "groupConfig": "Configuration",
     "chat": "Chat",
@@ -197,7 +199,11 @@
     "created": "Env created",
     "saved": "Env saved",
     "deleted": "Deleted env {{name}}",
-    "empty": "No envs yet — create one top-right"
+    "empty": "No envs yet — create one top-right",
+    "colDefault": "Default",
+    "defaultMark": "default",
+    "setDefault": "Set default",
+    "defaultSet": "{{name}} is now the default env"
   },
   "prd": {
     "title": "PRD documents",
