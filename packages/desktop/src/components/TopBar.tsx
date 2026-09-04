@@ -1,4 +1,5 @@
-// Top bar: breadcrumb, env segment switcher, server address, language toggle.
+// Top bar: breadcrumb, env segment switcher. Server address and language
+// moved to the Settings view (models / server / general sub-tabs).
 import { useTranslation } from 'react-i18next';
 import type { Env } from '../lib/ipc';
 
@@ -7,29 +8,11 @@ type TopBarProps = {
   viewLabel: string;
   envs: Env[];
   selectedEnvId: string | null;
-  serverAddr: string;
   onSelectEnv: (id: string | null) => void;
-  onServerAddrChange: (addr: string) => void;
-  onApply: () => void;
 };
 
-function TopBar({
-  projectName,
-  viewLabel,
-  envs,
-  selectedEnvId,
-  serverAddr,
-  onSelectEnv,
-  onServerAddrChange,
-  onApply,
-}: TopBarProps) {
-  const { t, i18n } = useTranslation();
-
-  const toggleLanguage = () => {
-    const next = i18n.language === 'en' ? 'zh' : 'en';
-    i18n.changeLanguage(next);
-    localStorage.setItem('hpath.lang', next);
-  };
+function TopBar({ projectName, viewLabel, envs, selectedEnvId, onSelectEnv }: TopBarProps) {
+  const { t } = useTranslation();
 
   return (
     <header className="tb">
@@ -54,22 +37,6 @@ function TopBar({
             </button>
           ))}
         </div>
-        <input
-          className="inline-input"
-          style={{ width: 170 }}
-          aria-label={t('topbar.serverAddress')}
-          value={serverAddr}
-          onChange={(e) => onServerAddrChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onApply();
-          }}
-        />
-        <button className="btn sm ghost" onClick={onApply}>
-          {t('topbar.apply')}
-        </button>
-        <button className="btn sm ghost" onClick={toggleLanguage}>
-          {t('topbar.language')}
-        </button>
       </div>
     </header>
   );

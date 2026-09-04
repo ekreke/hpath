@@ -12,9 +12,6 @@
     "connected": "已连接",
     "connecting": "连接中",
     "offline": "离线",
-    "serverAddress": "服务器地址",
-    "apply": "应用",
-    "language": "EN",
     "allEnvs": "全部环境",
     "noProject": "未选项目"
   },
@@ -41,7 +38,10 @@
   },
   "settings": {
     "title": "设置",
-    "subtitle": "Chat 页面与 agent 共用的模型 Provider 配置",
+    "subtitle": "模型、服务器与界面偏好 — Chat 页面与 agent 共用",
+    "tabModels": "模型设置",
+    "tabServer": "服务器设置",
+    "tabGeneral": "通用设置",
     "defaultModel": "默认模型",
     "defaultModelHint": "仅多模态（支持图片输入）的模型可设为默认——agent 和 chat 需要发送截图。",
     "notMultimodal": "不支持多模态",
@@ -53,7 +53,11 @@
     "editTitle": "Provider 配置",
     "providerJson": "Provider JSON（baseUrl / apiKey / models）",
     "invalidJson": "JSON 无效：{{reason}}",
-    "saved": "设置已保存"
+    "saved": "设置已保存",
+    "serverAddress": "服务器地址",
+    "serverHint": "修改后点击应用重新连接 gRPC 服务",
+    "apply": "应用",
+    "language": "界面语言"
   },
   "status": {
     "unspecified": "未知",

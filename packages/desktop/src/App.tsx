@@ -129,13 +129,7 @@ function App() {
           viewLabel={viewLabel}
           envs={envs}
           selectedEnvId={selectedEnvId}
-          serverAddr={serverAddr}
           onSelectEnv={setSelectedEnvId}
-          onServerAddrChange={setServerAddr}
-          onApply={() => {
-            localStorage.setItem('hpath.serverAddr', serverAddr);
-            setAppliedServerAddr(serverAddr);
-          }}
         />
         <div className="page">
           {view === 'chat' && (
@@ -181,7 +175,18 @@ function App() {
               onToast={onToast}
             />
           )}
-          {view === 'settings' && <SettingsView onToast={onToast} />}
+          {view === 'settings' && (
+            <SettingsView
+              onToast={onToast}
+              serverAddr={serverAddr}
+              onServerAddrChange={setServerAddr}
+              onApplyServer={() => {
+                localStorage.setItem('hpath.serverAddr', serverAddr);
+                setAppliedServerAddr(serverAddr);
+              }}
+              connectionStatus={connectionStatus}
+            />
+          )}
         </div>
       </div>
       {toast && <Toast text={toast.text} error={toast.error} onDone={() => setToast(null)} />}

@@ -12,9 +12,6 @@
     "connected": "Connected",
     "connecting": "Connecting",
     "offline": "Offline",
-    "serverAddress": "Server address",
-    "apply": "Apply",
-    "language": "中文",
     "allEnvs": "All envs",
     "noProject": "No project"
   },
@@ -41,7 +38,10 @@
   },
   "settings": {
     "title": "Settings",
-    "subtitle": "Model provider for the chat page and the agents",
+    "subtitle": "Models, server and interface preferences — shared by chat and the agents",
+    "tabModels": "Models",
+    "tabServer": "Server",
+    "tabGeneral": "General",
     "defaultModel": "Default model",
     "defaultModelHint": "Only multimodal (vision) models can be the default — agents and chat send screenshots.",
     "notMultimodal": "not multimodal",
@@ -53,7 +53,11 @@
     "editTitle": "Provider configuration",
     "providerJson": "Provider JSON (baseUrl / apiKey / models)",
     "invalidJson": "Invalid JSON: {{reason}}",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "serverAddress": "Server address",
+    "serverHint": "Apply to reconnect to the gRPC server",
+    "apply": "Apply",
+    "language": "Language"
   },
   "status": {
     "unspecified": "unknown",

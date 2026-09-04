@@ -1,17 +1,26 @@
-// Settings view: model provider configuration for the chat page and the
-// agents. The provider document is an opencode-style JSON string
-// (baseUrl / apiKey / models with a multimodal flag); the default model must
-// be multimodal-capable (the agents and chat send screenshots). Edits go
-// through a secondary modal and are validated + persisted server-side via
-// UpdateSettings.
+// Settings view with sub-tabs shared by the chat page and the agents:
+//   - Models: provider configuration (default model, provider JSON editor).
+//     The provider document is an opencode-style JSON string (baseUrl /
+//     apiKey / models with a multimodal flag); the default model must be
+//     multimodal-capable (the agents and chat send screenshots). Edits go
+//     through a secondary modal and are validated + persisted server-side
+//     via UpdateSettings.
+//   - Server: gRPC server address (moved here from the top bar); applying
+//     persists to localStorage and re-connects in App.
+//   - General: UI language toggle (moved here from the top bar).
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invokeGetSettings, invokeUpdateSettings, type AppSettings } from '../lib/ipc';
-import { Select } from '../components/Select';
 
 type SettingsViewProps = {
   onToast: (text: string, error?: boolean) => void;
+  serverAddr: string;
+  onServerAddrChange: (addr: string) => void;
+  onApplyServer: () => void;
+  connectionStatus: 'connected' | 'connecting' | 'offline';
 };
+
+type SettingsTab = 'models' | 'server' | 'general';
 
 type ProviderModel = {
   id: string;
@@ -32,8 +41,15 @@ function parseProviderConfig(json: string): ParsedConfig {
   return parsed;
 }
 
-function SettingsView({ onToast }: SettingsViewProps) {
-  const { t } = useTranslation();
+function SettingsView({
+  onToast,
+  serverAddr,
+  onServerAddrChange,
+  onApplyServer,
+  connectionStatus,
+}: SettingsViewProps) {
+  const { t, i18n } = useTranslation();
+  const [tab, setTab] = useState<SettingsTab>('models');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [defaultModel, setDefaultModel] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -122,6 +138,17 @@ function SettingsView({ onToast }: SettingsViewProps) {
     }
   };
 
+  const changeLanguage = (lang: string) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem('hpath.lang', lang);
+  };
+
+  const tabs: { id: SettingsTab; label: string }[] = [
+    { id: 'models', label: t('settings.tabModels') },
+    { id: 'server', label: t('settings.tabServer') },
+    { id: 'general', label: t('settings.tabGeneral') },
+  ];
+
   return (
     <div className="page-inner">
       <div className="ph">
@@ -130,45 +157,97 @@ function SettingsView({ onToast }: SettingsViewProps) {
           <div className="path">{t('settings.subtitle')}</div>
         </div>
         <div className="btns">
-          <button className="btn w" disabled={busy || !settings} onClick={openEditor}>
-            {t('settings.editProvider')}
-          </button>
-        </div>
-      </div>
-
-      <section className="sec">
-        <div className="field" style={{ maxWidth: 480 }}>
-          <label>{t('settings.defaultModel')}</label>
-          <Select
-            ariaLabel={t('settings.defaultModel')}
-            value={defaultModel || null}
-            placeholder={t('settings.noModels')}
-            disabled={busy || models.length === 0}
-            options={models.map(({ model }) => ({
-              value: model.id,
-              label: `${model.name ?? model.id}${!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''}`,
-              disabled: !model.multimodal,
-            }))}
-            onChange={(v) => void saveDefaultModel(v)}
-          />
-          <div className="hint">{t('settings.defaultModelHint')}</div>
-        </div>
-
-        <div className="kv" style={{ gridTemplateColumns: '140px 1fr', gap: '6px 12px' }}>
-          <div className="k">{t('settings.endpoint')}</div>
-          <div className="v mono">{parsed ? Object.values(parsed.providers).map((p) => p.baseUrl ?? '—').join(', ') : '—'}</div>
-          <div className="k">{t('settings.models')}</div>
-          <div className="v">
-            {models.map(({ providerId, model }) => (
-              <span key={`${providerId}/${model.id}`} className="pill" style={{ marginRight: 6 }}>
-                {model.id}
-                {model.multimodal ? ' ◆' : ''}
-              </span>
+          <div className="seg" aria-label={t('settings.title')}>
+            {tabs.map(({ id, label }) => (
+              <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+                {label}
+              </button>
             ))}
           </div>
         </div>
-        <p className="hint">◆ {t('settings.multimodalMark')}</p>
-      </section>
+      </div>
+
+      {tab === 'models' && (
+        <section className="sec">
+          <div className="field" style={{ maxWidth: 480 }}>
+            <label>{t('settings.defaultModel')}</label>
+            <select
+              value={defaultModel}
+              disabled={busy || models.length === 0}
+              onChange={(e) => void saveDefaultModel(e.target.value)}
+            >
+              {models.length === 0 && <option value="">{t('settings.noModels')}</option>}
+              {models.map(({ providerId, model }) => (
+                <option key={`${providerId}/${model.id}`} value={model.id} disabled={!model.multimodal}>
+                  {model.name ?? model.id}
+                  {!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''}
+                </option>
+              ))}
+            </select>
+            <div className="hint">{t('settings.defaultModelHint')}</div>
+          </div>
+
+          <div className="kv" style={{ gridTemplateColumns: '140px 1fr', gap: '6px 12px' }}>
+            <div className="k">{t('settings.endpoint')}</div>
+            <div className="v mono">{parsed ? Object.values(parsed.providers).map((p) => p.baseUrl ?? '—').join(', ') : '—'}</div>
+            <div className="k">{t('settings.models')}</div>
+            <div className="v">
+              {models.map(({ providerId, model }) => (
+                <span key={`${providerId}/${model.id}`} className="pill" style={{ marginRight: 6 }}>
+                  {model.id}
+                  {model.multimodal ? ' ◆' : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+          <p className="hint">◆ {t('settings.multimodalMark')}</p>
+
+          <div className="btns" style={{ marginTop: 14 }}>
+            <button className="btn w" disabled={busy || !settings} onClick={openEditor}>
+              {t('settings.editProvider')}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {tab === 'server' && (
+        <section className="sec">
+          <div className="field" style={{ maxWidth: 480 }}>
+            <label>{t('settings.serverAddress')}</label>
+            <input
+              value={serverAddr}
+              placeholder="127.0.0.1:50051"
+              onChange={(e) => onServerAddrChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onApplyServer();
+              }}
+            />
+            <div className="hint">
+              {t(`topbar.${connectionStatus}`)} · {t('settings.serverHint')}
+            </div>
+          </div>
+          <div className="btns">
+            <button className="btn w" onClick={onApplyServer}>
+              {t('settings.apply')}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {tab === 'general' && (
+        <section className="sec">
+          <div className="field" style={{ maxWidth: 480 }}>
+            <label>{t('settings.language')}</label>
+            <select
+              value={i18n.language.startsWith('zh') ? 'zh' : 'en'}
+              onChange={(e) => changeLanguage(e.target.value)}
+            >
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </section>
+      )}
 
       {editorOpen && (
         <div className="overlay" onClick={() => setEditorOpen(false)}>
