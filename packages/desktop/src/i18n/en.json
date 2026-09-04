@@ -219,6 +219,7 @@
     "placeholder": "Ask a question, e.g. what is running right now?",
     "send": "Send",
     "modelError": "Model error",
+    "generating": "Generating",
     "qOverview": "Give me a system status overview",
     "qRunning": "Which tasks are running right now?",
     "qRecent": "What cases ran recently, and how did they go?",

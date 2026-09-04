@@ -93,6 +93,12 @@ If the snapshot does not contain the answer, say what is missing. Reply in the l
 Current system snapshot:
 `;
 
+/** Rough upward token estimate (~4 chars/token) so clients can show a live
+ * prompt size before the provider reports exact usage at stream end. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 /** Resolves the runtime pieces once per server; injectable for tests. */
 export class ChatService {
   private models?: MutableModels;
@@ -124,8 +130,16 @@ export class ChatService {
       return;
     }
 
+    const snapshot = buildSystemSnapshot(this.db);
+    yield {
+      status: {
+        model: modelId,
+        promptTokensEst: estimateTokens(CHAT_SYSTEM_PROMPT + snapshot + trimmed),
+      },
+    };
+
     const context = {
-      systemPrompt: CHAT_SYSTEM_PROMPT + buildSystemSnapshot(this.db),
+      systemPrompt: CHAT_SYSTEM_PROMPT + snapshot,
       messages: [
         {
           role: "user" as const,
@@ -146,6 +160,16 @@ export class ChatService {
           yield { error: reason };
           return;
         } else if (event.type === "done") {
+          const usage = event.message?.usage;
+          if (usage) {
+            yield {
+              usage: {
+                inputTokens: usage.input,
+                outputTokens: usage.output,
+                costTotal: usage.cost?.total ?? 0,
+              },
+            };
+          }
           return;
         }
       }

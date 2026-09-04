@@ -404,12 +404,29 @@ message ChatRequest {
   string message = 1; // free-text user question
 }
 
-// Streamed chat answer. Kept minimal for 1.0 (text deltas + terminal error);
-// the 1.1 status-agent extends this with structured payloads.
+// Emitted once when the chat stream starts: resolved model id plus a rough
+// client-visible estimate of the upward prompt size (snapshot + question).
+message ChatStatus {
+  string model = 1;
+  uint64 prompt_tokens_est = 2;
+}
+
+// Emitted once when the chat stream finishes successfully: exact token usage
+// as reported by the provider runtime (pi-ai done event).
+message ChatUsage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  double cost_total = 3; // USD; 0 when the provider reports no pricing
+}
+
+// Streamed chat answer: text deltas, a terminal error, and the start/finish
+// bookkeeping events (status/usage) that let clients show live metrics.
 message ChatResponse {
   oneof kind {
     string text_delta = 1;
     string error = 2;
+    ChatStatus status = 3;
+    ChatUsage usage = 4;
   }
 }
 

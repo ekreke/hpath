@@ -458,16 +458,29 @@ export function createMockHandlers(store: MockStore): HpathServer {
           if (!question) {
             throw grpcError(status.INVALID_ARGUMENT, "message is required");
           }
-          for (const delta of [
+          call.write({
+            status: { model: "mock-model", promptTokensEst: Math.ceil(question.length / 4) + 96 },
+          });
+          const deltas = [
             `[mock] You asked: “${question}”. `,
             "In mock mode the chat answers with this canned reply — ",
             "start the server in real mode with a configured provider key to get live answers. ",
             "Snapshot: 1 demo project (dev + staging), 5 cases (4 approved, 1 pending), 2 finished sample runs.",
-          ]) {
+          ];
+          let answered = 0;
+          for (const delta of deltas) {
             if (call.cancelled) return;
+            answered += delta.length;
             call.write({ textDelta: delta });
             await sleep(120);
           }
+          call.write({
+            usage: {
+              inputTokens: Math.ceil(question.length / 4) + 96,
+              outputTokens: Math.ceil(answered / 4),
+              costTotal: 0,
+            },
+          });
           call.end();
         } catch (err) {
           call.emit("error", err as ServiceError);

@@ -249,11 +249,13 @@ export function invokeUpdateSettings(settings: AppSettings): Promise<AppSettings
 }
 
 // Tagged chat event streamed from the Rust side on the `chat-event` global
-// channel (same pattern as `run-event`): one text delta per message or a
-// terminal error.
+// channel (same pattern as `run-event`): text deltas, a terminal error, and
+// the start/finish bookkeeping events used to render live token metrics.
 export type ChatEvent =
   | { kind: 'textDelta'; text: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  | { kind: 'status'; model: string; promptTokensEst: number }
+  | { kind: 'usage'; inputTokens: number; outputTokens: number; costTotal: number };
 
 // Stream one chat turn against the configured default model; text deltas
 // arrive via the `chat-event` channel and the promise resolves when the

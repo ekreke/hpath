@@ -219,6 +219,7 @@
     "placeholder": "输入问题,如:有哪些任务正在跑?",
     "send": "发送",
     "modelError": "模型错误",
+    "generating": "生成中",
     "qOverview": "当前系统状态概览",
     "qRunning": "现在有哪些任务正在运行?",
     "qRecent": "最近运行了哪些用例,结果如何?",

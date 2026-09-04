@@ -761,12 +761,34 @@ export interface ChatRequest {
 }
 
 /**
- * Streamed chat answer. Kept minimal for 1.0 (text deltas + terminal error);
- * the 1.1 status-agent extends this with structured payloads.
+ * Emitted once when the chat stream starts: resolved model id plus a rough
+ * client-visible estimate of the upward prompt size (snapshot + question).
+ */
+export interface ChatStatus {
+  model: string;
+  promptTokensEst: number;
+}
+
+/**
+ * Emitted once when the chat stream finishes successfully: exact token usage
+ * as reported by the provider runtime (pi-ai done event).
+ */
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** USD; 0 when the provider reports no pricing */
+  costTotal: number;
+}
+
+/**
+ * Streamed chat answer: text deltas, a terminal error, and the start/finish
+ * bookkeeping events (status/usage) that let clients show live metrics.
  */
 export interface ChatResponse {
   textDelta?: string | undefined;
   error?: string | undefined;
+  status?: ChatStatus | undefined;
+  usage?: ChatUsage | undefined;
 }
 
 /**
@@ -5968,8 +5990,210 @@ export const ChatRequest: MessageFns<ChatRequest> = {
   },
 };
 
+function createBaseChatStatus(): ChatStatus {
+  return { model: "", promptTokensEst: 0 };
+}
+
+export const ChatStatus: MessageFns<ChatStatus> = {
+  encode(message: ChatStatus, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.model !== "") {
+      writer.uint32(10).string(message.model);
+    }
+    if (message.promptTokensEst !== 0) {
+      writer.uint32(16).uint64(message.promptTokensEst);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatStatus {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatStatus();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.model = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.promptTokensEst = longToNumber(reader.uint64());
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatStatus {
+    return {
+      model: isSet(object.model) ? globalThis.String(object.model) : "",
+      promptTokensEst: isSet(object.promptTokensEst)
+        ? globalThis.Number(object.promptTokensEst)
+        : isSet(object.prompt_tokens_est)
+        ? globalThis.Number(object.prompt_tokens_est)
+        : 0,
+    };
+  },
+
+  toJSON(message: ChatStatus): unknown {
+    const obj: any = {};
+    if (message.model !== "") {
+      obj.model = message.model;
+    }
+    if (message.promptTokensEst !== 0) {
+      obj.promptTokensEst = Math.round(message.promptTokensEst);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatStatus>, I>>(base?: I): ChatStatus {
+    return ChatStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatStatus>, I>>(object: I): ChatStatus {
+    const message = createBaseChatStatus();
+    message.model = object.model ?? "";
+    message.promptTokensEst = object.promptTokensEst ?? 0;
+    return message;
+  },
+};
+
+function createBaseChatUsage(): ChatUsage {
+  return { inputTokens: 0, outputTokens: 0, costTotal: 0 };
+}
+
+export const ChatUsage: MessageFns<ChatUsage> = {
+  encode(message: ChatUsage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.inputTokens !== 0) {
+      writer.uint32(8).uint64(message.inputTokens);
+    }
+    if (message.outputTokens !== 0) {
+      writer.uint32(16).uint64(message.outputTokens);
+    }
+    if (message.costTotal !== 0) {
+      writer.uint32(25).double(message.costTotal);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatUsage {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatUsage();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.inputTokens = longToNumber(reader.uint64());
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.outputTokens = longToNumber(reader.uint64());
+            continue;
+          }
+          case 3: {
+            if (tag !== 25) {
+              break;
+            }
+
+            message.costTotal = reader.double();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatUsage {
+    return {
+      inputTokens: isSet(object.inputTokens)
+        ? globalThis.Number(object.inputTokens)
+        : isSet(object.input_tokens)
+        ? globalThis.Number(object.input_tokens)
+        : 0,
+      outputTokens: isSet(object.outputTokens)
+        ? globalThis.Number(object.outputTokens)
+        : isSet(object.output_tokens)
+        ? globalThis.Number(object.output_tokens)
+        : 0,
+      costTotal: isSet(object.costTotal)
+        ? globalThis.Number(object.costTotal)
+        : isSet(object.cost_total)
+        ? globalThis.Number(object.cost_total)
+        : 0,
+    };
+  },
+
+  toJSON(message: ChatUsage): unknown {
+    const obj: any = {};
+    if (message.inputTokens !== 0) {
+      obj.inputTokens = Math.round(message.inputTokens);
+    }
+    if (message.outputTokens !== 0) {
+      obj.outputTokens = Math.round(message.outputTokens);
+    }
+    if (message.costTotal !== 0) {
+      obj.costTotal = message.costTotal;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatUsage>, I>>(base?: I): ChatUsage {
+    return ChatUsage.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatUsage>, I>>(object: I): ChatUsage {
+    const message = createBaseChatUsage();
+    message.inputTokens = object.inputTokens ?? 0;
+    message.outputTokens = object.outputTokens ?? 0;
+    message.costTotal = object.costTotal ?? 0;
+    return message;
+  },
+};
+
 function createBaseChatResponse(): ChatResponse {
-  return { textDelta: undefined, error: undefined };
+  return { textDelta: undefined, error: undefined, status: undefined, usage: undefined };
 }
 
 export const ChatResponse: MessageFns<ChatResponse> = {
@@ -5979,6 +6203,12 @@ export const ChatResponse: MessageFns<ChatResponse> = {
     }
     if (message.error !== undefined) {
       writer.uint32(18).string(message.error);
+    }
+    if (message.status !== undefined) {
+      ChatStatus.encode(message.status, writer.uint32(26).fork()).join();
+    }
+    if (message.usage !== undefined) {
+      ChatUsage.encode(message.usage, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -6012,6 +6242,22 @@ export const ChatResponse: MessageFns<ChatResponse> = {
             message.error = reader.string();
             continue;
           }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.status = ChatStatus.decode(reader, reader.uint32());
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.usage = ChatUsage.decode(reader, reader.uint32());
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -6032,6 +6278,8 @@ export const ChatResponse: MessageFns<ChatResponse> = {
         ? globalThis.String(object.text_delta)
         : undefined,
       error: isSet(object.error) ? globalThis.String(object.error) : undefined,
+      status: isSet(object.status) ? ChatStatus.fromJSON(object.status) : undefined,
+      usage: isSet(object.usage) ? ChatUsage.fromJSON(object.usage) : undefined,
     };
   },
 
@@ -6043,6 +6291,12 @@ export const ChatResponse: MessageFns<ChatResponse> = {
     if (message.error !== undefined) {
       obj.error = message.error;
     }
+    if (message.status !== undefined) {
+      obj.status = ChatStatus.toJSON(message.status);
+    }
+    if (message.usage !== undefined) {
+      obj.usage = ChatUsage.toJSON(message.usage);
+    }
     return obj;
   },
 
@@ -6053,6 +6307,12 @@ export const ChatResponse: MessageFns<ChatResponse> = {
     const message = createBaseChatResponse();
     message.textDelta = object.textDelta ?? undefined;
     message.error = object.error ?? undefined;
+    message.status = (object.status !== undefined && object.status !== null)
+      ? ChatStatus.fromPartial(object.status)
+      : undefined;
+    message.usage = (object.usage !== undefined && object.usage !== null)
+      ? ChatUsage.fromPartial(object.usage)
+      : undefined;
     return message;
   },
 };
@@ -6351,6 +6611,17 @@ export type DeepPartial<T> = T extends Builtin ? T
 type KeysOfUnion<T> = T extends T ? keyof T : never;
 export type Exact<P, I extends P> = P extends Builtin ? P
   : P & { [K in keyof P]: Exact<P[K], I[K]> } & { [K in Exclude<keyof I, KeysOfUnion<P>>]: never };
+
+function longToNumber(int64: { toString(): string }): number {
+  const num = globalThis.Number(int64.toString());
+  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
+  }
+  return num;
+}
 
 function isObject(value: any): boolean {
   return typeof value === "object" && value !== null;

@@ -546,8 +546,10 @@ impl From<SettingsDto> for pb::AppSettings {
     }
 }
 
-/// Tagged chat event for the webview: one text delta or a terminal error.
-/// Streamed on the `chat-event` channel while `chat` is in flight.
+/// Tagged chat event for the webview: one text delta, a terminal error, or
+/// the start/finish bookkeeping events (status/usage) used to render live
+/// token metrics. Streamed on the `chat-event` channel while `chat` is in
+/// flight.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ChatEventDto {
@@ -555,6 +557,17 @@ pub enum ChatEventDto {
     TextDelta { text: String },
     #[serde(rename_all = "camelCase")]
     Error { message: String },
+    #[serde(rename_all = "camelCase")]
+    Status {
+        model: String,
+        prompt_tokens_est: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+        cost_total: f64,
+    },
 }
 
 impl From<&pb::ChatResponse> for ChatEventDto {
@@ -565,6 +578,15 @@ impl From<&pb::ChatResponse> for ChatEventDto {
             },
             Some(pb::chat_response::Kind::Error(message)) => ChatEventDto::Error {
                 message: message.clone(),
+            },
+            Some(pb::chat_response::Kind::Status(s)) => ChatEventDto::Status {
+                model: s.model.clone(),
+                prompt_tokens_est: s.prompt_tokens_est,
+            },
+            Some(pb::chat_response::Kind::Usage(u)) => ChatEventDto::Usage {
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cost_total: u.cost_total,
             },
             None => ChatEventDto::Error {
                 message: "empty chat response".to_string(),
