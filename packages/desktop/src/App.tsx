@@ -12,6 +12,7 @@ import {
   invokeListEnvs,
   invokeListProjects,
   invokeSetServerAddr,
+  toFriendlyError,
   type Env,
   type Project,
 } from './lib/ipc';
@@ -40,6 +41,24 @@ function App() {
     setToast({ text, error });
   }, []);
 
+  // Called by views when the server confirms a NOT_FOUND on the currently
+  // selected project (e.g. backend reset, project deleted elsewhere). Snaps
+  // back to the first available project so the user isn't trapped looking at
+  // a permanent error every time they switch to this view.
+  const handleProjectInvalidated = useCallback(
+    (invalidatedId: string) => {
+      setSelectedProjectId((prev) => {
+        if (prev !== invalidatedId) return prev;
+        const next = projects[0]?.id ?? null;
+        if (next && projects[0]) {
+          onToast(t('sidebar.projectSwitched', { name: projects[0].name }));
+        }
+        return next;
+      });
+    },
+    [projects, onToast, t],
+  );
+
   useEffect(() => {
     let cancelled = false;
     setConnectionStatus('connecting');
@@ -52,22 +71,34 @@ function App() {
         if (cancelled) return;
         setProjects(list);
         setConnectionStatus('connected');
-        setSelectedProjectId((prev) =>
-          prev && list.some((p) => p.id === prev) ? prev : (list[0]?.id ?? null),
-        );
+        setSelectedProjectId((prev) => {
+          if (prev && list.some((p) => p.id === prev)) return prev;
+          const next = list[0]?.id ?? null;
+          // The previous selection no longer exists on the server (project
+          // deleted, server reset, or we connected to a different backend).
+          // Surface the auto-switch so the user isn't left wondering why the
+          // sidebar snapped to a new project. Defer to next tick: we're inside
+          // a setState updater and `onToast` mutates state of its own.
+          if (prev && next && prev !== next && list[0]) {
+            queueMicrotask(() =>
+              onToast(t('sidebar.projectSwitched', { name: list[0].name })),
+            );
+          }
+          return next;
+        });
       } catch (err) {
         if (!cancelled) {
           setProjects([]);
           setSelectedProjectId(null);
           setConnectionStatus('offline');
-          onToast(String(err), true);
+          onToast(toFriendlyError(err).message, true);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [appliedServerAddr, onToast, projectRefreshKey]);
+  }, [appliedServerAddr, onToast, projectRefreshKey, t]);
 
   const onProjectCreated = useCallback(
     (id: string) => {
@@ -154,6 +185,7 @@ function App() {
               envs={envs}
               refreshKey={refreshKey}
               onToast={onToast}
+              onProjectInvalidated={handleProjectInvalidated}
             />
           )}
           {view === 'envs' && (

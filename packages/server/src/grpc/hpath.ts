@@ -29,10 +29,12 @@ import type {
   ListEnvsRequest,
   ListEnvsResponse,
   ListProjectsResponse,
+  ListRunsRequest,
+  ListRunsResponse,
   Project,
   UpsertEnvRequest,
 } from "@hpath/contract";
-import { Empty } from "@hpath/contract";
+import { Empty, RunStatus } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers, grpcError } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
@@ -73,7 +75,6 @@ function createUnimplementedHandlers(): HpathServer {
     getCase: unary,
     reviewCase: unary,
     runCase: streaming,
-    listRuns: unary,
     getRun: unary,
     downloadArtifact: streaming,
     getSettings: unary,
@@ -257,6 +258,32 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
     ): void => {
       try {
         callback(null, db.cases.getRequired(call.request.caseId));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    // Run history (T8). Mirrors the mock handler: validate the project exists
+    // first (so a stale projectId surfaces as NOT_FOUND with the same shape
+    // every other call uses), then delegate the filtered query to the
+    // repository. Empty-string filters are treated as "no filter", matching
+    // the wire convention.
+    listRuns: (
+      call: ServerUnaryCall<ListRunsRequest, ListRunsResponse>,
+      callback: sendUnaryData<ListRunsResponse>,
+    ): void => {
+      try {
+        const req = call.request;
+        db.projects.getRequired(req.projectId);
+        const runs = db.runs.list({
+          projectId: req.projectId,
+          envId: req.envId || undefined,
+          caseId: req.caseId || undefined,
+          status: req.status === RunStatus.RUN_STATUS_UNSPECIFIED ? undefined : req.status,
+          from: req.from || undefined,
+          to: req.to || undefined,
+        });
+        callback(null, { runs });
       } catch (err) {
         callback(toGrpcError(err));
       }

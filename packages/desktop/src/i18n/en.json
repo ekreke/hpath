@@ -36,7 +36,8 @@
     "envs": "Environments",
     "casesView": "Cases",
     "envsView": "Environments",
-    "settings": "Settings"
+    "settings": "Settings",
+    "projectSwitched": "Previous project is unavailable, switched to \"{{name}}\""
   },
   "settings": {
     "title": "Settings",

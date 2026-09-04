@@ -21,6 +21,7 @@ import type {
   ListCasesResponse,
   ListEnvsResponse,
   ListProjectsResponse,
+  ListRunsResponse,
   Project,
 } from "@hpath/contract";
 import { HpathDb } from "../src/db/index.js";
@@ -160,6 +161,35 @@ describe("real mode read path (SQLite)", () => {
     const { err } = await callUnary("getCase", { caseId: "missing-case" });
     assert.equal(err?.code, status.NOT_FOUND);
   });
+
+  it("ListRuns serves the seeded history from SQLite", async () => {
+    const { err, res } = await callUnary("listRuns", {
+      projectId,
+      envId: "",
+      caseId: "",
+      status: RunStatus.RUN_STATUS_UNSPECIFIED,
+      from: "",
+      to: "",
+    });
+    assert.equal(err, null);
+    const runs = (res as ListRunsResponse).runs;
+    assert.equal(runs.length, 2);
+    // Most recent first; both runs share a synthetic base, so the id ordering
+    // only has to be stable — assert it rather than guessing which side wins.
+    assert.ok(runs[0]!.startedAt >= runs[1]!.startedAt);
+  });
+
+  it("ListRuns reports NOT_FOUND for an unknown project", async () => {
+    const { err } = await callUnary("listRuns", {
+      projectId: "ghost",
+      envId: "",
+      caseId: "",
+      status: RunStatus.RUN_STATUS_UNSPECIFIED,
+      from: "",
+      to: "",
+    });
+    assert.equal(err?.code, status.NOT_FOUND);
+  });
 });
 
 describe("real mode CreateProject (T5 repository wiring)", () => {
@@ -202,16 +232,15 @@ describe("real mode CreateProject (T5 repository wiring)", () => {
 });
 
 describe("real mode wiring boundary (UNIMPLEMENTED)", () => {
-  it("keeps reviewCase and listRuns UNIMPLEMENTED", async () => {
-    for (const [method, request] of [
-      // Enum fields must be present: protobufjs fails to serialize undefined
-      // int32/enum values client-side (INTERNAL 13 before the server answers).
-      ["reviewCase", { caseId: pendingCaseId, action: ReviewAction.REVIEW_ACTION_APPROVE, comment: "" }],
-      ["listRuns", { projectId, status: RunStatus.RUN_STATUS_UNSPECIFIED }],
-    ] as const) {
-      const { err } = await callUnary(method, request);
-      assert.equal(err?.code, status.UNIMPLEMENTED, `${method} must stay UNIMPLEMENTED`);
-    }
+  it("keeps reviewCase UNIMPLEMENTED", async () => {
+    // Enum fields must be present: protobufjs fails to serialize undefined
+    // int32/enum values client-side (INTERNAL 13 before the server answers).
+    const { err } = await callUnary("reviewCase", {
+      caseId: pendingCaseId,
+      action: ReviewAction.REVIEW_ACTION_APPROVE,
+      comment: "",
+    });
+    assert.equal(err?.code, status.UNIMPLEMENTED, "reviewCase must stay UNIMPLEMENTED");
   });
 
   it("keeps RunCase and artifact serving UNIMPLEMENTED", async () => {

@@ -29,14 +29,15 @@
     "noEnvs": "暂无环境 — 点击 ＋ 新建",
     "groupWorkbench": "工作台",
     "groupConfig": "配置",
-    "chat": "Chat",
-    "cases": "用例 Cases",
+    "chat": "对话",
+    "cases": "用例",
     "runHistory": "运行历史",
     "prdDocs": "PRD 文档",
-    "envs": "环境 Environments",
+    "envs": "环境",
     "casesView": "用例",
     "envsView": "环境",
-    "settings": "设置"
+    "settings": "设置",
+    "projectSwitched": "原项目不可用，已为你切换到「{{name}}」"
   },
   "settings": {
     "title": "设置",

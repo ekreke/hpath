@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Env, Project } from '@hpath/contract';
-import { invokeCreateProject } from '../lib/ipc';
+import { invokeCreateProject, toFriendlyError } from '../lib/ipc';
 import { Select } from './Select';
 import EnvFormModal from './EnvFormModal';
 
@@ -130,7 +130,7 @@ function Sidebar({
       onProjectCreated(created.id);
       onToast(t('sidebar.projectCreated', { name: created.name }));
     } catch (err) {
-      onToast(String(err), true);
+      onToast(toFriendlyError(err).message, true);
     } finally {
       setBusy(false);
     }

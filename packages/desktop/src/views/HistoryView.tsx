@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
-import { invokeListCases, invokeListRuns } from '../lib/ipc';
+import { invokeListCases, invokeListRuns, isProjectNotFound, toFriendlyError } from '../lib/ipc';
 import { RunStatusTag } from '../components/Ui';
 import { Select } from '../components/Select';
 import {
@@ -27,6 +27,10 @@ type HistoryViewProps = {
   // the view re-queries so new runs show up without a manual refresh.
   refreshKey: number;
   onToast: (text: string, error?: boolean) => void;
+  // Raised when the server confirms our selected project is gone. App uses it
+  // to drop the stale selection and snap to the next valid project — without
+  // this, every reload of this view would keep re-toasting the same NOT_FOUND.
+  onProjectInvalidated?: (projectId: string) => void;
 };
 
 // Results shown per case in the health strip.
@@ -78,7 +82,14 @@ function HealthStrip({ results }: { results: Run[] }) {
   );
 }
 
-function HistoryView({ appliedServerAddr, projectId, envs, refreshKey, onToast }: HistoryViewProps) {
+function HistoryView({
+  appliedServerAddr,
+  projectId,
+  envs,
+  refreshKey,
+  onToast,
+  onProjectInvalidated,
+}: HistoryViewProps) {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [cases, setCases] = useState<Case[]>([]);
@@ -123,11 +134,14 @@ function HistoryView({ appliedServerAddr, projectId, envs, refreshKey, onToast }
       setAllRuns(sortRunsDesc(unfiltered));
     } catch (err) {
       if (ticket !== seq.current) return;
-      onToast(String(err), true);
+      onToast(toFriendlyError(err).message, true);
+      if (projectId && isProjectNotFound(err)) {
+        onProjectInvalidated?.(projectId);
+      }
     } finally {
       if (ticket === seq.current) setBusy(false);
     }
-  }, [projectId, filters, onToast]);
+  }, [projectId, filters, onToast, onProjectInvalidated]);
 
   useEffect(() => {
     void loadAll();

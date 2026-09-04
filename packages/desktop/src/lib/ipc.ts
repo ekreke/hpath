@@ -108,7 +108,94 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
       ),
     );
   }
-  return tauriInvoke<T>(cmd, args) as Promise<T>;
+  return tauriInvoke<T>(cmd, args).catch((err: unknown) => {
+    throw toFriendlyError(err, { command: cmd });
+  }) as Promise<T>;
+}
+
+// Internal tag attached to a normalised error so views can ask "was this a
+// project-not-found?" without re-matching strings. Symbol keeps it out of any
+// serialised shape and out of user-facing toString output.
+const ERR_PROJECT_NOT_FOUND = Symbol('hpath.errProjectNotFound');
+const ERR_RESOURCE_NOT_FOUND = Symbol('hpath.errResourceNotFound');
+const ERR_UNIMPLEMENTED = Symbol('hpath.errUnimplemented');
+
+export type FriendlyError = Error & {
+  [ERR_PROJECT_NOT_FOUND]?: true;
+  [ERR_RESOURCE_NOT_FOUND]?: boolean;
+  [ERR_UNIMPLEMENTED]?: boolean;
+  originalMessage: string;
+};
+
+function asMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function tagged(message: string, tag: symbol, extra: Partial<FriendlyError> = {}): FriendlyError {
+  const e = new Error(message) as FriendlyError;
+  e.originalMessage = message;
+  (e as unknown as Record<symbol, unknown>)[tag] = true;
+  return Object.assign(e, extra);
+}
+
+/**
+ * Normalise raw gRPC / Tauri error strings into user-facing messages.
+ * Backends sometimes leak technical detail (UUIDs, status codes) which has no
+ * place in a toast — translate the well-known shapes into actionable copy and
+ * tag the result so views can branch on the cause (e.g. clear a stale
+ * selectedProjectId when the project itself is gone).
+ */
+export function toFriendlyError(err: unknown, ctx?: { command?: string; projectId?: string }): FriendlyError {
+  const raw = asMessage(err);
+  // gRPC web often surfaces as "<rpc error: code = NotFound desc = ...>"; strip it.
+  const flat = raw.replace(/^.*code\s*=\s*\w+\s*desc\s*=\s*/i, '').replace(/^rpc error:\s*/i, '').trim();
+
+  if (/^project not found:/i.test(flat)) {
+    return tagged('项目不存在或已删除，请重新选择', ERR_PROJECT_NOT_FOUND, { [ERR_RESOURCE_NOT_FOUND]: true });
+  }
+  if (/^(run|case|env|artifact|project|prd|chat)\s+not found:/i.test(flat)) {
+    return tagged('资源不存在或已删除', ERR_RESOURCE_NOT_FOUND);
+  }
+  if (/not wired in real mode yet/i.test(flat) || /UNIMPLEMENTED/i.test(flat)) {
+    return tagged('该功能在真实数据库模式下尚未实现（请用 --mock 启动服务）', ERR_UNIMPLEMENTED);
+  }
+  if (/name is required/i.test(flat)) {
+    return tagged('名称不能为空', ERR_RESOURCE_NOT_FOUND);
+  }
+  if (/INVALID_ARGUMENT/i.test(flat) || /invalid argument/i.test(flat)) {
+    return tagged('请求参数无效', ERR_RESOURCE_NOT_FOUND);
+  }
+  if (/already exists|UNIQUE constraint/i.test(flat)) {
+    return tagged('资源已存在，请换一个名称', ERR_RESOURCE_NOT_FOUND);
+  }
+  // Fall through: keep the original message so unexpected errors stay loud.
+  const e = new Error(flat || raw) as FriendlyError;
+  e.originalMessage = flat || raw;
+  return e;
+}
+
+export function isProjectNotFound(err: unknown): boolean {
+  return Boolean(
+    err && typeof err === 'object' && (err as Record<symbol, unknown>)[ERR_PROJECT_NOT_FOUND] === true,
+  );
+}
+
+export function isResourceNotFound(err: unknown): boolean {
+  return Boolean(
+    err && typeof err === 'object' && (err as Record<symbol, unknown>)[ERR_RESOURCE_NOT_FOUND] === true,
+  );
+}
+
+export function isUnimplemented(err: unknown): boolean {
+  return Boolean(
+    err && typeof err === 'object' && (err as Record<symbol, unknown>)[ERR_UNIMPLEMENTED] === true,
+  );
 }
 
 export function invokeSetServerAddr(addr: string): Promise<void> {
