@@ -129,6 +129,9 @@ export class AgentKernel {
     let errorMessage: string | undefined;
     let promptFailed = false;
     const channel = new VerdictChannel(definition.outputSchema);
+    // Declared before `settle` because the early failure paths below settle
+    // before the tools (and their run evidence) are materialized.
+    const evidence = new RunEvidence();
 
     const settle = (failReason: AgentRunFailureReason | ""): AgentRunResult => {
       const verdict: Verdict | undefined = channel.isRecorded ? channel.value : undefined;
@@ -160,6 +163,9 @@ export class AgentKernel {
         finishedAt: finishedAt.toISOString(),
         durationMs: finishedAt.getTime() - startedAt.getTime(),
         events: sink.events(),
+        // Disposal has already run by the time settle is reached, so providers
+        // (browser video/trace) have registered their by-products.
+        pendingArtifacts: [...evidence.pendingArtifacts],
       };
     };
 
@@ -195,7 +201,6 @@ export class AgentKernel {
     // 4. Tools from ToolProviders + the kernel verdict channel. Run-scoped
     //    resources (the browser provider's Playwright session, ...) register
     //    their cleanup on the run's evidence store.
-    const evidence = new RunEvidence();
     // Run-level abort: firing interrupts provider-side in-flight work (fetch,
     // playwright, grpc calls) through ToolContext.signal, so the wall-clock
     // limit stays hard even when a tool call never returns on its own.

@@ -28,7 +28,9 @@ export function seedMockStore(store: MockStore): void {
     webBaseUrl: "http://localhost:8081",
     grpcAddress: "localhost:9091",
     vars: { region: "local" },
-    credentials: { account: "test/123456" },
+    // Matches the demo-app fixture's real login so mock and real seed data
+    // agree (the execute-agent surfaces these to the LLM).
+    credentials: { username: "demo", password: "demo1234" },
     isDefault: true,
   };
   const staging: Env = {
@@ -38,7 +40,7 @@ export function seedMockStore(store: MockStore): void {
     webBaseUrl: "http://localhost:8082",
     grpcAddress: "localhost:9092",
     vars: { region: "staging" },
-    credentials: { account: "qa/abcdef" },
+    credentials: { username: "demo", password: "demo1234" },
     isDefault: false,
   };
   store.envs.set(dev.id, dev);

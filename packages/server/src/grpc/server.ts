@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { ReflectionService } from "@grpc/reflection";
 import { HpathService, descriptorPath } from "@hpath/contract";
 import type { ServerMode } from "./hpath.js";
-import { createHpathService } from "./hpath.js";
+import { createHpathService, type RealExecutionDeps } from "./hpath.js";
 import type { MockStore } from "../mock/store.js";
 import type { HpathDb } from "../db/index.js";
 import type { SettingsStore } from "../settings.js";
@@ -64,6 +64,9 @@ export interface StartServerOptions {
   db?: HpathDb;
   /** Required in real mode: model provider settings (chat + agents). */
   settings?: SettingsStore;
+  /** Real-mode T8 execution deps (kernel + artifact store). When absent the
+   * run path stays UNIMPLEMENTED (read-only real server). */
+  execution?: RealExecutionDeps;
 }
 
 export interface RunningServer {
@@ -75,7 +78,7 @@ export interface RunningServer {
 
 export async function startServer(options: StartServerOptions): Promise<RunningServer> {
   const server = new grpc.Server();
-  server.addService(HpathService, createHpathService(options.mode, options.store, options.db, options.settings));
+  server.addService(HpathService, createHpathService(options.mode, options.store, options.db, options.settings, options.execution));
   buildReflectionService().addToServer(server);
 
   const boundPort = await new Promise<number>((resolve, reject) => {

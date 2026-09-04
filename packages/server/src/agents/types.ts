@@ -6,6 +6,7 @@
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { RunStatus } from "@hpath/contract";
+import type { PendingRunArtifact } from "./evidence.js";
 
 /** Wall-clock and budget caps for a single agent run, enforced by the kernel. */
 export interface HardLimits {
@@ -84,6 +85,19 @@ export type AgentRunEventPayload =
   | { kind: "agent_thinking"; text: string }
   | { kind: "tool_started"; tool: string; argsJson: string }
   | { kind: "tool_finished"; tool: string; ok: boolean; resultSummary: string }
+  /**
+   * One recorded HTTP/gRPC exchange, appended by the http/grpc providers on
+   * every completed call. Maps 1:1 to the proto request_record branch so the
+   * desktop request panel shows real traffic, not just tool summaries.
+   */
+  | {
+    kind: "request_record";
+    direction: string;
+    method: string;
+    target: string;
+    requestJson: string;
+    responseJson: string;
+  }
   | { kind: "verdict"; verdict: Verdict }
   /** One structured observation recorded via the `record_evidence` tool. */
   | { kind: "evidence_recorded"; entry: Verdict }
@@ -126,6 +140,12 @@ export interface AgentRunResult {
   durationMs: number;
   /** All events collected during the run, in order (evidence is never dropped). */
   events: AgentRunEvent[];
+  /**
+   * Binary by-products the run left on local disk (Playwright video/trace),
+   * registered by providers and uploaded to the artifact store by the caller
+   * after the run settles.
+   */
+  pendingArtifacts: PendingRunArtifact[];
 }
 
 /** Resolves a definition's model id to a concrete pi-ai model descriptor. */

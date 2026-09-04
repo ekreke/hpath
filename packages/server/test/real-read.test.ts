@@ -1,6 +1,9 @@
 // Real-mode read path (T3): over actual gRPC, ListProjects/ListEnvs/ListCases/
-// GetCase serve the SQLite seed data, while RunCase/artifact serving and all
-// other unwired methods keep answering UNIMPLEMENTED (wiring boundary).
+// GetCase serve the SQLite seed data. This suite starts the server WITHOUT the
+// T8 execution deps (kernel + artifact store), so RunCase/artifact serving and
+// all other unwired methods keep answering UNIMPLEMENTED — proving the wiring
+// boundary stays honest when a deployment opts out of the run path. The run
+// path itself is covered by test/run-execution.test.ts.
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";

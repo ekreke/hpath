@@ -192,6 +192,21 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
         context.signal.addEventListener("abort", onAbort, { once: true });
         const handler = (err: grpc.ServiceError | null, response: unknown): void => {
           context.signal.removeEventListener("abort", onAbort);
+          // Structured exchange record for the run evidence stream (proto
+          // request_record): recorded for error replies too — the status code
+          // and details are part of the backend's story.
+          context.events.append({
+            kind: "request_record",
+            direction: "grpc",
+            method,
+            target: `${resolvedTarget} ${serviceFullName}/${rpcName}`,
+            requestJson: JSON.stringify({ metadata: metadata ?? {}, request: request ?? {} }),
+            responseJson: JSON.stringify(
+              err
+                ? { ok: false, code: err.code, codeName: grpc.status[err.code] ?? String(err.code), details: err.details }
+                : { ok: true, response },
+            ),
+          });
           if (err) {
             resolve({
               content: [{

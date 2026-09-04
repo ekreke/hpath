@@ -1,10 +1,10 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
-// and the real one (SQLite-backed). Real mode serves the minimal read path
-// (ListProjects/ListEnvs/ListCases/GetCase) from SQLite (T3), project
-// creation (CreateProject, T5 repository), model settings (Get/UpdateSettings
-// over the settings.ts JSON document) and status chat (Chat via the
-// configured provider, chat.ts). Every other method reports UNIMPLEMENTED
-// until its wiring task lands (runs/artifacts in T8, PRD parse later).
+// and the real one (SQLite-backed). Real mode serves the read path
+// (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project creation,
+// settings, status chat + chat sessions (chat.ts) and the T8 run execution
+// path (RunCase via the AgentKernel, GetRun, DownloadArtifact via the
+// artifact store). Every other method reports UNIMPLEMENTED until its wiring
+// task lands (PRD parse in T9).
 
 import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
@@ -42,24 +42,35 @@ import type {
 } from "@hpath/contract";
 import { Empty, RunStatus } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
-import { createMockHandlers, grpcError } from "../mock/handlers.js";
+import { createMockHandlers } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
 import { InvalidSettingsError, parseSettingsJson, type SettingsStore } from "../settings.js";
-import {
-  ConflictError,
-  ForeignKeyError,
-  InvalidTransitionError,
-  NotFoundError,
-  RepositoryError,
-} from "../db/errors.js";
 import type { HpathDb } from "../db/index.js";
+import type { AgentKernel } from "../agents/pipeline.js";
+import type { ArtifactStore } from "../artifacts/store.js";
+import type { ArtifactIndex } from "../artifacts/artifact-index.js";
+import { grpcError, toGrpcError } from "./errors.js";
+import {
+  createDownloadArtifactHandler,
+  createGetRunHandler,
+  createRunCaseHandler,
+  type RunExecutionDeps,
+} from "./run-execution.js";
 
 export type ServerMode = "mock" | "real";
+
+/** Real-mode execution deps (T8). Absent deps leave the run path
+ * UNIMPLEMENTED so the server still boots for read-only testing. */
+export interface RealExecutionDeps {
+  kernel?: AgentKernel;
+  artifactStore?: ArtifactStore;
+  artifactIndex?: ArtifactIndex;
+}
 
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -90,39 +101,32 @@ function createUnimplementedHandlers(): HpathServer {
 }
 
 /**
- * Map repository errors onto gRPC status codes (mapping documented in
- * db/errors.ts). Anything else is passed through untouched: gRPC layer errors
- * are already ServiceErrors, and unexpected failures must stay loud.
+ * Real-mode handlers: the SQLite read path, CreateProject, settings, status
+ * chat + chat sessions, and the T8 run execution path (RunCase through the
+ * AgentKernel, GetRun, DownloadArtifact through the artifact store) when
+ * execution deps are provided.
  */
-function toGrpcError(err: unknown): ServiceError {
-  if (err instanceof NotFoundError) {
-    return grpcError(status.NOT_FOUND, err.message);
-  }
-  if (err instanceof ConflictError) {
-    return grpcError(status.ALREADY_EXISTS, err.message);
-  }
-  if (err instanceof InvalidTransitionError) {
-    return grpcError(status.FAILED_PRECONDITION, err.message);
-  }
-  if (err instanceof ForeignKeyError) {
-    return grpcError(status.INVALID_ARGUMENT, err.message);
-  }
-  if (err instanceof RepositoryError) {
-    return grpcError(status.INTERNAL, err.message);
-  }
-  return err as ServiceError;
-}
-
-/**
- * Real-mode handlers: the minimal SQLite read path (T3), CreateProject (T5
- * repository), model settings (settings.ts JSON document) and status chat
- * (chat.ts). Runs and artifact streaming stay UNIMPLEMENTED until their
- * wiring tasks.
- */
-function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
+function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: RealExecutionDeps): HpathServer {
   const chat = new ChatService(db, settings);
+  const runDeps: RunExecutionDeps | undefined =
+    execution?.kernel && execution.artifactStore && execution.artifactIndex
+      ? {
+        db,
+        kernel: execution.kernel,
+        artifactStore: execution.artifactStore,
+        artifactIndex: execution.artifactIndex,
+      }
+      : undefined;
   return {
     ...createUnimplementedHandlers(),
+
+    ...(runDeps
+      ? {
+        runCase: createRunCaseHandler(runDeps),
+        getRun: createGetRunHandler(runDeps),
+        downloadArtifact: createDownloadArtifactHandler(runDeps),
+      }
+      : {}),
 
     createProject: (
       call: ServerUnaryCall<CreateProjectRequest, Project>,
@@ -357,6 +361,7 @@ export function createHpathService(
   store?: MockStore,
   db?: HpathDb,
   settings?: SettingsStore,
+  execution?: RealExecutionDeps,
 ): HpathServer {
   if (mode === "mock") {
     if (!store) {
@@ -370,5 +375,5 @@ export function createHpathService(
   if (!settings) {
     throw new Error("real mode requires a settings store (SettingsStore)");
   }
-  return createRealHandlers(db, settings);
+  return createRealHandlers(db, settings, execution);
 }

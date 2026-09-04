@@ -43,11 +43,67 @@ export class VerdictChannel {
 }
 
 /**
+ * Loose-but-explicit parameter schemas. An empty `Type.Object({})` advertises
+ * no properties to the provider, and some OpenAI-compatible models then send
+ * an empty arguments object (the tool call arrives with keys [none]). Naming
+ * the commonly submitted fields as optional keeps the channel untyped while
+ * telling the model what it may pass. `additionalProperties: true` preserves
+ * the "any shape" contract; strict validation stays in the VerdictChannel.
+ */
+const FINISH_VERDICT_PARAMS = Type.Object(
+  {
+    status: Type.Optional(Type.String({ description: '"pass" or "fail"' })),
+    summary: Type.Optional(Type.String({ description: "One-paragraph human-readable outcome" })),
+    alignments: Type.Optional(
+      Type.Array(Type.Record(Type.String(), Type.Unknown()), {
+        description: "One entry per alignment: {rule, api, ui, match, notes?}",
+      }),
+    ),
+    verdict: Type.Optional(Type.Unknown({ description: "Alternative: the whole verdict object as this single field" })),
+  },
+  { additionalProperties: true },
+);
+
+const RECORD_EVIDENCE_PARAMS = Type.Object(
+  {
+    rule: Type.Optional(Type.String({ description: "PRD logic that must hold" })),
+    api: Type.Optional(Type.String({ description: "Observed backend output" })),
+    ui: Type.Optional(Type.String({ description: "Observed frontend display" })),
+    match: Type.Optional(Type.Boolean({ description: "True when all three sides agree" })),
+    notes: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+/**
  * The kernel's `finish_verdict` tool. Arguments pass through the tool layer
  * untyped (loose schema) so each AgentDefinition can define its own output
  * shape; strict validation happens in the VerdictChannel against the
  * definition's outputSchema.
+ *
+ * Real models occasionally wrap the verdict instead of passing it flat — a
+ * single JSON-encoded string, or `{ verdict: {...} }`. The tool unwraps both
+ * transparently and, on schema failure, reports the received shape so the
+ * model can self-correct instead of retrying blind.
  */
+function unwrapVerdictParams(params: unknown): unknown {
+  if (typeof params === "string") {
+    try {
+      return JSON.parse(params);
+    } catch {
+      return params;
+    }
+  }
+  if (typeof params === "object" && params !== null && !Array.isArray(params)) {
+    const record = params as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length === 1 && keys[0] === "verdict" && typeof record.verdict === "object" && record.verdict !== null) {
+      return record.verdict;
+    }
+  }
+  return params;
+}
+
 export function createFinishVerdictTool(options: {
   channel: VerdictChannel;
   events: AgentEventSink;
@@ -56,20 +112,34 @@ export function createFinishVerdictTool(options: {
     name: "finish_verdict",
     label: "Finish with verdict",
     description:
-      "Submit the final structured verdict for this run. The verdict is validated "
-        + "against the agent's output schema; a valid verdict is the only way to "
-        + "finish the run successfully. Call this exactly once.",
-    parameters: Type.Object({}, { additionalProperties: true }),
-    execute: async (_toolCallId, params) => {
-      const verdict = options.channel.record(params);
-      options.events.append({ kind: "verdict", verdict });
-      return {
-        content: [{ type: "text", text: "verdict recorded; run finished" }],
-        details: { recorded: true },
-        // Hint the loop to stop after this tool batch: the verdict is the
-        // terminal action of a run.
-        terminate: true,
-      };
+      "Submit the final structured verdict for this run. Pass the verdict fields "
+        + "as flat named parameters (status, summary, alignments), not as a JSON "
+        + "string or a nested object. The verdict is validated against the agent's "
+        + "output schema; a valid verdict is the only way to finish the run "
+        + "successfully. Call this exactly once.",
+    parameters: FINISH_VERDICT_PARAMS,
+    execute: async (_toolCallId, rawParams) => {
+      const params = unwrapVerdictParams(rawParams);
+      try {
+        const verdict = options.channel.record(params);
+        options.events.append({ kind: "verdict", verdict });
+        return {
+          content: [{ type: "text", text: "verdict recorded; run finished" }],
+          details: { recorded: true },
+          // Hint the loop to stop after this tool batch: the verdict is the
+          // terminal action of a run.
+          terminate: true,
+        };
+      } catch (err) {
+        const shape =
+          typeof params === "object" && params !== null
+            ? `object with keys [${Object.keys(params as Record<string, unknown>).join(", ") || "none"}]`
+            : typeof params;
+        throw new Error(
+          `${(err as Error).message}. Received ${shape}; pass flat named parameters: `
+            + `status ("pass"|"fail"), summary (string), alignments (array of {rule, api, ui, match}).`,
+        );
+      }
     },
   };
 }
@@ -93,7 +163,7 @@ export function createRecordEvidenceTool(options: {
         + "three-way alignment entry with rule, api, ui, match, notes). Observations "
         + "are preserved even if the run fails later. The final verdict is still "
         + "submitted separately via finish_verdict.",
-    parameters: Type.Object({}, { additionalProperties: true }),
+    parameters: RECORD_EVIDENCE_PARAMS,
     execute: async (_toolCallId, entry) => {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
         throw new Error("evidence entry must be a JSON object");

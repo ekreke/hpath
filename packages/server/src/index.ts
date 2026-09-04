@@ -1,20 +1,83 @@
 // Server entrypoint. Usage:
 //   node dist/index.js --mock            (default) mock mode, in-memory data
-//   node dist/index.js --real            SQLite-backed reads (ListProjects/
-//                                        ListEnvs/ListCases/GetCase, seeded on
-//                                        first boot), settings + status chat;
-//                                        other RPCs UNIMPLEMENTED
+//   node dist/index.js --real            SQLite-backed persistence + the real
+//                                        run path: RunCase executes approved
+//                                        cases through the execute-agent,
+//                                        evidence lands in the artifact store
 //   node dist/index.js --port 50051
 //   node dist/index.js --host 0.0.0.0    bind address (env: HPATH_HOST)
 
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createMockStore } from "./mock/store.js";
 import { seedMockStore } from "./mock/seed.js";
 import type { MockStore } from "./mock/store.js";
 import { startServer } from "./grpc/server.js";
-import type { ServerMode } from "./grpc/hpath.js";
+import type { RealExecutionDeps, ServerMode } from "./grpc/hpath.js";
 import { HpathDb, defaultDbPath } from "./db/index.js";
 import { seedDatabase } from "./db/seed.js";
-import { SettingsStore } from "./settings.js";
+import { SettingsStore, agentModelOverrides } from "./settings.js";
+import { AgentKernel } from "./agents/pipeline.js";
+import { AgentRegistry } from "./agents/registry.js";
+import { ToolProviderRegistry } from "./agents/tools.js";
+import { registerBuiltIns } from "./agents/builtins.js";
+import {
+  createCatalogModelResolver,
+  createDefaultModels,
+  registerSettingsProviders,
+} from "./agents/model.js";
+import { ArtifactIndex } from "./artifacts/artifact-index.js";
+import { createArtifactStore } from "./artifacts/store.js";
+
+/** gRPC protos the grpc_call tool may resolve methods against. HPATH_GRPC_PROTOS
+ * (colon-separated) wins; otherwise the repo's demo-app proto is probed at the
+ * src/ and dist/ layouts. An empty list keeps grpc_call working for tools that
+ * pass explicit protos-less targets... it reports a descriptive error instead:
+ * proto resolution is configuration, not guessing. */
+function resolveGrpcProtoPaths(): string[] {
+  const fromEnv = process.env.HPATH_GRPC_PROTOS;
+  if (fromEnv !== undefined && fromEnv.trim() !== "") {
+    return fromEnv.split(":").filter((entry) => entry.trim() !== "");
+  }
+  const candidates = [
+    new URL("../../../fixtures/demo-app/proto/balance.proto", import.meta.url),
+    new URL("../../../../fixtures/demo-app/proto/balance.proto", import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    const path = fileURLToPath(candidate);
+    if (existsSync(path)) return [path];
+  }
+  return [];
+}
+
+/** Build the T8 execution deps: agent kernel (built-ins, settings-driven
+ * model) + artifact store. Providers register settings providers on every
+ * call so a settings update applies without a server restart. */
+async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise<RealExecutionDeps> {
+  const agents = new AgentRegistry();
+  const toolProviders = new ToolProviderRegistry();
+  registerBuiltIns(agents, toolProviders, {
+    ...agentModelOverrides(settings),
+    grpc: { protoPaths: resolveGrpcProtoPaths() },
+  });
+  const models = createDefaultModels();
+  const kernel = new AgentKernel({
+    agents,
+    toolProviders,
+    resolveModel: (modelId) => {
+      registerSettingsProviders(models, settings.get());
+      return createCatalogModelResolver(models)(modelId);
+    },
+    streamFn: (model, context, streamOptions) => {
+      registerSettingsProviders(models, settings.get());
+      return models.streamSimple(model, context, streamOptions);
+    },
+  });
+  const artifactStore = await createArtifactStore();
+  const artifactIndex = new ArtifactIndex(db.artifacts);
+  console.log(`[hpath-server] artifact store: ${artifactStore.backend}`);
+  return { kernel, artifactStore, artifactIndex };
+}
 
 function parseArgs(argv: string[]): { mode: ServerMode; port: number; host: string } {
   let mode: ServerMode = "mock";
@@ -46,6 +109,7 @@ async function main(): Promise<void> {
   let store: MockStore | undefined;
   let db: HpathDb | undefined;
   let settings: SettingsStore | undefined;
+  let execution: RealExecutionDeps | undefined;
   if (mode === "mock") {
     store = createMockStore();
     seedMockStore(store);
@@ -59,9 +123,12 @@ async function main(): Promise<void> {
     // Model provider settings (chat + agents); seeded on first boot.
     settings = SettingsStore.load();
     console.log(`[hpath-server] settings loaded from ${process.env.HPATH_SETTINGS_PATH ?? "data/settings.json"}`);
+    // T8: the run path (RunCase/GetRun/DownloadArtifact) backed by the agent
+    // kernel and the artifact store.
+    execution = await buildExecutionDeps(db, settings);
   }
 
-  const server = await startServer({ mode, port, host, store, db, settings });
+  const server = await startServer({ mode, port, host, store, db, settings, execution });
   console.log(`[hpath-server] mode=${mode} listening on ${host}:${server.port}`);
 
   const shutdown = (): void => {

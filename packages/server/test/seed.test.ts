@@ -41,7 +41,7 @@ describe("seedDatabase", () => {
       );
       const dev = envs.find((env) => env.name === "dev")!;
       assert.equal(dev.webBaseUrl, "http://localhost:8081");
-      assert.deepEqual(dev.credentials, { account: "test/123456" });
+      assert.deepEqual(dev.credentials, { username: "demo", password: "demo1234" });
 
       // Cases: 4 approved (incl. the two scripted probes) + 1 pending agent draft.
       const cases = db.cases.listByProject(seed.project.id);

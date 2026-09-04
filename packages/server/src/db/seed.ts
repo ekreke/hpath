@@ -137,7 +137,10 @@ function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
     webBaseUrl: "http://localhost:8081",
     grpcAddress: "localhost:9091",
     vars: { region: "local" },
-    credentials: { account: "test/123456" },
+    // Credentials baked into the demo-app fixture (its login page displays
+    // them). Wrong values here cost the agent real steps against the step
+    // budget, so they must match the SUT exactly.
+    credentials: { username: "demo", password: "demo1234" },
     isDefault: true,
   };
   const staging: Env = {
@@ -147,7 +150,9 @@ function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
     webBaseUrl: "http://localhost:8082",
     grpcAddress: "localhost:9092",
     vars: { region: "staging" },
-    credentials: { account: "qa/abcdef" },
+    // Same demo-app credentials; the staging instance only differs in seed
+    // balance. dev/staging share the login, not the data.
+    credentials: { username: "demo", password: "demo1234" },
     isDefault: false,
   };
   db.envs.create(dev);

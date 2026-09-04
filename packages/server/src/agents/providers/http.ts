@@ -163,6 +163,16 @@ export function createHttpRequestTool(context: ToolContext, options: HttpToolPro
         }
       }
       const responseHeaders = Object.fromEntries(response.headers.entries());
+      // Structured exchange record for the run evidence stream (proto
+      // request_record): keeps the desktop request panel on real traffic.
+      context.events.append({
+        kind: "request_record",
+        direction: "http",
+        method: httpMethod,
+        target: target.toString(),
+        requestJson: JSON.stringify({ headers: typeof headers === "object" && headers !== null ? headers : {}, body: body ?? null }),
+        responseJson: JSON.stringify({ status: response.status, headers: responseHeaders, body: truncated ? `${rawBody}…[truncated]` : (parsed ?? rawBody) }),
+      });
       let bodyForModel: unknown;
       if (truncated) {
         bodyForModel = rawBody.length > maxBodyChars

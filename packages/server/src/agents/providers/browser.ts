@@ -3,16 +3,24 @@
 //
 // Isolation rule (docs/overview/agent-design.md): one chromium instance and
 // one BrowserContext per run — no cookie/storage sharing across runs or envs.
-// The browser launches lazily on the first tool call (runs that never touch
-// the browser do not pay for it) and is closed through the run's evidence
-// cleanup registry AND the run abort signal, so hard-limit aborts still
-// release the process and interrupt in-flight Playwright operations.
+// Every run records video (video.webm) and a Playwright trace (trace.zip);
+// both are only finalized when the context closes, so close() registers them
+// as pending run artifacts and the T8 wiring uploads them to the artifact
+// store after the run settles. The browser launches lazily on the first tool
+// call (runs that never touch the browser do not pay for it) and is closed
+// through the run's evidence cleanup registry AND the run abort signal, so
+// hard-limit aborts still release the process and interrupt in-flight
+// Playwright operations.
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium } from "playwright";
 import type { Browser, BrowserContext, Page } from "playwright";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import type { ToolContext, ToolProvider } from "../tools.js";
+import type { RunEvidence } from "../evidence.js";
 
 export interface BrowserToolProviderOptions {
   /** Run headless (default true; server deployments have no display). */
@@ -43,13 +51,17 @@ class BrowserSession {
   private context?: BrowserContext;
   private page?: Page;
   private closing = false;
+  private artifactsRegistered = false;
   /** Single-flight init: concurrent tool calls must not double-launch chromium. */
   private init?: Promise<Page>;
+  /** Temp dir for this run's video/trace; the caller uploads then removes it. */
+  readonly artifactsDir = mkdtempSync(join(tmpdir(), "hpath-run-"));
 
   constructor(
     private readonly baseUrl: string,
     private readonly options: Required<typeof DEFAULTS>,
     private readonly allowedOrigins: Set<string>,
+    private readonly evidence: RunEvidence,
   ) {}
 
   async getPage(): Promise<Page> {
@@ -65,7 +77,12 @@ class BrowserSession {
     let browser: Browser | undefined;
     try {
       browser = await chromium.launch({ headless: this.options.headless });
-      const context = await browser.newContext();
+      // Every run records video + trace (T8 evidence contract). Files are
+      // finalized on context close and registered as pending artifacts there.
+      const context = await browser.newContext({
+        recordVideo: { dir: this.artifactsDir, size: { width: 800, height: 600 } },
+      });
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
       const page = await context.newPage();
       page.setDefaultTimeout(this.options.actionTimeoutMs);
       this.browser = browser;
@@ -115,6 +132,21 @@ class BrowserSession {
     } catch {
       // A failed init already cleaned up after itself.
     }
+    // Finalize the trace BEFORE the context closes; the video file completes
+    // on context close. Both land in the session's temp dir and are handed to
+    // the evidence registry as pending artifacts for post-run upload.
+    try {
+      await this.context?.tracing.stop({ path: join(this.artifactsDir, "trace.zip") });
+    } catch {
+      // Tracing may never have started (failed init); not fatal.
+    }
+    let videoPath: string | undefined;
+    try {
+      const video = this.page?.video();
+      videoPath = video ? await video.path() : undefined;
+    } catch {
+      // Video path resolution is best-effort evidence.
+    }
     try {
       await this.context?.close();
     } catch {
@@ -125,6 +157,29 @@ class BrowserSession {
     } catch {
       // Swallowed.
     }
+    this.registerArtifacts(videoPath);
+  }
+
+  /** Hand the finalized video/trace files to the run evidence registry.
+   * Existence is the uploader's concern: a run that never reached a page may
+   * legitimately have a trace but no video (or neither on early failure). */
+  private registerArtifacts(videoPath: string | undefined): void {
+    if (this.artifactsRegistered) return;
+    this.artifactsRegistered = true;
+    if (videoPath) {
+      this.evidence.registerArtifact({
+        path: videoPath,
+        kind: 1, // ArtifactKind.ARTIFACT_KIND_VIDEO
+        name: "session.webm",
+        cleanupDir: this.artifactsDir,
+      });
+    }
+    this.evidence.registerArtifact({
+      path: join(this.artifactsDir, "trace.zip"),
+      kind: 2, // ArtifactKind.ARTIFACT_KIND_TRACE
+      name: "trace.zip",
+      cleanupDir: this.artifactsDir,
+    });
   }
 }
 
@@ -148,7 +203,7 @@ function strArgs(args: unknown): Record<string, unknown> {
 export function createBrowserTools(context: ToolContext, options: BrowserToolProviderOptions = {}): AgentTool[] {
   const resolved = { ...DEFAULTS, ...options } as Required<typeof DEFAULTS>;
   const allowedOrigins = new Set([new URL(context.env.baseUrl).origin, ...(options.allowedOrigins ?? [])]);
-  const session = new BrowserSession(context.env.baseUrl, resolved, allowedOrigins);
+  const session = new BrowserSession(context.env.baseUrl, resolved, allowedOrigins, context.evidence);
   context.evidence.registerCleanup(() => session.close());
   // Closing the context interrupts in-flight Playwright operations, so the
   // wall-clock hard limit stays hard even mid-navigation.

@@ -93,15 +93,15 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   One `ArtifactStore` interface, two backends selected by `HPATH_ARTIFACT_STORE`: `local` (default; filesystem under `HPATH_ARTIFACT_DIR`) and `s3` (aws-sdk-js against SeaweedFS). putObject/getObject streaming, artifact index bookkeeping, shared key scheme `artifacts/{project}/{env}/{run}/...`.
   *Verify: round-trip upload/download integration test for the `local` backend; `s3` backend round-trips against the compose `s3` profile SeaweedFS.*
 
-- [ ] **T7a Agent kernel**
+- [x] **T7a Agent kernel**
   AgentRegistry + AgentDefinition interface; ToolProviderRegistry; shared run pipeline: fresh session per run, env-bound injection, event recording (pi hooks), hard limits (maxSteps/tokenBudget/timeoutMs with evidence preserved), structured verdict channel.
   *Verify: a stub AgentDefinition runs through the pipeline end to end in tests.*
 
-- [ ] **T7b execute-agent + built-in ToolProviders**
+- [x] **T7b execute-agent + built-in ToolProviders**
   browser (navigate/click/fill/read_page/screenshot/wait via Playwright), http (http_request), grpc (grpc_call), evidence (record_evidence/finish_verdict). Verdict schema validates three-way alignment entries.
   *Verify: agent executes seed case against demo-app dev; verdict pass with all three sides evidenced.*
 
-- [ ] **T8 Run event streaming + evidence recording (real)**
+- [x] **T8 Run event streaming + evidence recording (real)**
   RunCase server-streaming backed by the real pipeline; per-run: video.webm, trace.zip, per-step screenshots, request records -> the artifact store (local by default); events + artifact index -> SQLite; limit breaches -> failed with evidence retained.
   *Verify: RunCase over gRPC yields ordered events; run artifacts complete in the artifact store; failed-on-limit run keeps evidence.*
 
