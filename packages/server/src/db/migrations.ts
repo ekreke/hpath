@@ -170,6 +170,39 @@ export const MIGRATIONS: readonly Migration[] = [
         ON envs(project_id) WHERE is_default = 1;
     `,
   },
+  {
+    name: "0004_chat",
+    sql: `
+      -- Chat conversations. Sessions are client-created (possibly with an
+      -- empty title that the server derives from the first user message);
+      -- updated_at tracks the latest turn so lists can sort by activity.
+      CREATE TABLE chat_sessions (
+        id         TEXT PRIMARY KEY,
+        title      TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Persisted chat turns of a session. role stores the ChatRole enum
+      -- (1 user / 2 assistant); usage columns stay 0 for user messages and
+      -- whenever the provider reports no usage. Deleting a session cascades
+      -- to its messages.
+      CREATE TABLE chat_messages (
+        id            TEXT PRIMARY KEY,
+        session_id    TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role          INTEGER NOT NULL DEFAULT 1, -- CHAT_ROLE_USER
+        content       TEXT NOT NULL,
+        model         TEXT NOT NULL DEFAULT '',
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_total    REAL NOT NULL DEFAULT 0,
+        created_at    TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, created_at);
+      CREATE INDEX idx_chat_sessions_updated ON chat_sessions(updated_at);
+    `,
+  },
 ];
 
 function nowIso(): string {

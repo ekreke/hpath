@@ -20,6 +20,11 @@ export { RunRepository, type RunFilter, type RunFinishPatch } from "./repositori
 export { EventRepository } from "./repositories/events.js";
 export { ArtifactRepository } from "./repositories/artifacts.js";
 export { PrdRepository } from "./repositories/prds.js";
+export {
+  ChatSessionRepository,
+  ChatMessageRepository,
+  CHAT_MESSAGE_LIMIT,
+} from "./repositories/chat.js";
 
 import type { DatabaseSync } from "node:sqlite";
 import { openDatabase, defaultDbPath } from "./database.js";
@@ -30,6 +35,7 @@ import { RunRepository } from "./repositories/runs.js";
 import { EventRepository } from "./repositories/events.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
 import { PrdRepository } from "./repositories/prds.js";
+import { ChatSessionRepository, ChatMessageRepository } from "./repositories/chat.js";
 
 /**
  * Facade bundling the raw connection with one repository per table. Open with
@@ -43,6 +49,8 @@ export class HpathDb {
   readonly events: EventRepository;
   readonly artifacts: ArtifactRepository;
   readonly prds: PrdRepository;
+  readonly chatSessions: ChatSessionRepository;
+  readonly chatMessages: ChatMessageRepository;
 
   private constructor(readonly database: DatabaseSync) {
     this.projects = new ProjectRepository(database);
@@ -52,6 +60,8 @@ export class HpathDb {
     this.events = new EventRepository(database);
     this.artifacts = new ArtifactRepository(database);
     this.prds = new PrdRepository(database);
+    this.chatSessions = new ChatSessionRepository(database);
+    this.chatMessages = new ChatMessageRepository(database);
   }
 
   /** Open (and migrate) the database at `path`, defaulting to HPATH_DB_PATH. */

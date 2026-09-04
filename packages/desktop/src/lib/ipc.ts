@@ -344,9 +344,44 @@ export type ChatEvent =
   | { kind: 'status'; model: string; promptTokensEst: number }
   | { kind: 'usage'; inputTokens: number; outputTokens: number; costTotal: number };
 
-// Stream one chat turn against the configured default model; text deltas
-// arrive via the `chat-event` channel and the promise resolves when the
-// server ends the stream.
-export function invokeChat(message: string): Promise<void> {
-  return invoke<void>('chat', { message });
+// Chat persistence (server-side SQLite): sessions group the turns of one
+// conversation; messages store each turn with the usage metadata reported at
+// stream end. Shapes mirror the contract types via the Rust DTOs.
+export type ChatSession = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  sessionId: string;
+  role: number; // ChatRole: 1 user / 2 assistant
+  content: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  costTotal: number;
+  createdAt: string;
+};
+
+export function invokeChat(sessionId: string, message: string): Promise<void> {
+  return invoke<void>('chat', { sessionId, message });
+}
+
+export function invokeCreateChatSession(title = ''): Promise<ChatSession> {
+  return invoke<ChatSession>('create_chat_session', { title });
+}
+
+export function invokeListChatSessions(): Promise<ChatSession[]> {
+  return invoke<ChatSession[]>('list_chat_sessions');
+}
+
+export function invokeDeleteChatSession(sessionId: string): Promise<void> {
+  return invoke<void>('delete_chat_session', { sessionId });
+}
+
+export function invokeListChatMessages(sessionId: string): Promise<ChatMessage[]> {
+  return invoke<ChatMessage[]>('list_chat_messages', { sessionId });
 }

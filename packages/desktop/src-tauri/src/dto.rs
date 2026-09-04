@@ -597,3 +597,66 @@ impl From<&pb::ChatResponse> for ChatEventDto {
         }
     }
 }
+
+/// One stored chat conversation.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSessionDto {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<&pb::ChatSession> for ChatSessionDto {
+    fn from(s: &pb::ChatSession) -> Self {
+        ChatSessionDto {
+            id: s.id.clone(),
+            title: s.title.clone(),
+            created_at: s.created_at.clone(),
+            updated_at: s.updated_at.clone(),
+        }
+    }
+}
+
+impl From<ChatSessionDto> for pb::ChatSession {
+    fn from(s: ChatSessionDto) -> Self {
+        pb::ChatSession {
+            id: s.id,
+            title: s.title,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+        }
+    }
+}
+
+/// One stored chat turn (user question or assistant answer).
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessageDto {
+    pub id: String,
+    pub session_id: String,
+    pub role: i32,
+    pub content: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cost_total: f64,
+    pub created_at: String,
+}
+
+impl From<&pb::ChatMessage> for ChatMessageDto {
+    fn from(m: &pb::ChatMessage) -> Self {
+        ChatMessageDto {
+            id: m.id.clone(),
+            session_id: m.session_id.clone(),
+            role: m.role,
+            content: m.content.clone(),
+            model: m.model.clone(),
+            input_tokens: m.input_tokens,
+            output_tokens: m.output_tokens,
+            cost_total: m.cost_total,
+            created_at: m.created_at.clone(),
+        }
+    }
+}

@@ -13,16 +13,23 @@ import type {
   AppSettings,
   Case,
   BytesChunk,
+  ChatMessage,
   ChatRequest,
   ChatResponse,
+  ChatSession,
   HpathServer,
   Event,
   ParseEvent,
   ParsePRDRequest,
+  CreateChatSessionRequest,
+  DeleteChatSessionRequest,
   GetCaseRequest,
   GetRunRequest,
   ListCasesRequest,
   ListCasesResponse,
+  ListChatMessagesRequest,
+  ListChatMessagesResponse,
+  ListChatSessionsResponse,
   ListEnvsRequest,
   ListEnvsResponse,
   ListProjectsResponse,
@@ -42,6 +49,7 @@ import type {
 import {
   ArtifactKind,
   CaseStatus,
+  ChatRole,
   CreatorType,
   Empty,
   PrdFormat,
@@ -479,6 +487,78 @@ export function createMockHandlers(store: MockStore): HpathServer {
       }
     },
 
+    // ------------------------------------------------------------------
+    // Chat sessions (mock mirrors the real mode's persistence in memory)
+    // ------------------------------------------------------------------
+    createChatSession: (
+      call: ServerUnaryCall<CreateChatSessionRequest, ChatSession>,
+      callback: sendUnaryData<ChatSession>,
+    ) => {
+      try {
+        const now = nowIso();
+        const session: ChatSession = {
+          id: randomUUID(),
+          title: call.request.title?.trim() ?? "",
+          createdAt: now,
+          updatedAt: now,
+        };
+        store.chatSessions.set(session.id, session);
+        callback(null, session);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    listChatSessions: (
+      _call: ServerUnaryCall<Empty, ListChatSessionsResponse>,
+      callback: sendUnaryData<ListChatSessionsResponse>,
+    ) => {
+      const sessions = [...store.chatSessions.values()].sort((a, b) =>
+        a.updatedAt === b.updatedAt ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt),
+      );
+      callback(null, { sessions });
+    },
+
+    deleteChatSession: (
+      call: ServerUnaryCall<DeleteChatSessionRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ) => {
+      try {
+        const { sessionId } = call.request;
+        if (!store.chatSessions.has(sessionId)) {
+          throw grpcError(status.NOT_FOUND, `chat session not found: ${sessionId}`);
+        }
+        store.chatSessions.delete(sessionId);
+        for (const [id, message] of store.chatMessages) {
+          if (message.sessionId === sessionId) {
+            store.chatMessages.delete(id);
+          }
+        }
+        callback(null, Empty.create());
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    listChatMessages: (
+      call: ServerUnaryCall<ListChatMessagesRequest, ListChatMessagesResponse>,
+      callback: sendUnaryData<ListChatMessagesResponse>,
+    ) => {
+      try {
+        const { sessionId } = call.request;
+        if (!store.chatSessions.has(sessionId)) {
+          throw grpcError(status.NOT_FOUND, `chat session not found: ${sessionId}`);
+        }
+        const messages = [...store.chatMessages.values()]
+          .filter((m) => m.sessionId === sessionId)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+          .slice(-200);
+        callback(null, { messages });
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
     chat: (call: ServerWritableStream<ChatRequest, ChatResponse>) => {
       void (async () => {
         try {
@@ -486,6 +566,30 @@ export function createMockHandlers(store: MockStore): HpathServer {
           if (!question) {
             throw grpcError(status.INVALID_ARGUMENT, "message is required");
           }
+          const sessionId = call.request.sessionId;
+          if (!sessionId || !store.chatSessions.has(sessionId)) {
+            throw grpcError(status.NOT_FOUND, `chat session not found: ${sessionId || "(empty)"}`);
+          }
+          const now = nowIso();
+          const userMessage: ChatMessage = {
+            id: randomUUID(),
+            sessionId,
+            role: ChatRole.CHAT_ROLE_USER,
+            content: question,
+            model: "",
+            inputTokens: 0,
+            outputTokens: 0,
+            costTotal: 0,
+            createdAt: now,
+          };
+          store.chatMessages.set(userMessage.id, userMessage);
+          // Derive the session title from the first user question.
+          const session = store.chatSessions.get(sessionId)!;
+          if (!session.title) {
+            session.title = question.length > 40 ? `${question.slice(0, 40)}…` : question;
+          }
+          session.updatedAt = now;
+
           call.write({
             status: { model: "mock-model", promptTokensEst: Math.ceil(question.length / 4) + 96 },
           });
@@ -496,19 +600,33 @@ export function createMockHandlers(store: MockStore): HpathServer {
             "Snapshot: 1 demo project (dev + staging), 5 cases (4 approved, 1 pending), 2 finished sample runs.",
           ];
           let answered = 0;
+          let answer = "";
           for (const delta of deltas) {
             if (call.cancelled) return;
             answered += delta.length;
+            answer += delta;
             call.write({ textDelta: delta });
             await sleep(120);
           }
-          call.write({
-            usage: {
-              inputTokens: Math.ceil(question.length / 4) + 96,
-              outputTokens: Math.ceil(answered / 4),
-              costTotal: 0,
-            },
-          });
+          const usage = {
+            inputTokens: Math.ceil(question.length / 4) + 96,
+            outputTokens: Math.ceil(answered / 4),
+            costTotal: 0,
+          };
+          const answerMessage: ChatMessage = {
+            id: randomUUID(),
+            sessionId,
+            role: ChatRole.CHAT_ROLE_ASSISTANT,
+            content: answer,
+            model: "mock-model",
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            costTotal: usage.costTotal,
+            createdAt: nowIso(),
+          };
+          store.chatMessages.set(answerMessage.id, answerMessage);
+          store.chatSessions.get(sessionId)!.updatedAt = nowIso();
+          call.write({ usage });
           call.end();
         } catch (err) {
           call.emit("error", err as ServiceError);

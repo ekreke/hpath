@@ -19,13 +19,19 @@ import type {
   Case,
   ChatRequest,
   ChatResponse,
+  ChatSession,
+  CreateChatSessionRequest,
   CreateProjectRequest,
+  DeleteChatSessionRequest,
   DeleteEnvRequest,
   Env,
   GetCaseRequest,
   HpathServer,
   ListCasesRequest,
   ListCasesResponse,
+  ListChatMessagesRequest,
+  ListChatMessagesResponse,
+  ListChatSessionsResponse,
   ListEnvsRequest,
   ListEnvsResponse,
   ListProjectsResponse,
@@ -53,7 +59,7 @@ export type ServerMode = "mock" | "real";
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/GetSettings/UpdateSettings/Chat — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T8+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -183,7 +189,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
     chat: (call: ServerWritableStream<ChatRequest, ChatResponse>): void => {
       void (async () => {
         try {
-          for await (const response of chat.respond(call.request.message)) {
+          for await (const response of chat.respond(call.request.sessionId, call.request.message)) {
             if (call.cancelled) return;
             call.write(response);
           }
@@ -192,6 +198,61 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore): HpathServer {
           call.emit("error", toGrpcError(err));
         }
       })();
+    },
+
+    createChatSession: (
+      call: ServerUnaryCall<CreateChatSessionRequest, ChatSession>,
+      callback: sendUnaryData<ChatSession>,
+    ): void => {
+      try {
+        const now = new Date().toISOString();
+        const session: ChatSession = {
+          id: randomUUID(),
+          title: call.request.title?.trim() ?? "",
+          createdAt: now,
+          updatedAt: now,
+        };
+        db.chatSessions.insert(session);
+        callback(null, session);
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    listChatSessions: (
+      _call: ServerUnaryCall<Record<string, never>, ListChatSessionsResponse>,
+      callback: sendUnaryData<ListChatSessionsResponse>,
+    ): void => {
+      try {
+        callback(null, { sessions: db.chatSessions.list() });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    deleteChatSession: (
+      call: ServerUnaryCall<DeleteChatSessionRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ): void => {
+      try {
+        db.chatSessions.getRequired(call.request.sessionId);
+        db.chatSessions.delete(call.request.sessionId);
+        callback(null, Empty.create());
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    listChatMessages: (
+      call: ServerUnaryCall<ListChatMessagesRequest, ListChatMessagesResponse>,
+      callback: sendUnaryData<ListChatMessagesResponse>,
+    ): void => {
+      try {
+        db.chatSessions.getRequired(call.request.sessionId);
+        callback(null, { messages: db.chatMessages.listBySession(call.request.sessionId) });
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
     },
 
     listEnvs: (

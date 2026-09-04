@@ -111,10 +111,12 @@ describe("chat service (stubbed model runtime)", () => {
         },
       },
       runs: { list: () => [] },
+      chatMessages: { insert: () => {}, listBySession: () => [] },
+      chatSessions: { touch: () => {} },
     } as never as import("../src/db/index.js").HpathDb;
     const chat = new ChatService(db, settings, () => stubModels());
     const chunks: string[] = [];
-    for await (const response of chat.respond("hello there")) {
+    for await (const response of chat.respond("s1", "hello there")) {
       if (response.textDelta !== undefined) chunks.push(response.textDelta);
       if (response.error !== undefined) assert.fail(`unexpected error: ${response.error}`);
     }
@@ -123,7 +125,7 @@ describe("chat service (stubbed model runtime)", () => {
 
   it("reports an error branch for an empty message", async () => {
     const chat = new ChatService({} as never, settings, () => stubModels());
-    for await (const response of chat.respond("   ")) {
+    for await (const response of chat.respond("s1", "   ")) {
       assert.ok(response.error !== undefined);
     }
   });

@@ -18,6 +18,8 @@ const EXPECTED_TABLES = [
   "events",
   "artifacts",
   "prds",
+  "chat_sessions",
+  "chat_messages",
 ];
 
 function tableNames(db: HpathDb): string[] {

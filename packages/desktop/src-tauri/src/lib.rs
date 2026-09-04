@@ -12,9 +12,9 @@ pub mod hpath {
 pub mod grpc;
 
 use dto::{
-    ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, EnvDto, ParseEventDto,
-    ParsePrdResultDto, ProjectDto, RunDetailDto, RunEventDto, RunResultDto, SettingsDto,
-    VerdictDto,
+    ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, ChatMessageDto, ChatSessionDto,
+    EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunEventDto, RunResultDto,
+    SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -113,15 +113,24 @@ async fn update_settings(state: State<'_, AppState>, settings: SettingsDto) -> R
 
 /// Stream one chat turn: each gRPC ChatResponse is forwarded to the webview
 /// on the `chat-event` channel (text deltas + terminal errors); the command
-/// resolves with Ok(()) once the stream ends.
+/// resolves with Ok(()) once the stream ends. The turn is persisted server-side
+/// into the session named by `session_id`.
 #[tauri::command]
-async fn chat(app: AppHandle, state: State<'_, AppState>, message: String) -> Result<(), String> {
+async fn chat(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    message: String,
+) -> Result<(), String> {
     let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
         .map_err(|e| e.to_string())?;
 
     let mut stream = client
-        .chat(Request::new(hpath::ChatRequest { message }))
+        .chat(Request::new(hpath::ChatRequest {
+            message,
+            session_id,
+        }))
         .await
         .map_err(|e| e.to_string())?
         .into_inner();
@@ -131,6 +140,78 @@ async fn chat(app: AppHandle, state: State<'_, AppState>, message: String) -> Re
     }
 
     Ok(())
+}
+
+#[tauri::command]
+async fn create_chat_session(
+    state: State<'_, AppState>,
+    title: String,
+) -> Result<ChatSessionDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .create_chat_session(Request::new(hpath::CreateChatSessionRequest { title }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ChatSessionDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn list_chat_sessions(state: State<'_, AppState>) -> Result<Vec<ChatSessionDto>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .list_chat_sessions(Request::new(hpath::Empty {}))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(response
+        .into_inner()
+        .sessions
+        .iter()
+        .map(ChatSessionDto::from)
+        .collect())
+}
+
+#[tauri::command]
+async fn delete_chat_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    client
+        .delete_chat_session(Request::new(hpath::DeleteChatSessionRequest { session_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_chat_messages(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<ChatMessageDto>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .list_chat_messages(Request::new(hpath::ListChatMessagesRequest { session_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(response
+        .into_inner()
+        .messages
+        .iter()
+        .map(ChatMessageDto::from)
+        .collect())
 }
 
 #[tauri::command]
@@ -598,6 +679,10 @@ pub fn run() {
             get_settings,
             update_settings,
             chat,
+            create_chat_session,
+            list_chat_sessions,
+            delete_chat_session,
+            list_chat_messages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

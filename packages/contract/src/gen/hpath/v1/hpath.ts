@@ -399,6 +399,46 @@ export function verdictStatusToJSON(object: VerdictStatus): string {
   }
 }
 
+/** Role of a persisted chat message. */
+export enum ChatRole {
+  CHAT_ROLE_UNSPECIFIED = 0,
+  CHAT_ROLE_USER = 1,
+  CHAT_ROLE_ASSISTANT = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function chatRoleFromJSON(object: any): ChatRole {
+  switch (object) {
+    case 0:
+    case "CHAT_ROLE_UNSPECIFIED":
+      return ChatRole.CHAT_ROLE_UNSPECIFIED;
+    case 1:
+    case "CHAT_ROLE_USER":
+      return ChatRole.CHAT_ROLE_USER;
+    case 2:
+    case "CHAT_ROLE_ASSISTANT":
+      return ChatRole.CHAT_ROLE_ASSISTANT;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ChatRole.UNRECOGNIZED;
+  }
+}
+
+export function chatRoleToJSON(object: ChatRole): string {
+  switch (object) {
+    case ChatRole.CHAT_ROLE_UNSPECIFIED:
+      return "CHAT_ROLE_UNSPECIFIED";
+    case ChatRole.CHAT_ROLE_USER:
+      return "CHAT_ROLE_USER";
+    case ChatRole.CHAT_ROLE_ASSISTANT:
+      return "CHAT_ROLE_ASSISTANT";
+    case ChatRole.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /**
  * Creator of an entity. Humans are recorded by name; agent-created entities
  * reference the analyze run that produced them.
@@ -764,6 +804,56 @@ export interface AppSettings {
 export interface ChatRequest {
   /** free-text user question */
   message: string;
+  /** chat session the turn belongs to */
+  sessionId: string;
+}
+
+/** One stored chat conversation. */
+export interface ChatSession {
+  id: string;
+  /** derived from the first user message */
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One stored chat turn (user question or assistant answer). */
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  role: ChatRole;
+  content: string;
+  /** resolved model id (assistant only, else empty) */
+  model: string;
+  /** 0 when the provider reported no usage */
+  inputTokens: number;
+  outputTokens: number;
+  /** USD; 0 when the provider reports no pricing */
+  costTotal: number;
+  createdAt: string;
+}
+
+export interface CreateChatSessionRequest {
+  /** optional; server derives one from the first user message when empty */
+  title: string;
+}
+
+export interface ListChatSessionsResponse {
+  /** newest activity first */
+  sessions: ChatSession[];
+}
+
+export interface DeleteChatSessionRequest {
+  sessionId: string;
+}
+
+export interface ListChatMessagesRequest {
+  sessionId: string;
+}
+
+export interface ListChatMessagesResponse {
+  /** oldest first, capped at the most recent 200 */
+  messages: ChatMessage[];
 }
 
 /**
@@ -5959,13 +6049,16 @@ export const AppSettings: MessageFns<AppSettings> = {
 };
 
 function createBaseChatRequest(): ChatRequest {
-  return { message: "" };
+  return { message: "", sessionId: "" };
 }
 
 export const ChatRequest: MessageFns<ChatRequest> = {
   encode(message: ChatRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.message !== "") {
       writer.uint32(10).string(message.message);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(18).string(message.sessionId);
     }
     return writer;
   },
@@ -5991,6 +6084,14 @@ export const ChatRequest: MessageFns<ChatRequest> = {
             message.message = reader.string();
             continue;
           }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -6004,13 +6105,23 @@ export const ChatRequest: MessageFns<ChatRequest> = {
   },
 
   fromJSON(object: any): ChatRequest {
-    return { message: isSet(object.message) ? globalThis.String(object.message) : "" };
+    return {
+      message: isSet(object.message) ? globalThis.String(object.message) : "",
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+    };
   },
 
   toJSON(message: ChatRequest): unknown {
     const obj: any = {};
     if (message.message !== "") {
       obj.message = message.message;
+    }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
     }
     return obj;
   },
@@ -6021,6 +6132,714 @@ export const ChatRequest: MessageFns<ChatRequest> = {
   fromPartial<I extends Exact<DeepPartial<ChatRequest>, I>>(object: I): ChatRequest {
     const message = createBaseChatRequest();
     message.message = object.message ?? "";
+    message.sessionId = object.sessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseChatSession(): ChatSession {
+  return { id: "", title: "", createdAt: "", updatedAt: "" };
+}
+
+export const ChatSession: MessageFns<ChatSession> = {
+  encode(message: ChatSession, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.title !== "") {
+      writer.uint32(18).string(message.title);
+    }
+    if (message.createdAt !== "") {
+      writer.uint32(26).string(message.createdAt);
+    }
+    if (message.updatedAt !== "") {
+      writer.uint32(34).string(message.updatedAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatSession {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatSession();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.id = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.title = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.createdAt = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.updatedAt = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatSession {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      createdAt: isSet(object.createdAt)
+        ? globalThis.String(object.createdAt)
+        : isSet(object.created_at)
+        ? globalThis.String(object.created_at)
+        : "",
+      updatedAt: isSet(object.updatedAt)
+        ? globalThis.String(object.updatedAt)
+        : isSet(object.updated_at)
+        ? globalThis.String(object.updated_at)
+        : "",
+    };
+  },
+
+  toJSON(message: ChatSession): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.createdAt !== "") {
+      obj.createdAt = message.createdAt;
+    }
+    if (message.updatedAt !== "") {
+      obj.updatedAt = message.updatedAt;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatSession>, I>>(base?: I): ChatSession {
+    return ChatSession.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatSession>, I>>(object: I): ChatSession {
+    const message = createBaseChatSession();
+    message.id = object.id ?? "";
+    message.title = object.title ?? "";
+    message.createdAt = object.createdAt ?? "";
+    message.updatedAt = object.updatedAt ?? "";
+    return message;
+  },
+};
+
+function createBaseChatMessage(): ChatMessage {
+  return {
+    id: "",
+    sessionId: "",
+    role: 0,
+    content: "",
+    model: "",
+    inputTokens: 0,
+    outputTokens: 0,
+    costTotal: 0,
+    createdAt: "",
+  };
+}
+
+export const ChatMessage: MessageFns<ChatMessage> = {
+  encode(message: ChatMessage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(18).string(message.sessionId);
+    }
+    if (message.role !== 0) {
+      writer.uint32(24).int32(message.role);
+    }
+    if (message.content !== "") {
+      writer.uint32(34).string(message.content);
+    }
+    if (message.model !== "") {
+      writer.uint32(42).string(message.model);
+    }
+    if (message.inputTokens !== 0) {
+      writer.uint32(48).uint64(message.inputTokens);
+    }
+    if (message.outputTokens !== 0) {
+      writer.uint32(56).uint64(message.outputTokens);
+    }
+    if (message.costTotal !== 0) {
+      writer.uint32(65).double(message.costTotal);
+    }
+    if (message.createdAt !== "") {
+      writer.uint32(74).string(message.createdAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChatMessage {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseChatMessage();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.id = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.role = reader.int32() as any;
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.content = reader.string();
+            continue;
+          }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.model = reader.string();
+            continue;
+          }
+          case 6: {
+            if (tag !== 48) {
+              break;
+            }
+
+            message.inputTokens = longToNumber(reader.uint64());
+            continue;
+          }
+          case 7: {
+            if (tag !== 56) {
+              break;
+            }
+
+            message.outputTokens = longToNumber(reader.uint64());
+            continue;
+          }
+          case 8: {
+            if (tag !== 65) {
+              break;
+            }
+
+            message.costTotal = reader.double();
+            continue;
+          }
+          case 9: {
+            if (tag !== 74) {
+              break;
+            }
+
+            message.createdAt = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ChatMessage {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      role: isSet(object.role) ? chatRoleFromJSON(object.role) : 0,
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+      model: isSet(object.model) ? globalThis.String(object.model) : "",
+      inputTokens: isSet(object.inputTokens)
+        ? globalThis.Number(object.inputTokens)
+        : isSet(object.input_tokens)
+        ? globalThis.Number(object.input_tokens)
+        : 0,
+      outputTokens: isSet(object.outputTokens)
+        ? globalThis.Number(object.outputTokens)
+        : isSet(object.output_tokens)
+        ? globalThis.Number(object.output_tokens)
+        : 0,
+      costTotal: isSet(object.costTotal)
+        ? globalThis.Number(object.costTotal)
+        : isSet(object.cost_total)
+        ? globalThis.Number(object.cost_total)
+        : 0,
+      createdAt: isSet(object.createdAt)
+        ? globalThis.String(object.createdAt)
+        : isSet(object.created_at)
+        ? globalThis.String(object.created_at)
+        : "",
+    };
+  },
+
+  toJSON(message: ChatMessage): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.role !== 0) {
+      obj.role = chatRoleToJSON(message.role);
+    }
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    if (message.model !== "") {
+      obj.model = message.model;
+    }
+    if (message.inputTokens !== 0) {
+      obj.inputTokens = Math.round(message.inputTokens);
+    }
+    if (message.outputTokens !== 0) {
+      obj.outputTokens = Math.round(message.outputTokens);
+    }
+    if (message.costTotal !== 0) {
+      obj.costTotal = message.costTotal;
+    }
+    if (message.createdAt !== "") {
+      obj.createdAt = message.createdAt;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChatMessage>, I>>(base?: I): ChatMessage {
+    return ChatMessage.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChatMessage>, I>>(object: I): ChatMessage {
+    const message = createBaseChatMessage();
+    message.id = object.id ?? "";
+    message.sessionId = object.sessionId ?? "";
+    message.role = object.role ?? 0;
+    message.content = object.content ?? "";
+    message.model = object.model ?? "";
+    message.inputTokens = object.inputTokens ?? 0;
+    message.outputTokens = object.outputTokens ?? 0;
+    message.costTotal = object.costTotal ?? 0;
+    message.createdAt = object.createdAt ?? "";
+    return message;
+  },
+};
+
+function createBaseCreateChatSessionRequest(): CreateChatSessionRequest {
+  return { title: "" };
+}
+
+export const CreateChatSessionRequest: MessageFns<CreateChatSessionRequest> = {
+  encode(message: CreateChatSessionRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.title !== "") {
+      writer.uint32(10).string(message.title);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CreateChatSessionRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseCreateChatSessionRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.title = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): CreateChatSessionRequest {
+    return { title: isSet(object.title) ? globalThis.String(object.title) : "" };
+  },
+
+  toJSON(message: CreateChatSessionRequest): unknown {
+    const obj: any = {};
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateChatSessionRequest>, I>>(base?: I): CreateChatSessionRequest {
+    return CreateChatSessionRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateChatSessionRequest>, I>>(object: I): CreateChatSessionRequest {
+    const message = createBaseCreateChatSessionRequest();
+    message.title = object.title ?? "";
+    return message;
+  },
+};
+
+function createBaseListChatSessionsResponse(): ListChatSessionsResponse {
+  return { sessions: [] };
+}
+
+export const ListChatSessionsResponse: MessageFns<ListChatSessionsResponse> = {
+  encode(message: ListChatSessionsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.sessions) {
+      ChatSession.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListChatSessionsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListChatSessionsResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.sessions.push(ChatSession.decode(reader, reader.uint32()));
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListChatSessionsResponse {
+    return {
+      sessions: globalThis.Array.isArray(object?.sessions)
+        ? object.sessions.map((e: any) => ChatSession.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ListChatSessionsResponse): unknown {
+    const obj: any = {};
+    if (message.sessions?.length) {
+      obj.sessions = message.sessions.map((e) => ChatSession.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListChatSessionsResponse>, I>>(base?: I): ListChatSessionsResponse {
+    return ListChatSessionsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListChatSessionsResponse>, I>>(object: I): ListChatSessionsResponse {
+    const message = createBaseListChatSessionsResponse();
+    message.sessions = object.sessions?.map((e) => ChatSession.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseDeleteChatSessionRequest(): DeleteChatSessionRequest {
+  return { sessionId: "" };
+}
+
+export const DeleteChatSessionRequest: MessageFns<DeleteChatSessionRequest> = {
+  encode(message: DeleteChatSessionRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessionId !== "") {
+      writer.uint32(10).string(message.sessionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteChatSessionRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseDeleteChatSessionRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): DeleteChatSessionRequest {
+    return {
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+    };
+  },
+
+  toJSON(message: DeleteChatSessionRequest): unknown {
+    const obj: any = {};
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteChatSessionRequest>, I>>(base?: I): DeleteChatSessionRequest {
+    return DeleteChatSessionRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteChatSessionRequest>, I>>(object: I): DeleteChatSessionRequest {
+    const message = createBaseDeleteChatSessionRequest();
+    message.sessionId = object.sessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseListChatMessagesRequest(): ListChatMessagesRequest {
+  return { sessionId: "" };
+}
+
+export const ListChatMessagesRequest: MessageFns<ListChatMessagesRequest> = {
+  encode(message: ListChatMessagesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sessionId !== "") {
+      writer.uint32(10).string(message.sessionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListChatMessagesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListChatMessagesRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.sessionId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListChatMessagesRequest {
+    return {
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+    };
+  },
+
+  toJSON(message: ListChatMessagesRequest): unknown {
+    const obj: any = {};
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListChatMessagesRequest>, I>>(base?: I): ListChatMessagesRequest {
+    return ListChatMessagesRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListChatMessagesRequest>, I>>(object: I): ListChatMessagesRequest {
+    const message = createBaseListChatMessagesRequest();
+    message.sessionId = object.sessionId ?? "";
+    return message;
+  },
+};
+
+function createBaseListChatMessagesResponse(): ListChatMessagesResponse {
+  return { messages: [] };
+}
+
+export const ListChatMessagesResponse: MessageFns<ListChatMessagesResponse> = {
+  encode(message: ListChatMessagesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.messages) {
+      ChatMessage.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListChatMessagesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListChatMessagesResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.messages.push(ChatMessage.decode(reader, reader.uint32()));
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListChatMessagesResponse {
+    return {
+      messages: globalThis.Array.isArray(object?.messages)
+        ? object.messages.map((e: any) => ChatMessage.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ListChatMessagesResponse): unknown {
+    const obj: any = {};
+    if (message.messages?.length) {
+      obj.messages = message.messages.map((e) => ChatMessage.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListChatMessagesResponse>, I>>(base?: I): ListChatMessagesResponse {
+    return ListChatMessagesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListChatMessagesResponse>, I>>(object: I): ListChatMessagesResponse {
+    const message = createBaseListChatMessagesResponse();
+    message.messages = object.messages?.map((e) => ChatMessage.fromPartial(e)) || [];
     return message;
   },
 };
@@ -6568,7 +7387,9 @@ export const HpathService = {
   /**
    * Free-text status chat answered by the configured LLM (system prompt +
    * system data snapshot). Streams text deltas; errors surface on the error
-   * branch of ChatResponse.
+   * branch of ChatResponse. Turns are persisted into the session named by
+   * ChatRequest.session_id, and the most recent session history joins the
+   * prompt so follow-up questions work.
    */
   chat: {
     path: "/hpath.v1.Hpath/Chat" as const,
@@ -6578,6 +7399,52 @@ export const HpathService = {
     requestDeserialize: (value: Buffer): ChatRequest => ChatRequest.decode(value),
     responseSerialize: (value: ChatResponse): Buffer => Buffer.from(ChatResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ChatResponse => ChatResponse.decode(value),
+  },
+  /**
+   * Chat session bookkeeping. Sessions are created lazily by clients (empty
+   * title allowed; the server derives one from the first user message).
+   * DeleteChatSession removes the session and cascades to its messages.
+   */
+  createChatSession: {
+    path: "/hpath.v1.Hpath/CreateChatSession" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: CreateChatSessionRequest): Buffer =>
+      Buffer.from(CreateChatSessionRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): CreateChatSessionRequest => CreateChatSessionRequest.decode(value),
+    responseSerialize: (value: ChatSession): Buffer => Buffer.from(ChatSession.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ChatSession => ChatSession.decode(value),
+  },
+  listChatSessions: {
+    path: "/hpath.v1.Hpath/ListChatSessions" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    requestDeserialize: (value: Buffer): Empty => Empty.decode(value),
+    responseSerialize: (value: ListChatSessionsResponse): Buffer =>
+      Buffer.from(ListChatSessionsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListChatSessionsResponse => ListChatSessionsResponse.decode(value),
+  },
+  deleteChatSession: {
+    path: "/hpath.v1.Hpath/DeleteChatSession" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: DeleteChatSessionRequest): Buffer =>
+      Buffer.from(DeleteChatSessionRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DeleteChatSessionRequest => DeleteChatSessionRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
+  listChatMessages: {
+    path: "/hpath.v1.Hpath/ListChatMessages" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListChatMessagesRequest): Buffer =>
+      Buffer.from(ListChatMessagesRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListChatMessagesRequest => ListChatMessagesRequest.decode(value),
+    responseSerialize: (value: ListChatMessagesResponse): Buffer =>
+      Buffer.from(ListChatMessagesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListChatMessagesResponse => ListChatMessagesResponse.decode(value),
   },
 } as const;
 
@@ -6622,9 +7489,20 @@ export interface HpathServer extends UntypedServiceImplementation {
   /**
    * Free-text status chat answered by the configured LLM (system prompt +
    * system data snapshot). Streams text deltas; errors surface on the error
-   * branch of ChatResponse.
+   * branch of ChatResponse. Turns are persisted into the session named by
+   * ChatRequest.session_id, and the most recent session history joins the
+   * prompt so follow-up questions work.
    */
   chat: handleServerStreamingCall<ChatRequest, ChatResponse>;
+  /**
+   * Chat session bookkeeping. Sessions are created lazily by clients (empty
+   * title allowed; the server derives one from the first user message).
+   * DeleteChatSession removes the session and cascades to its messages.
+   */
+  createChatSession: handleUnaryCall<CreateChatSessionRequest, ChatSession>;
+  listChatSessions: handleUnaryCall<Empty, ListChatSessionsResponse>;
+  deleteChatSession: handleUnaryCall<DeleteChatSessionRequest, Empty>;
+  listChatMessages: handleUnaryCall<ListChatMessagesRequest, ListChatMessagesResponse>;
 }
 
 function bytesFromBase64(b64: string): Uint8Array {

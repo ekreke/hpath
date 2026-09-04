@@ -4,6 +4,8 @@
 import type {
   Artifact,
   Case,
+  ChatMessage,
+  ChatSession,
   Env,
   Event,
   Project,
@@ -23,6 +25,9 @@ export interface MockStore {
   /** artifact id -> bytes */
   artifactData: Map<string, Uint8Array>;
   prds: Map<string, Prd>;
+  /** Chat conversations; mock mirrors the real mode's SQLite persistence in memory. */
+  chatSessions: Map<string, ChatSession>;
+  chatMessages: Map<string, ChatMessage>;
   /** Model provider settings (GetSettings/UpdateSettings); mock-only memory. */
   settings: { providerConfigJson: string; defaultModel: string };
 }
@@ -37,6 +42,8 @@ export function createMockStore(): MockStore {
     artifacts: new Map(),
     artifactData: new Map(),
     prds: new Map(),
+    chatSessions: new Map(),
+    chatMessages: new Map(),
     settings: { providerConfigJson: JSON.stringify(SEED_PROVIDER_JSON, null, 2), defaultModel: "glm-5.3-flash" },
   };
 }

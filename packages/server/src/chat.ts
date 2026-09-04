@@ -2,11 +2,14 @@
 // answered by the settings' default multimodal model. The system prompt embeds
 // a snapshot of the current system state (projects / cases by status / recent
 // runs) so answers reflect live data without tools. Streams ChatResponse text
-// deltas; failures surface on the error branch. Chat turns are not persisted
-// in 1.0 — the desktop keeps the transcript in view state.
+// deltas; failures surface on the error branch. Each turn is persisted into
+// its session (chat_messages) and the most recent history joins the prompt so
+// follow-up questions work; the title is derived from the first user message.
 
-import type { ChatResponse } from "@hpath/contract";
-import type { MutableModels } from "@earendil-works/pi-ai";
+import { randomUUID } from "node:crypto";
+import type { ChatMessage, ChatResponse } from "@hpath/contract";
+import { ChatRole } from "@hpath/contract";
+import type { AssistantMessage, MutableModels, UserMessage } from "@earendil-works/pi-ai";
 import type { HpathDb } from "./db/index.js";
 import {
   createCatalogModelResolver,
@@ -99,6 +102,47 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** How many past turns (user + assistant) join the prompt for follow-ups. */
+const CHAT_HISTORY_MESSAGES = 10;
+
+/** Session titles derive from the first user question, truncated for display. */
+function deriveTitle(message: string): string {
+  return message.length > 40 ? `${message.slice(0, 40)}…` : message;
+}
+
+/** Shape a persisted turn as a pi-ai context message for history replay.
+ * Assistant placeholders carry neutral bookkeeping fields — only the text
+ * matters for prompting; usage/api values are never surfaced to the model. */
+function toContextMessage(message: ChatMessage): UserMessage | AssistantMessage {
+  const timestamp = Date.parse(message.createdAt) || Date.now();
+  if (message.role === ChatRole.CHAT_ROLE_USER) {
+    return {
+      role: "user",
+      content: [{ type: "text", text: message.content }],
+      timestamp,
+    };
+  }
+  const input = Number(message.inputTokens);
+  const output = Number(message.outputTokens);
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: message.content }],
+    api: "openai-completions",
+    provider: "hpath-history",
+    model: message.model || "unknown",
+    usage: {
+      input,
+      output,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: input + output,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: message.costTotal },
+    },
+    stopReason: "stop",
+    timestamp,
+  };
+}
+
 /** Resolves the runtime pieces once per server; injectable for tests. */
 export class ChatService {
   private models?: MutableModels;
@@ -110,12 +154,19 @@ export class ChatService {
   ) {}
 
   /**
-   * Stream one chat turn as ChatResponse events. The settings provider set is
-   * (re-)registered before resolving so a just-updated settings file applies
-   * without a server restart.
+   * Stream one chat turn as ChatResponse events. The turn is attributed to
+   * `sessionId`: the user message lands before streaming and the assistant
+   * answer (with usage) after it, so a session survives reloads. The session's
+   * most recent history joins the prompt for follow-ups. The settings provider
+   * set is (re-)registered before resolving so a just-updated settings file
+   * applies without a server restart.
    */
-  async *respond(message: string): AsyncGenerator<ChatResponse> {
+  async *respond(sessionId: string, message: string): AsyncGenerator<ChatResponse> {
     const trimmed = message.trim();
+    if (!sessionId) {
+      yield { error: "session_id is required" };
+      return;
+    }
     if (!trimmed) {
       yield { error: "message is empty" };
       return;
@@ -130,6 +181,32 @@ export class ChatService {
       return;
     }
 
+    const nowIso = () => new Date().toISOString();
+
+    // Persist the user turn up front; an unknown session fails here (foreign
+    // key) and surfaces as a stream error. touch() also adopts the derived
+    // title while the session is still unnamed.
+    this.db.chatMessages.insert({
+      id: randomUUID(),
+      sessionId,
+      role: ChatRole.CHAT_ROLE_USER,
+      content: trimmed,
+      model: "",
+      inputTokens: 0,
+      outputTokens: 0,
+      costTotal: 0,
+      createdAt: nowIso(),
+    });
+    this.db.chatSessions.touch(sessionId, nowIso(), deriveTitle(trimmed));
+
+    // Replay the most recent history (minus the just-inserted question) so
+    // follow-up questions see their context.
+    const history = this.db.chatMessages
+      .listBySession(sessionId)
+      .slice(-CHAT_HISTORY_MESSAGES - 1, -1)
+      .filter((m) => m.content.trim() !== "")
+      .map(toContextMessage);
+
     const snapshot = buildSystemSnapshot(this.db);
     yield {
       status: {
@@ -141,6 +218,7 @@ export class ChatService {
     const context = {
       systemPrompt: CHAT_SYSTEM_PROMPT + snapshot,
       messages: [
+        ...history,
         {
           role: "user" as const,
           content: [{ type: "text" as const, text: trimmed }],
@@ -149,18 +227,42 @@ export class ChatService {
       ],
     };
 
+    let answer = "";
+    const persistAnswer = (usage?: { input: number; output: number; cost: number }): void => {
+      if (!answer.trim()) return;
+      this.db.chatMessages.insert({
+        id: randomUUID(),
+        sessionId,
+        role: ChatRole.CHAT_ROLE_ASSISTANT,
+        content: answer,
+        model: modelId,
+        inputTokens: usage?.input ?? 0,
+        outputTokens: usage?.output ?? 0,
+        costTotal: usage?.cost ?? 0,
+        createdAt: nowIso(),
+      });
+      this.db.chatSessions.touch(sessionId, nowIso());
+    };
+
     try {
       const model = createCatalogModelResolver(this.models)(modelId);
       const stream = this.models.streamSimple(model, context);
       for await (const event of stream) {
         if (event.type === "text_delta") {
+          answer += event.delta;
           yield { textDelta: event.delta };
         } else if (event.type === "error") {
           const reason = event.error?.errorMessage ?? "model stream failed";
+          persistAnswer();
           yield { error: reason };
           return;
         } else if (event.type === "done") {
           const usage = event.message?.usage;
+          persistAnswer(
+            usage
+              ? { input: usage.input, output: usage.output, cost: usage.cost?.total ?? 0 }
+              : undefined,
+          );
           if (usage) {
             yield {
               usage: {
@@ -174,6 +276,7 @@ export class ChatService {
         }
       }
     } catch (err) {
+      persistAnswer();
       yield { error: err instanceof Error ? err.message : String(err) };
     }
   }
