@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from '../lib/ipc';
 import { invokeCreateProject } from '../lib/ipc';
+import { Select } from './Select';
 
 export type ViewId = 'chat' | 'cases' | 'history' | 'envs' | 'prd' | 'settings';
 
@@ -134,18 +135,14 @@ function Sidebar({
 
       <div className="proj">
         <div className="prow">
-          <select
-            aria-label={t('sidebar.project')}
-            value={selectedProjectId ?? ''}
-            onChange={(e) => onSelectProject(e.target.value || null)}
-          >
-            <option value="">{t('sidebar.selectProject')}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            variant="ghost"
+            ariaLabel={t('sidebar.project')}
+            value={selectedProjectId}
+            placeholder={t('sidebar.selectProject')}
+            options={projects.map((p) => ({ value: p.id, label: p.name }))}
+            onChange={(v) => onSelectProject(v || null)}
+          />
           <button
             className="btn sm ghost"
             aria-label={t('sidebar.createProject')}

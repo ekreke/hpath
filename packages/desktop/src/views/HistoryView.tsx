@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
 import { invokeListCases, invokeListRuns } from '../lib/ipc';
 import { RunStatusTag } from '../components/Ui';
+import { Select } from '../components/Select';
 import {
   RUN_STATUS,
   formatDateTime,
@@ -172,45 +173,41 @@ function HistoryView({ appliedServerAddr, projectId, envs, refreshKey, onToast }
         <div className="filters">
           <label>
             <span>{t('cases.runEnv')}</span>
-            <select value={filters.envId} onChange={(e) => setFilter({ envId: e.target.value })}>
-              <option value="">{t('topbar.allEnvs')}</option>
-              {envs.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              ariaLabel={t('cases.runEnv')}
+              value={filters.envId || null}
+              placeholder={t('topbar.allEnvs')}
+              options={envs.map((e) => ({ value: e.id, label: e.name }))}
+              onChange={(envId) => setFilter({ envId })}
+            />
           </label>
           <label>
             <span>{t('cases.colCase')}</span>
-            <select value={filters.caseId} onChange={(e) => setFilter({ caseId: e.target.value })}>
-              <option value="">{t('history.allCases')}</option>
-              {cases.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
+            <Select
+              ariaLabel={t('cases.colCase')}
+              value={filters.caseId || null}
+              placeholder={t('history.allCases')}
+              options={cases.map((c) => ({ value: c.id, label: c.title }))}
+              onChange={(caseId) => setFilter({ caseId })}
+            />
           </label>
           <label>
             <span>{t('cases.runStatus')}</span>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilter({ status: Number(e.target.value) })}
-            >
-              <option value={0}>{t('history.allStatuses')}</option>
-              {[
-                RUN_STATUS.PENDING,
-                RUN_STATUS.RUNNING,
-                RUN_STATUS.PASSED,
-                RUN_STATUS.FAILED,
-                RUN_STATUS.CANCELLED,
-              ].map((s) => (
-                <option key={s} value={s}>
-                  {t(runStatusKey(s))}
-                </option>
-              ))}
-            </select>
+            <Select
+              ariaLabel={t('cases.runStatus')}
+              value={String(filters.status)}
+              options={[
+                { value: '0', label: t('history.allStatuses') },
+                ...[
+                  RUN_STATUS.PENDING,
+                  RUN_STATUS.RUNNING,
+                  RUN_STATUS.PASSED,
+                  RUN_STATUS.FAILED,
+                  RUN_STATUS.CANCELLED,
+                ].map((s) => ({ value: String(s), label: t(runStatusKey(s)) })),
+              ]}
+              onChange={(v) => setFilter({ status: Number(v) })}
+            />
           </label>
           <label>
             <span>{t('history.from')}</span>

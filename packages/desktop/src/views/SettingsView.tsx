@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invokeGetSettings, invokeUpdateSettings, type AppSettings } from '../lib/ipc';
+import { Select } from '../components/Select';
 
 type SettingsViewProps = {
   onToast: (text: string, error?: boolean) => void;
@@ -138,19 +139,18 @@ function SettingsView({ onToast }: SettingsViewProps) {
       <section className="sec">
         <div className="field" style={{ maxWidth: 480 }}>
           <label>{t('settings.defaultModel')}</label>
-          <select
-            value={defaultModel}
+          <Select
+            ariaLabel={t('settings.defaultModel')}
+            value={defaultModel || null}
+            placeholder={t('settings.noModels')}
             disabled={busy || models.length === 0}
-            onChange={(e) => void saveDefaultModel(e.target.value)}
-          >
-            {models.length === 0 && <option value="">{t('settings.noModels')}</option>}
-            {models.map(({ providerId, model }) => (
-              <option key={`${providerId}/${model.id}`} value={model.id} disabled={!model.multimodal}>
-                {model.name ?? model.id}
-                {!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''}
-              </option>
-            ))}
-          </select>
+            options={models.map(({ model }) => ({
+              value: model.id,
+              label: `${model.name ?? model.id}${!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''}`,
+              disabled: !model.multimodal,
+            }))}
+            onChange={(v) => void saveDefaultModel(v)}
+          />
           <div className="hint">{t('settings.defaultModelHint')}</div>
         </div>
 
