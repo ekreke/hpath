@@ -30,6 +30,7 @@ import {
   sortRunsDesc,
 } from '../lib/status';
 import { CaseStatusBadge, RunStatusTag } from '../components/Ui';
+import { HealthStrip } from '../components/HealthStrip';
 import RunPanel from '../components/RunPanel';
 
 type CasesViewProps = {
@@ -267,6 +268,7 @@ function CasesView({
                   <th>{t('cases.colCase')}</th>
                   <th>{t('cases.colStatus')}</th>
                   <th>{t('cases.colCreator')}</th>
+                  <th>{t('cases.colHealth')}</th>
                   <th>{t('cases.colLastRun')}</th>
                   <th className="num">{t('cases.colRuns')}</th>
                 </tr>
@@ -274,14 +276,17 @@ function CasesView({
               <tbody>
                 {cases.map((kase) => {
                   const lr = lastRunOf(runs, kase.id);
-                  const caseRunCount = runs.filter((r) => r.caseId === kase.id).length;
+                  const caseRuns = runs.filter((r) => r.caseId === kase.id);
                   return (
                     <tr key={kase.id} className="clickable" onClick={() => void openCase(kase.id)}>
-                      <td className="mono">{kase.title}</td>
+                      <td className="mono case-title">{kase.title}</td>
                       <td>
                         <CaseStatusBadge status={kase.status} />
                       </td>
                       <td className="dim">{creatorLabel(kase, t)}</td>
+                      <td>
+                        <HealthStrip results={sortRunsDesc(caseRuns)} />
+                      </td>
                       <td>
                         {lr ? (
                           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
@@ -292,13 +297,13 @@ function CasesView({
                           <span className="dim">—</span>
                         )}
                       </td>
-                      <td className="num">{caseRunCount || '—'}</td>
+                      <td className="num">{caseRuns.length || '—'}</td>
                     </tr>
                   );
                 })}
                 {cases.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="empty">{t('cases.empty')}</td>
+                    <td colSpan={6} className="empty">{t('cases.empty')}</td>
                   </tr>
                 )}
               </tbody>

@@ -1,9 +1,7 @@
 // History view (T14): every recorded run of the selected project, filterable
-// by env / case / status / date range, plus a per-case health strip (last N
-// results). Both the table and the strip read the mock ListRuns endpoint —
-// the table passes the filter fields through to the server, the strip works
-// from the unfiltered run list. The project dimension of the filter is the
-// app-wide project switcher in the sidebar, like every other view.
+// by env / case / status / date range. The project dimension of the filter is
+// the app-wide project switcher in the sidebar, like every other view. Per-case
+// health lives in the case list (CasesView) at the same level as the case.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
@@ -15,7 +13,6 @@ import {
   formatDateTime,
   formatDuration,
   runStatusKey,
-  runTagVariant,
   sortRunsDesc,
 } from '../lib/status';
 
@@ -32,9 +29,6 @@ type HistoryViewProps = {
   // this, every reload of this view would keep re-toasting the same NOT_FOUND.
   onProjectInvalidated?: (projectId: string) => void;
 };
-
-// Results shown per case in the health strip.
-const HEALTH_LAST_N = 10;
 
 type Filters = {
   envId: string;
@@ -59,29 +53,6 @@ function triggerKey(trigger: number): string | null {
   return null;
 }
 
-function HealthStrip({ results }: { results: Run[] }) {
-  const { t } = useTranslation();
-  const last = results.slice(0, HEALTH_LAST_N);
-  const passed = results.filter((r) => r.status === RUN_STATUS.PASSED).length;
-  return (
-    <span className="hstrip">
-      {last.map((r) => (
-        <i
-          key={r.id}
-          className={`dot ${runTagVariant(r.status)}`}
-          title={`${t(runStatusKey(r.status))} · ${formatDateTime(r.startedAt)}`}
-        />
-      ))}
-      {last.length === 0 && <span className="dim">—</span>}
-      {last.length > 0 && (
-        <span className="dim num">
-          {passed}/{results.length}
-        </span>
-      )}
-    </span>
-  );
-}
-
 function HistoryView({
   appliedServerAddr,
   projectId,
@@ -94,7 +65,6 @@ function HistoryView({
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [cases, setCases] = useState<Case[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [allRuns, setAllRuns] = useState<Run[]>([]);
   const [busy, setBusy] = useState(false);
   // Ticket guard: with a real (non-instant) server, rapid filter changes must
   // not let an older ListRuns response resolve last and paint wrong rows.
@@ -105,19 +75,18 @@ function HistoryView({
     seq.current += 1;
     setFilters(EMPTY_FILTERS);
     setRuns([]);
-    setAllRuns([]);
     setCases([]);
   }, [appliedServerAddr, projectId]);
 
-  // One loader for the whole view: case names + health-strip data (unfiltered
-  // run list) + the filtered table rows, guarded by a single ticket so stale
-  // responses from an earlier filter/project can never land.
+  // One loader for the whole view: case names (for the case filter) plus the
+  // filtered table rows, guarded by a single ticket so stale responses from an
+  // earlier filter/project can never land.
   const loadAll = useCallback(async () => {
     if (!projectId) return;
     const ticket = ++seq.current;
     setBusy(true);
     try {
-      const [caseList, filtered, unfiltered] = await Promise.all([
+      const [caseList, filtered] = await Promise.all([
         invokeListCases(projectId),
         invokeListRuns(projectId, {
           envId: filters.envId,
@@ -126,12 +95,10 @@ function HistoryView({
           from: filters.from ? dayBound(filters.from, false) : '',
           to: filters.to ? dayBound(filters.to, true) : '',
         }),
-        invokeListRuns(projectId),
       ]);
       if (ticket !== seq.current) return;
       setCases(caseList);
       setRuns(sortRunsDesc(filtered));
-      setAllRuns(sortRunsDesc(unfiltered));
     } catch (err) {
       if (ticket !== seq.current) return;
       onToast(toFriendlyError(err).message, true);
@@ -160,12 +127,6 @@ function HistoryView({
 
   const caseTitle = (id: string) => cases.find((c) => c.id === id)?.title ?? id.slice(0, 8);
   const envName = (id: string) => envs.find((e) => e.id === id)?.name ?? id.slice(0, 8);
-  // Health strip: most recent case activity first; never-run cases last.
-  const healthCases = [...cases].sort((a, b) => {
-    const ra = allRuns.find((r) => r.caseId === a.id)?.startedAt ?? '';
-    const rb = allRuns.find((r) => r.caseId === b.id)?.startedAt ?? '';
-    return ra < rb ? 1 : -1;
-  });
 
   const setFilter = (patch: Partial<Filters>) => setFilters((prev) => ({ ...prev, ...patch }));
 
@@ -283,34 +244,7 @@ function HistoryView({
           </tbody>
         </table>
       </section>
-
-      <section className="sec">
-        <div className="shead">
-          <h2>{t('history.health')}</h2>
-          <span className="n">{healthCases.length}</span>
-          <span className="more">{t('history.healthLast', { n: HEALTH_LAST_N })}</span>
-        </div>
-        <div className="kv" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto', rowGap: 10 }}>
-          {healthCases.map((c) => (
-            <HistoryHealthRow key={c.id} title={c.title} results={allRuns.filter((r) => r.caseId === c.id)} />
-          ))}
-          {healthCases.length === 0 && <p className="hint">{t('cases.empty')}</p>}
-        </div>
-      </section>
     </div>
-  );
-}
-
-function HistoryHealthRow({ title, results }: { title: string; results: Run[] }) {
-  return (
-    <>
-      <div className="v" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {title}
-      </div>
-      <div>
-        <HealthStrip results={results} />
-      </div>
-    </>
   );
 }
 

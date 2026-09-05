@@ -93,6 +93,7 @@
     "colStatus": "Status",
     "colCreator": "Creator",
     "colLastRun": "Last run",
+    "colHealth": "Health",
     "colRuns": "Runs",
     "colRule": "Alignment rule",
     "creatorHuman": "human",
@@ -163,9 +164,7 @@
     "allStatuses": "All statuses",
     "from": "From",
     "to": "To",
-    "empty": "No runs match the current filters",
-    "health": "Case health",
-    "healthLast": "last {{n}} results per case"
+    "empty": "No runs match the current filters"
   },
   "runPanel": {
     "title": "Live run",

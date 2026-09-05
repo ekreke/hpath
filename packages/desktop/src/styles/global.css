@@ -15,6 +15,8 @@
   --faint: #6f6f6f;
   --faint2: #4a4a4a;
   --w: #ffffff;
+  --ok: #69d17f;  /* semantic green, sampled from the brand gradient (--hc-4) */
+  --err: #fc4c72; /* semantic red, sampled from the brand gradient (--hc-7) */
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   /* Brand rainbow — sampled from the logo gradient (purple → red) */
@@ -617,9 +619,12 @@ td.num, th.num { text-align: right; color: var(--muted); }
   outline: none;
 }
 .filters input:focus { border-color: #5a5a5a; }
-.hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
-/* Fill semantics mirror RunStatusTag: fail = solid, pass = outline. */
-.dot.pass { background: transparent; border: 1px solid var(--w); }
-.dot.fail { background: var(--w); }
+/* Health dots: color carries the meaning — green = passed, red = failed. */
+.dot.pass { background: var(--ok); border: 0; }
+.dot.fail { background: var(--err); border: 0; }
 .dot.muted { background: var(--faint2); }
+/* Case title cell in the case list: shrink with an ellipsis so long titles
+   never push the table wider than its container (no horizontal scrollbar). */
+.case-title { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

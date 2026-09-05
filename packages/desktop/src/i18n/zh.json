@@ -93,6 +93,7 @@
     "colStatus": "状态",
     "colCreator": "创建者",
     "colLastRun": "最近运行",
+    "colHealth": "健康度",
     "colRuns": "次数",
     "colRule": "对齐规则",
     "creatorHuman": "人工",
@@ -163,9 +164,7 @@
     "allStatuses": "全部状态",
     "from": "开始日期",
     "to": "结束日期",
-    "empty": "没有符合当前筛选条件的运行",
-    "health": "Case 健康度",
-    "healthLast": "每条用例最近 {{n}} 次结果"
+    "empty": "没有符合当前筛选条件的运行"
   },
   "runPanel": {
     "title": "实时运行",
