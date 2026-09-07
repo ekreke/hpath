@@ -263,12 +263,19 @@ td.num, th.num { text-align: right; color: var(--muted); }
   color: var(--muted);
 }
 .tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
-.tag.pass { color: var(--w); border-color: var(--border3); }
-.tag.pass i { background: var(--w); }
-.tag.fail { background: var(--w); color: #000; border-color: var(--w); }
-.tag.fail i { background: #000; }
+/* Semantic status colors (sampled from the brand rainbow): pass=green, fail=red,
+   run=blue, pending=amber; muted stays monochrome. */
+.tag.pass { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.tag.pass i { background: var(--ok); }
+.tag.fail { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent); }
+.tag.fail i { background: var(--err); }
+.tag.run { color: var(--hc-3); border-color: color-mix(in srgb, var(--hc-3) 45%, transparent); background: color-mix(in srgb, var(--hc-3) 8%, transparent); }
+.tag.run i { background: var(--hc-3); animation: pulse 1.6s ease-in-out infinite; }
+.tag.pending { color: var(--hc-5); border-color: color-mix(in srgb, var(--hc-5) 45%, transparent); background: color-mix(in srgb, var(--hc-5) 8%, transparent); }
+.tag.pending i { background: var(--hc-5); }
 .tag.warn { color: var(--txt); border-color: var(--faint); }
 .tag.warn i { background: #8f8f8f; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 .badge {
   display: inline-block;
@@ -280,6 +287,10 @@ td.num, th.num { text-align: right; color: var(--muted); }
   background: var(--panel);
 }
 .badge.inv { background: var(--w); color: #000; border-color: var(--w); }
+/* Case status badge variants follow the same semantic palette. */
+.badge.approved { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.badge.pending { color: var(--hc-5); border-color: color-mix(in srgb, var(--hc-5) 45%, transparent); background: color-mix(in srgb, var(--hc-5) 8%, transparent); }
+.badge.disabled { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent); }
 
 /* ── detail blocks ──────────────────────── */
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 352px; gap: 40px; align-items: start; }
@@ -545,6 +556,98 @@ td.num, th.num { text-align: right; color: var(--muted); }
 }
 .cursor { animation: chat-pulse 0.8s steps(2) infinite; }
 
+/* session rail: hover flyout on the chat area's left edge — a slim invisible
+   strip (with a grip hint) keeps a tiny footprint until hovered, then the
+   224px session panel slides in as an overlay without reflowing the chat. */
+.chatwrap { position: relative; height: 100%; }
+.railwrap { position: absolute; top: 0; bottom: 0; left: 0; width: 16px; z-index: 40; }
+.railgrip {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 56px;
+  border-radius: 1px;
+  background: var(--faint2);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.railwrap:hover .railgrip { opacity: 0; }
+.rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 224px;
+  background: var(--sbg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.15s ease;
+}
+.railwrap:hover .rail { transform: translateX(0); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35); }
+.railh { display: flex; align-items: center; justify-content: space-between; padding: 18px 14px 10px; }
+.railh .g { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint2); }
+.railh button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+.railh button:hover:not(:disabled) { color: var(--w); border-color: var(--border3); background: var(--hover); }
+.railh button:disabled { opacity: 0.4; cursor: not-allowed; }
+.raillist { flex: 1; overflow-y: auto; padding: 2px 8px 12px; }
+.sesrow { position: relative; margin: 1px 0; }
+.ses {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 26px 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ses:hover:not(:disabled) { background: var(--hover); color: var(--txt); }
+.ses.on { background: var(--hover); color: var(--w); }
+.ses:disabled { opacity: 0.4; cursor: not-allowed; }
+.ses .t { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ses .ts { display: block; font-size: 10.5px; color: var(--faint); font-family: var(--mono); margin-top: 1px; }
+.sesrow .x {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  display: none;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sesrow:hover .x { display: grid; }
+.sesrow .x:hover:not(:disabled) { background: #2a2a2a; color: var(--txt); }
+.sesrow .x:disabled { opacity: 0.4; cursor: not-allowed; }
+.railempty { padding: 14px 10px; font-size: 12px; color: var(--faint2); }
+.railfoot { border-top: 1px solid var(--border); padding: 10px 14px; font-size: 11px; color: var(--faint2); }
+
 /* markdown inside bot bubbles (scoped so page-level h1/table stay intact) */
 .chat-bubble .md { font-size: 14px; line-height: 1.55; min-width: 0; }
 .chat-bubble .md > :first-child { margin-top: 0; }
@@ -607,20 +710,128 @@ td.num, th.num { text-align: right; color: var(--muted); }
   text-transform: uppercase;
   color: var(--faint);
 }
-.filters input {
+/* Date range picker trigger — same box spec as .rsel-trigger. */
+.drp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 190px;
   height: 30px;
+  padding: 0 10px;
   background: var(--panel);
   border: 1px solid var(--border2);
   border-radius: 6px;
   color: var(--txt);
-  padding: 0 10px;
   font-size: 13.5px;
   font-family: inherit;
   outline: none;
+  cursor: pointer;
 }
-.filters input:focus { border-color: #5a5a5a; }
-.hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.drp-trigger:hover { border-color: var(--border3); }
+.drp-trigger:focus-visible, .drp-trigger[data-state='open'] { border-color: #5a5a5a; }
+.drp-trigger[data-empty] .drp-value { color: var(--muted); }
+.drp-cal { flex: 0 0 auto; color: var(--faint); }
+.drp-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.drp-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--faint);
+  cursor: pointer;
+}
+.drp-clear:hover { background: var(--hover); color: var(--w); }
+
+/* Calendar panel — same surface as .rsel-content. */
+.drp-content {
+  z-index: 40;
+  width: 264px;
+  padding: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+.drp-presets { display: flex; gap: 4px; margin-bottom: 6px; }
+.drp-preset {
+  flex: 1;
+  padding: 4px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.drp-preset:hover:not(:disabled) { background: var(--hover); color: var(--txt); border-color: var(--border2); }
+.drp-preset:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.drp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  margin-bottom: 4px;
+}
+.drp-month { font-size: 12.5px; font-weight: 600; color: var(--txt); }
+.drp-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--faint);
+  cursor: pointer;
+}
+.drp-nav:hover { background: var(--hover); color: var(--w); }
+
+.drp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.drp-wd {
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+.drp-day {
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--txt);
+  font-size: 12px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  cursor: pointer;
+}
+.drp-day:hover { background: var(--hover); }
+.drp-day.out { color: var(--faint2); }
+.drp-day.today { box-shadow: inset 0 0 0 1px var(--border3); }
+.drp-day.inrange { background: #242424; border-radius: 0; }
+.drp-day.edge { background: var(--w); color: #000; font-weight: 600; }
+.drp-day.edge:hover { background: var(--w); }
+.drp-foot { display: flex; justify-content: center; margin-top: 6px; }
+.drp-foot .drp-preset { flex: 0 0 auto; padding: 4px 14px; }
+
+.hstrip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; white-space: nowrap; }.dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
 /* Health dots: color carries the meaning — green = passed, red = failed. */
 .dot.pass { background: var(--ok); border: 0; }
 .dot.fail { background: var(--err); border: 0; }

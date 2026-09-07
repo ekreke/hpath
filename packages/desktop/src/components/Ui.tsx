@@ -3,13 +3,14 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   caseStatusKey,
+  caseTagVariant,
   runStatusKey,
   runTagVariant,
 } from '../lib/status';
 
 export function CaseStatusBadge({ status }: { status: number }) {
   const { t } = useTranslation();
-  return <span className="badge">{t(caseStatusKey(status))}</span>;
+  return <span className={`badge ${caseTagVariant(status)}`}>{t(caseStatusKey(status))}</span>;
 }
 
 export function RunStatusTag({ status }: { status: number }) {

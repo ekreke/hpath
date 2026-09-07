@@ -4,16 +4,16 @@
 // markdown into a bot bubble. While streaming, a status line under the input
 // shows live token metrics (model, up/down, elapsed) so the wait never looks
 // stuck; exact provider usage lands on the bubble once the stream ends.
-// Turns are persisted server-side per session: the header's session selector
-// lists past conversations, the first question lazily creates a session, and
-// deleting a session cascades server-side. Nothing is sent to the LLM until
-// the user asks — the landing state is a plain welcome hint.
+// Turns are persisted server-side per session: past conversations live in a
+// hover flyout rail on the left edge (hidden until hovered), the first
+// question lazily creates a session, and deleting a session cascades
+// server-side. Nothing is sent to the LLM until the user asks — the landing
+// state is a plain welcome hint.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Select } from '../components/Select';
 import {
   invokeChat,
   invokeCreateChatSession,
@@ -24,6 +24,7 @@ import {
   type ChatMessage,
   type ChatSession,
 } from '../lib/ipc';
+import { formatDateTime } from '../lib/status';
 
 type ChatViewProps = {
   onToast: (text: string, error?: boolean) => void;
@@ -179,22 +180,27 @@ function ChatView({ onToast }: ChatViewProps) {
     }
   }, [onToast]);
 
-  const deleteSession = useCallback(async () => {
-    if (!activeSessionId) return;
-    const doomed = activeSessionId;
-    try {
-      await invokeDeleteChatSession(doomed);
-      const remaining = sessions.filter((s) => s.id !== doomed);
-      setSessions(remaining);
-      setActiveSessionId(remaining[0]?.id ?? null);
-      setMessages(
-        remaining[0] ? restoreMessages(await invokeListChatMessages(remaining[0].id)) : [],
-      );
-      onToast(t('chat.sessionDeleted'));
-    } catch (err) {
-      onToast(String(err), true);
-    }
-  }, [activeSessionId, sessions, onToast, t]);
+  // Delete by id from the flyout rail. When the active session is removed the
+  // view falls back to the most recent remaining one; deleting a background
+  // session keeps the current transcript untouched.
+  const deleteSession = useCallback(
+    async (doomed: string) => {
+      try {
+        await invokeDeleteChatSession(doomed);
+        const remaining = sessions.filter((s) => s.id !== doomed);
+        setSessions(remaining);
+        if (doomed !== activeSessionId) return;
+        setActiveSessionId(remaining[0]?.id ?? null);
+        setMessages(
+          remaining[0] ? restoreMessages(await invokeListChatMessages(remaining[0].id)) : [],
+        );
+        onToast(t('chat.sessionDeleted'));
+      } catch (err) {
+        onToast(String(err), true);
+      }
+    },
+    [activeSessionId, sessions, onToast, t],
+  );
 
   // Free-text questions go to the server-side LLM chat: text deltas stream on
   // the `chat-event` channel and render as markdown into a single bot bubble.
@@ -265,37 +271,78 @@ function ChatView({ onToast }: ChatViewProps) {
   };
 
   const liveElapsed = live ? ((now - live.startedAt) / 1000).toFixed(1) : null;
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
   const untitledLabel = t('chat.untitledSession');
 
+  // Rail timestamps: relative for fresh sessions, absolute date once old.
+  const relTime = (iso: string): string => {
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) return '';
+    const min = Math.floor((Date.now() - ms) / 60000);
+    if (min < 1) return t('chat.justNow');
+    if (min < 60) return t('chat.minAgo', { n: min });
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return t('chat.hourAgo', { n: hr });
+    const day = Math.floor(hr / 24);
+    if (day < 7) return t('chat.dayAgo', { n: day });
+    const wk = Math.floor(day / 7);
+    if (wk < 5) return t('chat.weekAgo', { n: wk });
+    return formatDateTime(iso);
+  };
+
   return (
-    <div className="page-inner chat">
-      <div className="ph">
-        <div>
-          <h1>{t('chat.title')}</h1>
-          <div className="path">{t('chat.subtitle')}</div>
+    <div className="chatwrap">
+      <aside className="railwrap" aria-label={t('chat.sessionLabel')}>
+        <span className="railgrip" aria-hidden="true" />
+        <nav className="rail">
+          <div className="railh">
+            <span className="g">{t('chat.historyRail')}</span>
+            <button
+              title={t('chat.newSession')}
+              disabled={busy}
+              onClick={() => void newSession()}
+            >
+              ＋
+            </button>
+          </div>
+          <div className="raillist">
+            {sessions.length === 0 && <div className="railempty">{t('chat.sessionEmpty')}</div>}
+            {sessions.map((s) => (
+              <div className="sesrow" key={s.id}>
+                <button
+                  className={s.id === activeSessionId ? 'ses on' : 'ses'}
+                  disabled={busy}
+                  onClick={() => void switchSession(s.id)}
+                >
+                  <span className="t">{sessionLabel(s, untitledLabel)}</span>
+                  <span className="ts">{relTime(s.updatedAt)}</span>
+                </button>
+                <button
+                  className="x"
+                  title={t('chat.deleteSession')}
+                  disabled={busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void deleteSession(s.id);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          {sessions.length > 0 && (
+            <div className="railfoot">{t('chat.sessionCount', { count: sessions.length })}</div>
+          )}
+        </nav>
+      </aside>
+
+      <div className="page-inner chat">
+        <div className="ph">
+          <div>
+            <h1>{t('chat.title')}</h1>
+            <div className="path">{t('chat.subtitle')}</div>
+          </div>
         </div>
-        <div className="btns">
-          <Select
-            value={activeSessionId}
-            options={sessions.map((s) => ({ value: s.id, label: sessionLabel(s, untitledLabel) }))}
-            onChange={(id) => void switchSession(id)}
-            ariaLabel={t('chat.sessionLabel')}
-            placeholder={t('chat.sessionEmpty')}
-            disabled={busy}
-          />
-          <button className="btn sm" disabled={busy} onClick={() => void newSession()}>
-            {t('chat.newSession')}
-          </button>
-          <button
-            className="btn sm ghost"
-            disabled={busy || !activeSessionId}
-            onClick={() => void deleteSession()}
-          >
-            {t('chat.deleteSession')}
-          </button>
-        </div>
-      </div>
 
       <div className="chat-thread">
         {messages.map((m) => (
@@ -362,6 +409,7 @@ function ChatView({ onToast }: ChatViewProps) {
           </span>
         </div>
       )}
+      </div>
     </div>
   );
 }

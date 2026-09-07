@@ -61,11 +61,23 @@ export function runStatusKey(status: number): string {
   }
 }
 
-/** Tag variant for run status pills: pass -> inverted outline, fail -> solid white. */
-export function runTagVariant(status: number): 'pass' | 'fail' | 'muted' {
+/** Tag variant for run status pills: pass=green, fail=red, run=blue (running),
+ *  pending=amber, everything else muted (monochrome). */
+export function runTagVariant(status: number): 'pass' | 'fail' | 'run' | 'pending' | 'muted' {
   if (status === RUN_STATUS.PASSED) return 'pass';
   if (status === RUN_STATUS.FAILED) return 'fail';
+  if (status === RUN_STATUS.RUNNING) return 'run';
+  if (status === RUN_STATUS.PENDING) return 'pending';
   return 'muted';
+}
+
+/** Badge variant for case status: approved=green, pending=amber, disabled=red,
+ *  draft (and anything else) muted. */
+export function caseTagVariant(status: number): 'approved' | 'pending' | 'disabled' | 'draft' {
+  if (status === CASE_STATUS.APPROVED) return 'approved';
+  if (status === CASE_STATUS.PENDING) return 'pending';
+  if (status === CASE_STATUS.DISABLED) return 'disabled';
+  return 'draft';
 }
 
 export function reviewActionsFor(status: number): number[] {

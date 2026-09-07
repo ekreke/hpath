@@ -8,6 +8,7 @@ import type { Case, Env, Run } from '@hpath/contract';
 import { invokeListCases, invokeListRuns, isProjectNotFound, toFriendlyError } from '../lib/ipc';
 import { RunStatusTag } from '../components/Ui';
 import { Select } from '../components/Select';
+import { DateRangePicker } from '../components/DateRangePicker';
 import {
   RUN_STATUS,
   formatDateTime,
@@ -185,19 +186,12 @@ function HistoryView({
             />
           </label>
           <label>
-            <span>{t('history.from')}</span>
-            <input
-              type="date"
-              value={filters.from}
-              onChange={(e) => setFilter({ from: e.target.value })}
-            />
-          </label>
-          <label>
-            <span>{t('history.to')}</span>
-            <input
-              type="date"
-              value={filters.to}
-              onChange={(e) => setFilter({ to: e.target.value })}
+            <span>{t('history.date')}</span>
+            <DateRangePicker
+              ariaLabel={t('history.date')}
+              from={filters.from}
+              to={filters.to}
+              onChange={({ from, to }) => setFilter({ from, to })}
             />
           </label>
         </div>

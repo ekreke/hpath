@@ -508,7 +508,7 @@ function CasesView({
                               placeholder={t('cases.pickEnv')}
                               options={envs.map((e) => ({
                                 value: e.id,
-                                label: e.isDefault ? `${e.name} ◆` : e.name,
+                                label: e.name,
                               }))}
                               onChange={(v) => onSelectEnv(v || null)}
                             />
@@ -539,7 +539,9 @@ function CasesView({
                     <div className="panelbox">
                       <div className="panelh">
                         <span>{t('cases.lastRun')}</span>
-                        <b className="mono">{lastRun.id.slice(0, 8)}</b>
+                        <span title={lastRun.id}>
+                          {t('common.runId')} <b className="mono">#{lastRun.id.slice(0, 8)}</b>
+                        </span>
                       </div>
                       <div className="mono-block">
                         <div className="t">

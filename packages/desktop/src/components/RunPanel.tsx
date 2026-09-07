@@ -392,7 +392,11 @@ function RunPanel({
       <div className="shead">
         <h2>
           {t(replay ? 'runPanel.replayTitle' : 'runPanel.title')} · <span className="mono">{caseTitle}</span>
-          {runId && <span className="mono dim" style={{ marginLeft: 8, fontSize: 12 }}>#{runId.slice(0, 8)}</span>}
+          {runId && (
+            <span className="mono dim" title={runId} style={{ marginLeft: 8, fontSize: 12 }}>
+              {t('common.runId')} #{runId.slice(0, 8)}
+            </span>
+          )}
           {envName && <span className="badge" style={{ marginLeft: 8 }}>{envName}</span>}
         </h2>
         <span className="more">
