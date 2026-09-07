@@ -1,10 +1,10 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
 // and the real one (SQLite-backed). Real mode serves the read path
-// (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project creation,
-// settings, status chat + chat sessions (chat.ts) and the T8 run execution
-// path (RunCase via the AgentKernel, GetRun, DownloadArtifact via the
-// artifact store). Every other method reports UNIMPLEMENTED until its wiring
-// task lands (PRD parse in T9).
+// (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project create/update/
+// cascade-delete, settings, status chat + chat sessions (chat.ts) and the T8
+// run execution path (RunCase via the AgentKernel, GetRun, DownloadArtifact
+// via the artifact store). Every other method reports UNIMPLEMENTED until its
+// wiring task lands (PRD parse in T9).
 
 import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
@@ -24,6 +24,7 @@ import type {
   CreateProjectRequest,
   DeleteChatSessionRequest,
   DeleteEnvRequest,
+  DeleteProjectRequest,
   Env,
   GetCaseRequest,
   HpathServer,
@@ -38,6 +39,7 @@ import type {
   ListRunsRequest,
   ListRunsResponse,
   Project,
+  UpdateProjectRequest,
   UpsertEnvRequest,
 } from "@hpath/contract";
 import { Empty, RunStatus } from "@hpath/contract";
@@ -70,7 +72,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/ListEnvs/ListCases/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -84,6 +86,8 @@ function createUnimplementedHandlers(): HpathServer {
   return {
     listProjects: unary,
     createProject: unary,
+    updateProject: unary,
+    deleteProject: unary,
     listEnvs: unary,
     upsertEnv: unary,
     deleteEnv: unary,
@@ -158,6 +162,42 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
       } catch (err) {
         callback(toGrpcError(err));
       }
+    },
+
+    updateProject: (
+      call: ServerUnaryCall<UpdateProjectRequest, Project>,
+      callback: sendUnaryData<Project>,
+    ): void => {
+      try {
+        const { projectId, name } = call.request;
+        if (!name) {
+          throw grpcError(status.INVALID_ARGUMENT, "name is required");
+        }
+        callback(null, db.projects.update(projectId, { name, repoUrl: call.request.repoUrl ?? "" }));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    deleteProject: (
+      call: ServerUnaryCall<DeleteProjectRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ): void => {
+      void (async () => {
+        try {
+          const removed = db.projects.removeCascade(call.request.projectId);
+          const store = execution?.artifactStore;
+          if (store) {
+            // Best-effort byte purge after the committed metadata delete: the
+            // database is the source of truth, leftover bytes are harmless
+            // orphans and must not fail the RPC.
+            await Promise.all(removed.artifactKeys.map((key) => store.remove(key).catch(() => {})));
+          }
+          callback(null, Empty.create());
+        } catch (err) {
+          callback(toGrpcError(err));
+        }
+      })();
     },
 
     getSettings: (

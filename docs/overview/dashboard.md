@@ -11,8 +11,10 @@ Tauri 2 desktop app for macOS. React UI; Rust layer hosts a tonic gRPC client. U
 
 Clicking **Projects** in the sidebar always lands on the project list first:
 
-1. **Project list** — search box (filters by name / repo URL), table of projects (name / repository / created date) with clickable rows, and a create-project modal (name + optional repo URL; creating refreshes the list and opens the new project).
-2. **Project workspace** (opened by clicking a row) — master-detail layout, same pattern as Settings: a sticky sub-nav (Cases / Run History / PRD Docs / Envs, with counts; active tab persisted) on the left and the active sub-view on the right.
+1. **Project list** — search box (filters by name / repo URL), table of projects (name / repository / created date) with clickable rows, a per-row delete action, and a create-project modal (name + optional repo URL; creating refreshes the list and opens the new project).
+2. **Project workspace** (opened by clicking a row) — master-detail layout, same pattern as Settings: a sticky sub-nav (Cases / Run History / PRD Docs / Envs, with counts; active tab persisted) on the left and the active sub-view on the right. The sub-nav ends with a **Project details** entry: metadata, an edit form (name + repo URL, backed by `UpdateProject`), and a danger zone (cascade delete, backed by `DeleteProject`).
+
+**Deletion is a cascade**: deleting a project removes its envs, cases (with alignments/changelog), runs (with events + artifact records), and PRDs in one server-side transaction; artifact bytes are purged from the artifact store best-effort after the commit. The UI requires typing the exact project name before the delete button enables.
 
 ## Views
 
@@ -55,7 +57,7 @@ Per project: list envs, create/edit (name, web URL, gRPC address, variables, cre
 
 | Command | gRPC |
 |---------|------|
-| list_projects / create_project | ListProjects / CreateProject |
+| list_projects / create_project / update_project / delete_project | ListProjects / CreateProject / UpdateProject / DeleteProject |
 | list_envs / upsert_env / delete_env | ListEnvs / UpsertEnv / DeleteEnv |
 | upload_prd / parse_prd (stream) | ParsePRD |
 | list_cases / get_case / review_case | ListCases / GetCase / ReviewCase |

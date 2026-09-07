@@ -210,6 +210,18 @@ export function invokeCreateProject(name: string, repoUrl: string): Promise<Proj
   return invoke<Project>('create_project', { name, repoUrl });
 }
 
+export function invokeUpdateProject(
+  projectId: string,
+  name: string,
+  repoUrl: string,
+): Promise<Project> {
+  return invoke<Project>('update_project', { projectId, name, repoUrl });
+}
+
+export function invokeDeleteProject(projectId: string): Promise<void> {
+  return invoke<void>('delete_project', { projectId });
+}
+
 export function invokeListEnvs(projectId: string): Promise<Env[]> {
   return invoke<Env[]>('list_envs', { projectId });
 }

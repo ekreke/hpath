@@ -285,6 +285,18 @@ message ListEnvsRequest {
   string project_id = 1;
 }
 
+message DeleteProjectRequest {
+  string project_id = 1;
+}
+
+// Replaces the mutable project fields. Fails with ALREADY_EXISTS when another
+// project already uses the name.
+message UpdateProjectRequest {
+  string project_id = 1;
+  string name = 2;
+  string repo_url = 3;
+}
+
 message ListEnvsResponse {
   repeated Env envs = 1;
 }
@@ -497,6 +509,14 @@ message Empty {}
 service Hpath {
   rpc ListProjects(Empty) returns (ListProjectsResponse);
   rpc CreateProject(CreateProjectRequest) returns (Project);
+  // Replaces the project's name and repo_url; fails with ALREADY_EXISTS when
+  // the name is taken by another project.
+  rpc UpdateProject(UpdateProjectRequest) returns (Project);
+  // Deletes the project and everything under it (envs, cases with their
+  // alignments/changelog, runs with their events + artifact records, PRDs) in
+  // one transaction; artifact bytes are purged from the artifact store
+  // best-effort after the commit.
+  rpc DeleteProject(DeleteProjectRequest) returns (Empty);
   rpc ListEnvs(ListEnvsRequest) returns (ListEnvsResponse);
   rpc UpsertEnv(UpsertEnvRequest) returns (Env);
   // Fails with ALREADY_EXISTS when runs reference the env.

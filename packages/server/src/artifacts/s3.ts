@@ -154,6 +154,17 @@ export class S3ArtifactStore implements ArtifactStore {
     }
   }
 
+  // DeleteObject on an absent key is a no-op on S3-compatible stores, so a
+  // repeated project delete must not fail the cascade.
+  async remove(key: string): Promise<void> {
+    if (!isValidArtifactKey(key)) {
+      throw new Error(`invalid artifact key: ${JSON.stringify(key)}`);
+    }
+    await this.client.send(
+      new this.commands.DeleteObjectCommand({ Bucket: this.options.bucket, Key: key }),
+    );
+  }
+
   /** Create the bucket if it does not exist yet (idempotent setup helper). */
   async ensureBucket(): Promise<void> {
     try {

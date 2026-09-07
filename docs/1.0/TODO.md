@@ -4,6 +4,12 @@ Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; huma
 
 ## Working notes
 
+- Project delete + rename (2026-09-07, deliberate contract extension; desktop + server + mock):
+  - Contract: `UpdateProject(UpdateProjectRequest) returns Project` (name/repo_url, ALREADY_EXISTS on duplicate name) and `DeleteProject(DeleteProjectRequest) returns Empty` (cascade) added to `hpath.proto`; TS types + descriptor regenerated (`make proto`).
+  - Real mode: `ProjectRepository.update` + `ProjectRepository.removeCascade` — one transaction deletes runs (events + artifact records cascade) → cases (alignments/changelog cascade) → envs → prds → project, returning artifact-store keys (run artifacts + PRD `content_ref`s) purged best-effort after commit via the new `ArtifactStore.remove(key)` (local: unlink, s3: DeleteObject; idempotent). `grpc/hpath.ts` wires both RPCs with the usual error translation.
+  - Mock mode: handlers mirror the cascade over the in-memory store (runs' events/artifacts dropped, project-scoped maps filtered).
+  - Desktop: delete + rename wired through new `delete_project` / `update_project` IPC commands. Project list rows carry a per-row delete action; the workspace sub-nav ends with a **Project details** entry (metadata, edit form, danger zone). A shared confirm modal requires typing the exact project name; deleting the open project clears the selection and returns to the list.
+  - Tests/gates: 3 new repo tests (update round-trip + duplicate-name conflict; cascade across envs/cases/runs/prds with sibling isolation; NotFound) — `pnpm --filter @hpath/server test` 174 tests green; `tsc -b` + `vite build` + `cargo check` green; grpcurl end-to-end (mock + real): create → rename → delete → list verified.
 - Desktop IA & brand overhaul (2026-09-05, desktop-only; no contract/server changes, no SPEC checkbox impact):
   - Brand: sidebar wordmark is now "HappyPath" (per-character rainbow sampled from the new logo: H purple, "appy" white, "Path" warm ramp); logo assets live in `docs/desigin/` (`logo-dark.png` + previews); Tauri app icons replaced (black rounded square + rainbow H, macOS transparent padding, regenerated icns + png set in `src-tauri/icons/`).
   - Sidebar: three top-level destinations only — Chat / Projects / Settings (Settings merged into the main nav); the project switcher box is gone; collapse toggle sits in the brand row (collapsed = 48px icon rail, persisted in localStorage); sidebar fonts bumped (brand 18px, items 15px).

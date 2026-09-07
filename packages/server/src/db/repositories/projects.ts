@@ -1,8 +1,12 @@
-// Project repository (T5): CRUD over the projects table.
+// Project repository (T5): CRUD over the projects table. DeleteProject
+// cascades: the projects graph (envs / cases / runs / prds) is RESTRICT by
+// design, so removeCascade deletes children in dependency order inside one
+// transaction and reports the artifact-store keys to purge after the commit.
 
 import type { DatabaseSync } from "node:sqlite";
 import type { Project } from "@hpath/contract";
 import { NotFoundError, translateConstraintError } from "../errors.js";
+import { withTransaction } from "../database.js";
 
 interface ProjectRow {
   id: string;
@@ -18,6 +22,13 @@ function toProject(row: ProjectRow): Project {
     repoUrl: row.repo_url,
     createdAt: row.created_at,
   };
+}
+
+export interface CascadeDeleteResult {
+  /** Artifact-store keys whose bytes should be purged after the commit. */
+  artifactKeys: string[];
+  /** Rows removed per child table (for logging / tests). */
+  counts: { runs: number; cases: number; envs: number; prds: number };
 }
 
 export class ProjectRepository {
@@ -59,5 +70,62 @@ export class ProjectRepository {
       .prepare("SELECT * FROM projects ORDER BY created_at, id")
       .all();
     return rows.map((row) => toProject(row as unknown as ProjectRow));
+  }
+
+  /** Replace the mutable fields. Unique-name conflicts map to ConflictError. */
+  update(id: string, fields: { name: string; repoUrl: string }): Project {
+    const existing = this.getRequired(id);
+    try {
+      this.db
+        .prepare("UPDATE projects SET name = ?, repo_url = ? WHERE id = ?")
+        .run(fields.name, fields.repoUrl, id);
+    } catch (err) {
+      throw translateConstraintError(err, `update project "${fields.name}"`);
+    }
+    return { ...existing, name: fields.name, repoUrl: fields.repoUrl };
+  }
+
+  /**
+   * Delete a project and everything under it in one transaction: runs (their
+   * events + artifact records cascade), cases (alignments + changelog
+   * cascade), envs, prds, finally the project itself. Returns the artifact
+   * store keys whose bytes the caller should purge best-effort after the
+   * commit — the store sits outside the database, so bytes cannot be part of
+   * the transaction.
+   */
+  removeCascade(id: string): CascadeDeleteResult {
+    this.getRequired(id);
+    return withTransaction(this.db, () => {
+      const artifactRows = this.db
+        .prepare(
+          "SELECT artifacts.key AS key FROM artifacts JOIN runs ON runs.id = artifacts.run_id "
+            + "WHERE runs.project_id = ?",
+        )
+        .all(id);
+      const artifactKeys = artifactRows.map((row) => (row as { key: string }).key);
+      const prdRows = this.db
+        .prepare("SELECT content_ref FROM prds WHERE project_id = ? AND content_ref != ''")
+        .all(id);
+      for (const row of prdRows) {
+        artifactKeys.push((row as { content_ref: string }).content_ref);
+      }
+
+      const deleteByProject = (table: string): number => {
+        const info = this.db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(id);
+        return Number(info.changes);
+      };
+      // Children first: runs pin env and case, so they must go before both.
+      const counts = {
+        runs: deleteByProject("runs"),
+        cases: deleteByProject("cases"),
+        envs: deleteByProject("envs"),
+        prds: deleteByProject("prds"),
+      };
+      const info = this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+      if (Number(info.changes) === 0) {
+        throw new NotFoundError(`project not found: ${id}`);
+      }
+      return { artifactKeys, counts };
+    });
   }
 }

@@ -192,6 +192,7 @@ h1 .pill {
 .settings-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 28px; align-items: start; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
 .set-nav .itm { width: 100%; }
+.set-nav .divider { height: 1px; background: var(--border); margin: 8px 2px; }
 
 .workspace { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 28px; align-items: start; padding: 30px 26px 60px; max-width: 1220px; margin: 0 auto; }
 .workspace .set-nav { position: sticky; top: 0; }
@@ -221,6 +222,8 @@ h1 .pill {
 .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn.ghost:hover:not(:disabled) { color: var(--txt); background: var(--hover); }
 .btn.sm { height: 26px; padding: 0 10px; font-size: 13px; border-radius: 5px; }
+.btn.danger { background: var(--hc-7); border-color: var(--hc-7); color: #0a0a0a; }
+.btn.danger:hover:not(:disabled) { background: #ff6b8a; border-color: #ff6b8a; }
 
 /* ── sections & tables ──────────────────── */
 .sec { margin-bottom: 34px; }

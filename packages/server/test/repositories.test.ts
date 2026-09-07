@@ -68,6 +68,96 @@ describe("ProjectRepository", () => {
       db.close();
     }
   });
+
+  it("updates name and repo_url and rejects duplicate names", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject({ name: "original" });
+      db.projects.create(project);
+      db.projects.create(makeProject({ name: "taken" }));
+
+      const updated = db.projects.update(project.id, {
+        name: "renamed",
+        repoUrl: "https://example.com/new",
+      });
+      assert.equal(updated.name, "renamed");
+      assert.equal(updated.repoUrl, "https://example.com/new");
+      assert.equal(db.projects.getRequired(project.id).name, "renamed");
+      assert.throws(
+        () => db.projects.update(project.id, { name: "taken", repoUrl: "x" }),
+        ConflictError,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("removeCascade deletes children and reports artifact keys", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const env = makeEnv(project);
+      db.envs.create(env);
+      const kase = makeCase(project);
+      db.cases.create(kase);
+      const run = makeRun(project, env, kase);
+      db.runs.create(run);
+      const artifactKey = `artifacts/${project.id}/${env.id}/${run.id}/session.webm`;
+      db.artifacts.insert({
+        id: "art-1",
+        runId: run.id,
+        kind: ArtifactKind.ARTIFACT_KIND_VIDEO,
+        key: artifactKey,
+        sizeBytes: 10,
+        sha256: "cafebabe",
+        createdAt: new Date().toISOString(),
+      });
+      db.prds.insert({
+        id: "prd-1",
+        projectId: project.id,
+        filename: "payment.md",
+        format: PrdFormat.PRD_FORMAT_MD,
+        sizeBytes: 100,
+        createdAt: new Date().toISOString(),
+        contentRef: "prds/payment.md",
+      });
+      // A sibling project must survive the cascade untouched.
+      const sibling = makeProject();
+      db.projects.create(sibling);
+      const siblingEnv = makeEnv(sibling);
+      db.envs.create(siblingEnv);
+      const siblingCase = makeCase(sibling);
+      db.cases.create(siblingCase);
+
+      const result = db.projects.removeCascade(project.id);
+
+      assert.ok(result.artifactKeys.includes(artifactKey));
+      assert.ok(result.artifactKeys.includes("prds/payment.md"));
+      assert.deepEqual(result.counts, { runs: 1, cases: 1, envs: 1, prds: 1 });
+      assert.equal(db.projects.get(project.id), undefined);
+      assert.equal(db.envs.get(env.id), undefined);
+      assert.equal(db.cases.get(kase.id), undefined);
+      assert.equal(db.runs.get(run.id), undefined);
+      assert.equal(db.prds.get("prd-1"), undefined);
+      // Cascade rows hang off the run and must be gone too.
+      assert.equal(db.artifacts.get("art-1"), undefined);
+      assert.ok(db.projects.exists(sibling.id));
+      assert.ok(db.envs.get(siblingEnv.id));
+      assert.ok(db.cases.get(siblingCase.id));
+    } finally {
+      db.close();
+    }
+  });
+
+  it("removeCascade throws NotFoundError for unknown projects", () => {
+    const db = HpathDb.inMemory();
+    try {
+      assert.throws(() => db.projects.removeCascade("missing"), NotFoundError);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("EnvRepository", () => {

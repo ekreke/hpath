@@ -677,6 +677,20 @@ export interface ListEnvsRequest {
   projectId: string;
 }
 
+export interface DeleteProjectRequest {
+  projectId: string;
+}
+
+/**
+ * Replaces the mutable project fields. Fails with ALREADY_EXISTS when another
+ * project already uses the name.
+ */
+export interface UpdateProjectRequest {
+  projectId: string;
+  name: string;
+  repoUrl: string;
+}
+
 export interface ListEnvsResponse {
   envs: Env[];
 }
@@ -4222,6 +4236,188 @@ export const ListEnvsRequest: MessageFns<ListEnvsRequest> = {
   },
 };
 
+function createBaseDeleteProjectRequest(): DeleteProjectRequest {
+  return { projectId: "" };
+}
+
+export const DeleteProjectRequest: MessageFns<DeleteProjectRequest> = {
+  encode(message: DeleteProjectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteProjectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseDeleteProjectRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): DeleteProjectRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+    };
+  },
+
+  toJSON(message: DeleteProjectRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteProjectRequest>, I>>(base?: I): DeleteProjectRequest {
+    return DeleteProjectRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteProjectRequest>, I>>(object: I): DeleteProjectRequest {
+    const message = createBaseDeleteProjectRequest();
+    message.projectId = object.projectId ?? "";
+    return message;
+  },
+};
+
+function createBaseUpdateProjectRequest(): UpdateProjectRequest {
+  return { projectId: "", name: "", repoUrl: "" };
+}
+
+export const UpdateProjectRequest: MessageFns<UpdateProjectRequest> = {
+  encode(message: UpdateProjectRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.repoUrl !== "") {
+      writer.uint32(26).string(message.repoUrl);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UpdateProjectRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseUpdateProjectRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.name = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.repoUrl = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): UpdateProjectRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      repoUrl: isSet(object.repoUrl)
+        ? globalThis.String(object.repoUrl)
+        : isSet(object.repo_url)
+        ? globalThis.String(object.repo_url)
+        : "",
+    };
+  },
+
+  toJSON(message: UpdateProjectRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.repoUrl !== "") {
+      obj.repoUrl = message.repoUrl;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<UpdateProjectRequest>, I>>(base?: I): UpdateProjectRequest {
+    return UpdateProjectRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UpdateProjectRequest>, I>>(object: I): UpdateProjectRequest {
+    const message = createBaseUpdateProjectRequest();
+    message.projectId = object.projectId ?? "";
+    message.name = object.name ?? "";
+    message.repoUrl = object.repoUrl ?? "";
+    return message;
+  },
+};
+
 function createBaseListEnvsResponse(): ListEnvsResponse {
   return { envs: [] };
 }
@@ -7244,6 +7440,34 @@ export const HpathService = {
     responseSerialize: (value: Project): Buffer => Buffer.from(Project.encode(value).finish()),
     responseDeserialize: (value: Buffer): Project => Project.decode(value),
   },
+  /**
+   * Replaces the project's name and repo_url; fails with ALREADY_EXISTS when
+   * the name is taken by another project.
+   */
+  updateProject: {
+    path: "/hpath.v1.Hpath/UpdateProject" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: UpdateProjectRequest): Buffer => Buffer.from(UpdateProjectRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): UpdateProjectRequest => UpdateProjectRequest.decode(value),
+    responseSerialize: (value: Project): Buffer => Buffer.from(Project.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Project => Project.decode(value),
+  },
+  /**
+   * Deletes the project and everything under it (envs, cases with their
+   * alignments/changelog, runs with their events + artifact records, PRDs) in
+   * one transaction; artifact bytes are purged from the artifact store
+   * best-effort after the commit.
+   */
+  deleteProject: {
+    path: "/hpath.v1.Hpath/DeleteProject" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: DeleteProjectRequest): Buffer => Buffer.from(DeleteProjectRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DeleteProjectRequest => DeleteProjectRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
   listEnvs: {
     path: "/hpath.v1.Hpath/ListEnvs" as const,
     requestStream: false as const,
@@ -7451,6 +7675,18 @@ export const HpathService = {
 export interface HpathServer extends UntypedServiceImplementation {
   listProjects: handleUnaryCall<Empty, ListProjectsResponse>;
   createProject: handleUnaryCall<CreateProjectRequest, Project>;
+  /**
+   * Replaces the project's name and repo_url; fails with ALREADY_EXISTS when
+   * the name is taken by another project.
+   */
+  updateProject: handleUnaryCall<UpdateProjectRequest, Project>;
+  /**
+   * Deletes the project and everything under it (envs, cases with their
+   * alignments/changelog, runs with their events + artifact records, PRDs) in
+   * one transaction; artifact bytes are purged from the artifact store
+   * best-effort after the commit.
+   */
+  deleteProject: handleUnaryCall<DeleteProjectRequest, Empty>;
   listEnvs: handleUnaryCall<ListEnvsRequest, ListEnvsResponse>;
   upsertEnv: handleUnaryCall<UpsertEnvRequest, Env>;
   /** Fails with ALREADY_EXISTS when runs reference the env. */

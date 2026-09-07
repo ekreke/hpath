@@ -18,14 +18,23 @@
   },
   "projects": {
     "title": "Projects",
-    "subtitle": "Pick a project to open its workspace — cases, runs, materials and envs live under it",
+    "subtitle": "Pick a project to open its workspace — cases, runs, PRDs and envs live under it",
     "search": "Search projects...",
     "colName": "Name",
     "colRepo": "Repository",
     "colCreated": "Created",
     "newProject": "New project",
     "empty": "No projects yet — create one from the top right",
-    "noMatch": "No matching projects"
+    "noMatch": "No matching projects",
+    "detail": "Project details",
+    "editTitle": "Edit project",
+    "saved": "Project updated",
+    "dangerZone": "Danger zone",
+    "deleteProject": "Delete project",
+    "deleting": "Deleting…",
+    "deleteHint": "Its envs, cases, runs, PRDs and artifact files will be deleted with it. This cannot be undone.",
+    "deleteConfirmLabel": "Type the project name to confirm",
+    "deleted": "Deleted project {{name}}"
   },
   "sidebar": {
     "project": "Project",

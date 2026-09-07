@@ -73,6 +73,12 @@ export class LocalArtifactStore implements ArtifactStore {
     }
   }
 
+  // Missing files resolve silently: a repeated project delete (or a leftover
+  // file already cleaned by hand) must not fail the cascade.
+  async remove(key: string): Promise<void> {
+    await rm(this.pathFor(key), { force: true });
+  }
+
   /**
    * Absolute path for a key. Keys are validated (scheme + traversal safety)
    * and the resolved path must stay inside the root directory.

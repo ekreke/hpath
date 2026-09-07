@@ -18,14 +18,23 @@
   },
   "projects": {
     "title": "项目",
-    "subtitle": "选择一个项目进入工作区 — 用例、运行、素材与环境都在项目下",
+    "subtitle": "选择一个项目进入工作区 — 用例、运行、PRD 与环境都在项目下",
     "search": "搜索项目...",
     "colName": "名称",
     "colRepo": "仓库地址",
     "colCreated": "创建时间",
     "newProject": "新建项目",
     "empty": "暂无项目 — 点击右上角新建",
-    "noMatch": "没有匹配的项目"
+    "noMatch": "没有匹配的项目",
+    "detail": "项目详情",
+    "editTitle": "编辑项目",
+    "saved": "项目已更新",
+    "dangerZone": "危险区",
+    "deleteProject": "删除项目",
+    "deleting": "删除中…",
+    "deleteHint": "该项目的环境、用例、运行记录、PRD 与证据文件将一并删除,此操作不可恢复。",
+    "deleteConfirmLabel": "输入项目名以确认",
+    "deleted": "已删除项目 {{name}}"
   },
   "sidebar": {
     "project": "项目",

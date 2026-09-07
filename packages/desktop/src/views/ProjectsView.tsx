@@ -5,18 +5,21 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from '@hpath/contract';
 import { invokeCreateProject, toFriendlyError } from '../lib/ipc';
+import ProjectDeleteModal from '../components/ProjectDeleteModal';
 
 type ProjectsViewProps = {
   projects: Project[];
   onOpened: (projectId: string) => void;
   onCreated: (projectId: string) => void;
+  onDeleted: (projectId: string) => void;
   onToast: (text: string, error?: boolean) => void;
 };
 
-function ProjectsView({ projects, onOpened, onCreated, onToast }: ProjectsViewProps) {
+function ProjectsView({ projects, onOpened, onCreated, onDeleted, onToast }: ProjectsViewProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [busy, setBusy] = useState(false);
@@ -86,6 +89,7 @@ function ProjectsView({ projects, onOpened, onCreated, onToast }: ProjectsViewPr
               <th>{t('projects.colName')}</th>
               <th>{t('projects.colRepo')}</th>
               <th className="num">{t('projects.colCreated')}</th>
+              <th style={{ width: 60 }} aria-label={t('projects.deleteProject')} />
             </tr>
           </thead>
           <tbody>
@@ -96,10 +100,32 @@ function ProjectsView({ projects, onOpened, onCreated, onToast }: ProjectsViewPr
                 <td className="num">
                   {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
                 </td>
+                <td className="num">
+                  <button
+                    className="btn sm ghost"
+                    aria-label={`${t('projects.deleteProject')}: ${p.name}`}
+                    title={t('projects.deleteProject')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(p);
+                    }}
+                  >
+                    {t('common.delete')}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {deleteTarget && (
+        <ProjectDeleteModal
+          project={deleteTarget}
+          onDeleted={onDeleted}
+          onClose={() => setDeleteTarget(null)}
+          onToast={onToast}
+        />
       )}
 
       {createOpen && (

@@ -37,10 +37,12 @@ import type {
   ListRunsResponse,
   CreateProjectRequest,
   DeleteEnvRequest,
+  DeleteProjectRequest,
   DownloadArtifactRequest,
   Project,
   Prd,
   RunDetail,
+  UpdateProjectRequest,
   UpsertEnvRequest,
   ReviewCaseRequest,
   RunCaseRequest,
@@ -122,6 +124,73 @@ export function createMockHandlers(store: MockStore): HpathServer {
         const project: Project = { id: randomUUID(), name, repoUrl, createdAt: nowIso() };
         store.projects.set(project.id, project);
         callback(null, project);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    updateProject: (
+      call: ServerUnaryCall<UpdateProjectRequest, Project>,
+      callback: sendUnaryData<Project>,
+    ) => {
+      try {
+        const { projectId, name } = call.request;
+        if (!name) {
+          throw grpcError(status.INVALID_ARGUMENT, "name is required");
+        }
+        const existing = store.projects.get(projectId);
+        if (!existing) {
+          throw grpcError(status.NOT_FOUND, `project not found: ${projectId}`);
+        }
+        const nameTaken = [...store.projects.values()].some((p) => p.id !== projectId && p.name === name);
+        if (nameTaken) {
+          throw grpcError(status.ALREADY_EXISTS, `project name already exists: ${name}`);
+        }
+        const updated: Project = { ...existing, name, repoUrl: call.request.repoUrl ?? "" };
+        store.projects.set(updated.id, updated);
+        callback(null, updated);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    deleteProject: (
+      call: ServerUnaryCall<DeleteProjectRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ) => {
+      try {
+        const { projectId } = call.request;
+        if (!store.projects.has(projectId)) {
+          throw grpcError(status.NOT_FOUND, `project not found: ${projectId}`);
+        }
+        // Cascade mirrors the SQLite foreign-key graph: runs carry their
+        // events + artifacts, cases carry alignments + changelog.
+        const runIds = [...store.runs.values()]
+          .filter((run) => run.projectId === projectId)
+          .map((run) => run.id);
+        for (const runId of runIds) {
+          store.events.delete(runId);
+          for (const artifact of [...store.artifacts.values()]) {
+            if (artifact.runId === runId) {
+              store.artifacts.delete(artifact.id);
+              store.artifactData.delete(artifact.id);
+            }
+          }
+        }
+        for (const [id, env] of [...store.envs.entries()]) {
+          if (env.projectId === projectId) store.envs.delete(id);
+        }
+        for (const [id, kase] of [...store.cases.entries()]) {
+          if (kase.projectId === projectId) store.cases.delete(id);
+        }
+        for (const [id, run] of [...store.runs.entries()]) {
+          if (run.projectId === projectId) store.runs.delete(id);
+        }
+        for (const [id, prd] of [...store.prds.entries()]) {
+          if (prd.projectId === projectId) store.prds.delete(id);
+        }
+        store.projects.delete(projectId);
+        callback(null, Empty.create());
       } catch (err) {
         callback(err as ServiceError);
       }

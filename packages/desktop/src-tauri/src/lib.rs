@@ -84,6 +84,43 @@ async fn create_project(
 }
 
 #[tauri::command]
+async fn update_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    name: String,
+    repo_url: String,
+) -> Result<ProjectDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .update_project(Request::new(hpath::UpdateProjectRequest {
+            project_id,
+            name,
+            repo_url,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ProjectDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn delete_project(state: State<'_, AppState>, project_id: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    client
+        .delete_project(Request::new(hpath::DeleteProjectRequest { project_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<SettingsDto, String> {
     let mut client = crate::grpc::client::build_client(current_addr(&state)?)
         .await
@@ -550,8 +587,10 @@ async fn save_artifact(
 
 /// One-click trace inspection (T13): caches the trace.zip under the system
 /// temp dir and launches `playwright show-trace` on it. A global `playwright`
-/// binary is tried first, then `npx playwright` (which resolves or
-/// auto-installs the package). A launch only counts as success if the child
+/// binary is tried first, then `npx --yes --package=playwright playwright`
+/// (the explicit --package form is required: bare `npx playwright` can fail
+/// with 127 on first run when the npx cache has no entry for the package yet).
+/// A launch only counts as success if the child
 /// survives a short probe window — a viewer that exits immediately (bad zip,
 /// broken install) surfaces as an error instead of a success toast. On success
 /// a background task reaps the viewer when it exits, so no zombie is left
@@ -585,12 +624,12 @@ async fn show_trace(
         .spawn()
         .or_else(|_| {
             tokio::process::Command::new("npx")
-                .args(["--yes", "playwright", "show-trace"])
+                .args(["--yes", "--package=playwright", "playwright", "show-trace"])
                 .arg(&path)
                 .stderr(Stdio::piped())
                 .spawn()
         })
-        .map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed?): {e}"))?;
+        .map_err(|e| format!("could not launch `playwright show-trace` (is Playwright installed? run: npm i -g playwright): {e}"))?;
 
     // Probe briefly without blocking the async worker: the viewer stays alive
     // while it serves the trace, so a child that is gone within the window
@@ -607,8 +646,13 @@ async fn show_trace(
                     let _ = pipe.read_to_string(&mut stderr).await;
                 }
                 let tail = stderr.trim();
+                let hint = if tail.contains("command not found") {
+                    " (run: npm i -g playwright)"
+                } else {
+                    ""
+                };
                 return Err(format!(
-                    "`playwright show-trace` exited with {status}{}",
+                    "`playwright show-trace` exited with {status}{hint}{}",
                     if tail.is_empty() { String::new() } else { format!(": {tail}") }
                 ));
             }
@@ -663,6 +707,8 @@ pub fn run() {
             set_server_addr,
             list_projects,
             create_project,
+            update_project,
+            delete_project,
             list_envs,
             upsert_env,
             delete_env,

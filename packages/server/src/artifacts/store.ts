@@ -58,6 +58,11 @@ export interface ArtifactStore {
   getObject(key: string): Promise<ArtifactGetObject>;
   /** Cheap existence check (no body transfer). */
   exists(key: string): Promise<boolean>;
+  /**
+   * Delete a single object. Deleting an absent key must resolve (idempotent),
+   * so cascading deletes never fail on already-removed bytes.
+   */
+  remove(key: string): Promise<void>;
 }
 
 export interface CreateStoreOptions {

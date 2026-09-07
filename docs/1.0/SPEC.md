@@ -38,6 +38,7 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 - [x] **T1 Workspace skeleton + gRPC contract + server skeleton with mock mode**
   pnpm workspace; `proto/hpath.proto` defining all 1.0 services (ListProjects, CreateProject, ListEnvs, UpsertEnv, DeleteEnv, ParsePRD, ListCases, GetCase, ReviewCase, RunCase, ListRuns, GetRun, DownloadArtifact); generated TS types; server skeleton serving echo impls plus `--mock` mode: in-memory seed data (1 demo project with metadata repo_url, envs `dev`+`staging`, 5 example cases: 4 approved (two scripted-outcome probes: hard-limit, alignment-drift) + 1 pending agent draft, 2 finished sample runs: 1 passed + 1 failed), scripted RunCase event stream, synthetic artifacts (small generated video/screenshot/trace placeholders).
   *Verify: `pnpm -r build` passes; grpcurl reflection lists services; `--mock` server answers ListProjects/RunCase with seed data and a scripted event stream.*
+  Scope note (2026-09): the contract gained `UpdateProject` + `DeleteProject` (cascade delete with best-effort artifact purge) after the desktop projects page landed; T17 similarly extended the contract with the chat RPCs.
 
 ## B. Desktop First (built and verified against mock)
 

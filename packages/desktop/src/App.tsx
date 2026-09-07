@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Sidebar, { type ViewId } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import { Toast } from './components/Ui';
+import ProjectDetailPanel from './components/ProjectDetailPanel';
 import CasesView from './views/CasesView';
 import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
@@ -19,7 +20,7 @@ import {
 } from './lib/ipc';
 import { useTranslation } from 'react-i18next';
 
-type ProjectTab = 'cases' | 'history' | 'prd' | 'envs';
+type ProjectTab = 'cases' | 'history' | 'prd' | 'envs' | 'detail';
 
 const PROJECT_TABS: ProjectTab[] = ['cases', 'history', 'prd', 'envs'];
 
@@ -73,6 +74,16 @@ function App() {
   const openProject = useCallback((id: string) => {
     setSelectedProjectId(id);
     setProjectsPage('workspace');
+  }, []);
+
+  const handleProjectDeleted = useCallback((deletedId: string) => {
+    setProjectRefreshKey((k) => k + 1);
+    setSelectedProjectId((prev) => (prev === deletedId ? null : prev));
+    setProjectsPage('list');
+  }, []);
+
+  const handleProjectRenamed = useCallback(() => {
+    setProjectRefreshKey((k) => k + 1);
   }, []);
 
   const onToast = useCallback((text: string, error?: boolean) => {
@@ -189,7 +200,7 @@ function App() {
       ? [
           { label: t('sidebar.projects'), onClick: () => setProjectsPage('list') },
           { label: selectedProject.name },
-          { label: projectTabs.find((tab) => tab.id === projectTab)?.label ?? '' },
+          { label: projectTabs.find((tab) => tab.id === projectTab)?.label ?? t('projects.detail') },
         ]
       : [{ label: t(`sidebar.${view}`) }];
 
@@ -212,6 +223,7 @@ function App() {
               projects={projects}
               onOpened={openProject}
               onCreated={onProjectCreated}
+              onDeleted={handleProjectDeleted}
               onToast={onToast}
             />
           ) : (
@@ -227,8 +239,23 @@ function App() {
                       {count !== null && <span className="ct">{count}</span>}
                     </button>
                   ))}
+                  <div className="divider" />
+                  <button
+                    className={projectTab === 'detail' ? 'itm on' : 'itm'}
+                    onClick={() => selectProjectTab('detail')}
+                  >
+                    {t('projects.detail')}
+                  </button>
                 </aside>
                 <div className="ws-content">
+                  {projectTab === 'detail' && selectedProject && (
+                    <ProjectDetailPanel
+                      project={selectedProject}
+                      onRenamed={handleProjectRenamed}
+                      onDeleted={handleProjectDeleted}
+                      onToast={onToast}
+                    />
+                  )}
                   {projectTab === 'cases' && (
                     <CasesView
                       appliedServerAddr={appliedServerAddr}
