@@ -475,6 +475,80 @@ describe("CaseRepository", () => {
       db.close();
     }
   });
+
+  it("update: replaces title/goal/alignments with version bump and changelog entry", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const kase = makeCase(project, { status: CaseStatus.CASE_STATUS_PENDING, version: 3 });
+      db.cases.create(kase);
+
+      const updated = db.cases.update(
+        kase.id,
+        {
+          title: "renamed case",
+          goal: "New goal.",
+          alignments: [
+            { apiPath: "/api/a", uiAnchor: "Anchor A", rule: "Rule A." },
+            { apiPath: "/api/b", uiAnchor: "Anchor B", rule: "Rule B." },
+          ],
+        },
+        { author: "alice", comment: "Tightened the rule" },
+      );
+      assert.equal(updated.title, "renamed case");
+      assert.equal(updated.goal, "New goal.");
+      assert.equal(updated.alignments.length, 2);
+      assert.deepEqual(updated.alignments.map((a) => a.apiPath), ["/api/a", "/api/b"]);
+      assert.equal(updated.status, CaseStatus.CASE_STATUS_PENDING);
+      assert.equal(updated.version, 4);
+      const last = updated.changelog[updated.changelog.length - 1]!;
+      assert.equal(last.version, 4);
+      assert.equal(last.author, "alice");
+      assert.equal(last.comment, "Tightened the rule");
+      // Stored state matches the returned round trip (alignments replaced).
+      assert.deepEqual(db.cases.getRequired(kase.id), updated);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("update defaults the changelog author/comment and refuses APPROVED cases", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const approved = makeCase(project);
+      db.cases.create(approved);
+      assert.throws(
+        () =>
+          db.cases.update(approved.id, {
+            title: "x",
+            goal: "y",
+            alignments: [],
+          }),
+        InvalidTransitionError,
+      );
+      assert.throws(
+        () => db.cases.update("missing", { title: "x", goal: "y", alignments: [] }),
+        NotFoundError,
+      );
+
+      // DISABLED cases are editable again (fix, then re-approve).
+      db.cases.review(approved.id, ReviewAction.REVIEW_ACTION_DISABLE);
+      const updated = db.cases.update(approved.id, {
+        title: "fixed title",
+        goal: "fixed goal",
+        alignments: [],
+      });
+      assert.equal(updated.status, CaseStatus.CASE_STATUS_DISABLED);
+      const last = updated.changelog[updated.changelog.length - 1]!;
+      assert.equal(last.author, "editor");
+      assert.equal(last.comment, "Updated manually");
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("RunRepository", () => {

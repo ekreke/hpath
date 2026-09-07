@@ -1,7 +1,7 @@
 // End-to-end smoke client for the mock server.
 // Usage: pnpm --filter @hpath/server smoke   (server must be running on 50051)
 
-import { credentials, makeClientConstructor } from "@grpc/grpc-js";
+import { credentials, makeClientConstructor, status } from "@grpc/grpc-js";
 import {
   HpathService,
   ArtifactKind,
@@ -59,6 +59,17 @@ function stream<Req, Res>(method: keyof HpathServer, request: Req): Promise<Res[
   });
 }
 
+function unaryError<Req>(method: keyof HpathServer, request: Req): Promise<{ code: number; details: string }> {
+  return new Promise((resolve, reject) => {
+    (client as unknown as Record<string, (req: Req, cb: (err: unknown, res: unknown) => void) => void>)[
+      method as string
+    ](request, (err: unknown) => {
+      if (err) resolve(err as { code: number; details: string });
+      else reject(new Error(`expected ${String(method)} to fail`));
+    });
+  });
+}
+
 function assert(condition: boolean, message: string): void {
   if (!condition) {
     console.error(`SMOKE FAIL: ${message}`);
@@ -112,6 +123,39 @@ async function main(): Promise<void> {
   };
   const approved = await unary<ReviewCaseRequest, Case>("reviewCase", reviewReq);
   assert(approved.status === CaseStatus.CASE_STATUS_APPROVED, "draft approved via reviewCase");
+
+  // 5b. Manual case management: create -> update -> delete
+  const manual = await unary<
+    { projectId: string; title: string; goal: string; alignments: unknown[] },
+    Case
+  >("createCase", {
+    projectId: project.id,
+    title: "smoke manual case",
+    goal: "UI and backend agree on the balance.",
+    alignments: [{ apiPath: "/api/balance", uiAnchor: "Balance card", rule: "Equal values." }],
+  });
+  assert(manual.status === CaseStatus.CASE_STATUS_PENDING, "createCase lands in PENDING");
+  assert(
+    manual.creator.type === CreatorType.CREATOR_TYPE_HUMAN && manual.sourcePrdRef === "",
+    "createCase has a human creator and no PRD ref",
+  );
+  const updatedManual = await unary<
+    { caseId: string; title: string; goal: string; alignments: unknown[] },
+    Case
+  >("updateCase", {
+    caseId: manual.id,
+    title: "smoke manual case (rev)",
+    goal: "Revised goal.",
+    alignments: [],
+  });
+  assert(
+    updatedManual.version === 2 && updatedManual.title === "smoke manual case (rev)",
+    "updateCase bumps version and replaces fields",
+  );
+  await unary<{ caseId: string }, Record<string, never>>("deleteCase", { caseId: manual.id });
+  const gone = await unaryError<{ caseId: string }>("getCase", { caseId: manual.id });
+  assert(gone.code === status.NOT_FOUND, "deleteCase removed the case");
+  console.log("ok: manual case create/update/delete round-trip");
 
   // 6. UpsertEnv create + delete guard
   const createdEnv = await unary<UpsertEnvRequest, Env>("upsertEnv", {
@@ -174,6 +218,13 @@ async function main(): Promise<void> {
     to: "",
   });
   assert(runs.runs.length >= 3, `history has ${runs.runs.length} runs (2 seed + 1 new)`);
+
+  // 11. DeleteCase refuses cases referenced by runs (the Login case just ran)
+  const loginCase = cases.cases.find(
+    (kase: Case) => kase.status === CaseStatus.CASE_STATUS_APPROVED && kase.title.includes("Login"),
+  )!;
+  const blocked = await unaryError<{ caseId: string }>("deleteCase", { caseId: loginCase.id });
+  assert(blocked.code === status.ALREADY_EXISTS, "deleteCase refuses cases referenced by runs");
 
   console.log("\nSMOKE PASS: all checks green");
   process.exit(0);

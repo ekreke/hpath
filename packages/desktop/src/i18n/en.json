@@ -153,7 +153,20 @@
     "evApiObserved": "Backend output",
     "evUiAnchor": "UI anchor",
     "evUiObserved": "Frontend display",
-    "evMatch": "Match"
+    "evMatch": "Match",
+    "new": "New Case",
+    "createTitle": "New Case",
+    "editTitle": "Edit Case",
+    "created": "Case created",
+    "saved": "Case saved",
+    "deleted": "Case deleted",
+    "deleteConfirm": "Delete case \"{{title}}\"? Cases referenced by runs cannot be deleted.",
+    "titleRequired": "Title is required",
+    "goalRequired": "Goal is required",
+    "titlePlaceholder": "e.g. Login flow works",
+    "goalPlaceholder": "What the agent must verify (UI ↔ API ↔ backend agree)",
+    "addAlignment": "Add alignment",
+    "removeAlignment": "Remove alignment"
   },
   "runs": {
     "colTime": "Time",

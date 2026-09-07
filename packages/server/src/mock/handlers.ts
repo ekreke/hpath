@@ -17,12 +17,14 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatSession,
+  CreateCaseRequest,
   HpathServer,
   Event,
   ParseEvent,
   ParsePRDRequest,
   CreateChatSessionRequest,
   DeleteChatSessionRequest,
+  DeleteCaseRequest,
   GetCaseRequest,
   GetRunRequest,
   ListCasesRequest,
@@ -42,6 +44,7 @@ import type {
   Project,
   Prd,
   RunDetail,
+  UpdateCaseRequest,
   UpdateProjectRequest,
   UpsertEnvRequest,
   ReviewCaseRequest,
@@ -372,6 +375,111 @@ export function createMockHandlers(store: MockStore): HpathServer {
           throw grpcError(status.NOT_FOUND, `case not found: ${call.request.caseId}`);
         }
         callback(null, kase);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    // Manual case management. Mirrors the real-mode handlers and the
+    // repository semantics: create lands in PENDING with a human creator,
+    // update replaces title/goal/alignments of unapproved cases only (version
+    // bump + changelog), delete refuses cases referenced by runs.
+    createCase: (
+      call: ServerUnaryCall<CreateCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ) => {
+      try {
+        const req = call.request;
+        if (!req.title) {
+          throw grpcError(status.INVALID_ARGUMENT, "title is required");
+        }
+        if (!req.goal) {
+          throw grpcError(status.INVALID_ARGUMENT, "goal is required");
+        }
+        requireProject(store, req.projectId);
+        const now = nowIso();
+        const kase: Case = {
+          id: randomUUID(),
+          projectId: req.projectId,
+          title: req.title,
+          goal: req.goal,
+          alignments: req.alignments ?? [],
+          creator: { type: CreatorType.CREATOR_TYPE_HUMAN, name: "human", runRef: "" },
+          status: CaseStatus.CASE_STATUS_PENDING,
+          sourcePrdRef: "",
+          version: 1,
+          changelog: [
+            { version: 1, author: "human", comment: "Created manually", changedAt: now },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        };
+        store.cases.set(kase.id, kase);
+        callback(null, kase);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    updateCase: (
+      call: ServerUnaryCall<UpdateCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ) => {
+      try {
+        const req = call.request;
+        if (!req.title) {
+          throw grpcError(status.INVALID_ARGUMENT, "title is required");
+        }
+        if (!req.goal) {
+          throw grpcError(status.INVALID_ARGUMENT, "goal is required");
+        }
+        const kase = store.cases.get(req.caseId);
+        if (!kase) {
+          throw grpcError(status.NOT_FOUND, `case not found: ${req.caseId}`);
+        }
+        const editable = [
+          CaseStatus.CASE_STATUS_DRAFT,
+          CaseStatus.CASE_STATUS_PENDING,
+          CaseStatus.CASE_STATUS_DISABLED,
+        ];
+        if (!editable.includes(kase.status)) {
+          throw grpcError(
+            status.FAILED_PRECONDITION,
+            `cannot edit a case in status ${CaseStatus[kase.status]} (disable it first)`,
+          );
+        }
+        kase.title = req.title;
+        kase.goal = req.goal;
+        kase.alignments = req.alignments ?? [];
+        kase.version += 1;
+        kase.updatedAt = nowIso();
+        kase.changelog.push({
+          version: kase.version,
+          author: "editor",
+          comment: "Updated manually",
+          changedAt: nowIso(),
+        });
+        callback(null, kase);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    deleteCase: (
+      call: ServerUnaryCall<DeleteCaseRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ) => {
+      try {
+        const { caseId } = call.request;
+        if (!store.cases.has(caseId)) {
+          throw grpcError(status.NOT_FOUND, `case not found: ${caseId}`);
+        }
+        const hasRuns = [...store.runs.values()].some((run) => run.caseId === caseId);
+        if (hasRuns) {
+          throw grpcError(status.ALREADY_EXISTS, `case has runs and cannot be deleted: ${caseId}`);
+        }
+        store.cases.delete(caseId);
+        callback(null, Empty.create());
       } catch (err) {
         callback(err as ServiceError);
       }

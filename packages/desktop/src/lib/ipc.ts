@@ -250,6 +250,24 @@ export function invokeReviewCase(
   return invoke<Case>('review_case', { caseId, action, comment });
 }
 
+export type CaseFormInput = {
+  title: string;
+  goal: string;
+  alignments: { apiPath: string; uiAnchor: string; rule: string }[];
+};
+
+export function invokeCreateCase(projectId: string, input: CaseFormInput): Promise<Case> {
+  return invoke<Case>('create_case', { projectId, ...input });
+}
+
+export function invokeUpdateCase(caseId: string, input: CaseFormInput): Promise<Case> {
+  return invoke<Case>('update_case', { caseId, ...input });
+}
+
+export function invokeDeleteCase(caseId: string): Promise<void> {
+  return invoke<void>('delete_case', { caseId });
+}
+
 export function invokeListRuns(projectId: string, filter: ListRunsFilter = {}): Promise<Run[]> {
   return invoke<Run[]>('list_runs', {
     projectId,

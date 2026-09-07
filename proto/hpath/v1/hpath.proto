@@ -374,6 +374,32 @@ message ReviewCaseRequest {
   string comment = 3;
 }
 
+// Creates a manual case (creator = human, no PRD traceability). The case
+// starts in PENDING so it goes through the same review flow as agent-drafted
+// cases. id / timestamps / version / changelog are assigned by the server.
+message CreateCaseRequest {
+  string project_id = 1;
+  string title = 2;   // required, non-empty
+  string goal = 3;    // required, non-empty
+  repeated Alignment alignments = 4;
+}
+
+// Replaces the title, goal and alignments of a case. Only unapproved cases
+// (DRAFT / PENDING / DISABLED) can be edited; editing an APPROVED case fails
+// with FAILED_PRECONDITION (disable it first, then edit and re-approve).
+// Bumps the version and appends a changelog entry; other fields (creator,
+// source_prd_ref, status) are preserved.
+message UpdateCaseRequest {
+  string case_id = 1;
+  string title = 2;   // required, non-empty
+  string goal = 3;    // required, non-empty
+  repeated Alignment alignments = 4;
+}
+
+message DeleteCaseRequest {
+  string case_id = 1;
+}
+
 message RunCaseRequest {
   string project_id = 1;
   string env_id = 2;
@@ -542,6 +568,20 @@ service Hpath {
   // Applies a review transition; invalid transitions fail with
   // FAILED_PRECONDITION.
   rpc ReviewCase(ReviewCaseRequest) returns (Case);
+
+  // Creates a manual case (creator = human) in PENDING review status; the
+  // server assigns id / timestamps / version / changelog. Requires project_id,
+  // non-empty title and goal (INVALID_ARGUMENT otherwise); unknown project
+  // fails with NOT_FOUND.
+  rpc CreateCase(CreateCaseRequest) returns (Case);
+  // Replaces title/goal/alignments of an unapproved case (DRAFT / PENDING /
+  // DISABLED); editing an APPROVED case fails with FAILED_PRECONDITION.
+  // Unknown cases fail with NOT_FOUND.
+  rpc UpdateCase(UpdateCaseRequest) returns (Case);
+  // Deletes a case together with its alignments and changelog. Fails with
+  // FAILED_PRECONDITION when runs reference the case (run history must keep
+  // pointing at a valid case definition).
+  rpc DeleteCase(DeleteCaseRequest) returns (Empty);
 
   // Execute an approved case against an env. Streams run events in order.
   // Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.

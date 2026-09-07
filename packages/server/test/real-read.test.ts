@@ -42,6 +42,8 @@ let running: RunningServer;
 let client: TestClient;
 let projectId: string;
 let pendingCaseId: string;
+let approvedCaseId: string;
+let runReferencedCaseId: string;
 
 async function callUnary(method: string, request: unknown): Promise<{ err: { code: number; details: string } | null; res: unknown }> {
   return new Promise((resolve, reject) => {
@@ -70,6 +72,8 @@ before(async () => {
   assert.ok(seed, "seed must run before the server starts");
   projectId = seed!.project.id;
   pendingCaseId = seed!.cases.ordersDraft.id;
+  approvedCaseId = seed!.cases.transfer.id;
+  runReferencedCaseId = seed!.cases.login.id;
 
   // Real mode now also carries a settings store (Get/UpdateSettings + Chat);
   // load it from a throwaway path so the suite never touches data/.
@@ -231,6 +235,116 @@ describe("real mode CreateProject (T5 repository wiring)", () => {
   it("reports ALREADY_EXISTS for a duplicate name", async () => {
     const { err } = await callUnary("createProject", { name: "demo-bank" });
     assert.equal(err?.code, status.ALREADY_EXISTS);
+  });
+});
+
+describe("real mode manual case management (CreateCase/UpdateCase/DeleteCase)", () => {
+  let createdCaseId = "";
+
+  it("CreateCase lands a PENDING human case that ListCases serves", async () => {
+    const { err, res } = await callUnary("createCase", {
+      projectId,
+      title: "manual probe",
+      goal: "UI and backend agree on the balance.",
+      alignments: [{ apiPath: "/api/balance", uiAnchor: "Balance card", rule: "Equal values." }],
+    });
+    assert.equal(err, null);
+    const created = res as Case;
+    createdCaseId = created.id;
+    assert.ok(created.id.length > 0);
+    assert.equal(created.title, "manual probe");
+    assert.equal(created.creator?.type, CreatorType.CREATOR_TYPE_HUMAN);
+    assert.equal(created.status, CaseStatus.CASE_STATUS_PENDING);
+    assert.equal(created.sourcePrdRef, "");
+    assert.equal(created.version, 1);
+    assert.equal(created.changelog.length, 1);
+    assert.equal(created.changelog[0]!.comment, "Created manually");
+
+    const pending = await callUnary("listCases", {
+      projectId,
+      status: CaseStatus.CASE_STATUS_PENDING,
+    });
+    const ids = (pending.res as ListCasesResponse).cases.map((c) => c.id);
+    assert.ok(ids.includes(createdCaseId));
+  });
+
+  it("CreateCase validates title, goal and project existence", async () => {
+    // Repeated fields must be present: protobufjs fails to serialize a
+    // missing repeated field client-side (INTERNAL 13 before the server
+    // answers) — same class of pitfall as the scalar/enum notes above.
+    const missingTitle = await callUnary("createCase", { projectId, title: "", goal: "g", alignments: [] });
+    assert.equal(missingTitle.err?.code, status.INVALID_ARGUMENT);
+    const missingGoal = await callUnary("createCase", { projectId, title: "t", goal: "", alignments: [] });
+    assert.equal(missingGoal.err?.code, status.INVALID_ARGUMENT);
+    const unknownProject = await callUnary("createCase", {
+      projectId: "no-such-project",
+      title: "t",
+      goal: "g",
+      alignments: [],
+    });
+    assert.equal(unknownProject.err?.code, status.NOT_FOUND);
+  });
+
+  it("UpdateCase replaces title/goal/alignments with version bump and changelog", async () => {
+    const { err, res } = await callUnary("updateCase", {
+      caseId: createdCaseId,
+      title: "manual probe (revised)",
+      goal: "Revised goal.",
+      alignments: [
+        { apiPath: "/api/a", uiAnchor: "Anchor A", rule: "Rule A." },
+        { apiPath: "/api/b", uiAnchor: "Anchor B", rule: "Rule B." },
+      ],
+    });
+    assert.equal(err, null);
+    const updated = res as Case;
+    assert.equal(updated.title, "manual probe (revised)");
+    assert.equal(updated.goal, "Revised goal.");
+    assert.deepEqual(updated.alignments.map((a) => a.apiPath), ["/api/a", "/api/b"]);
+    assert.equal(updated.version, 2);
+    const last = updated.changelog[updated.changelog.length - 1]!;
+    assert.equal(last.author, "editor");
+    assert.equal(last.comment, "Updated manually");
+
+    const fetched = await callUnary("getCase", { caseId: createdCaseId });
+    assert.equal((fetched.res as Case).alignments.length, 2);
+  });
+
+  it("UpdateCase refuses APPROVED cases and unknown ids", async () => {
+    const approved = await callUnary("updateCase", {
+      caseId: approvedCaseId,
+      title: "t",
+      goal: "g",
+      alignments: [],
+    });
+    assert.equal(approved.err?.code, status.FAILED_PRECONDITION);
+    const missing = await callUnary("updateCase", {
+      caseId: "missing-case",
+      title: "t",
+      goal: "g",
+      alignments: [],
+    });
+    assert.equal(missing.err?.code, status.NOT_FOUND);
+    const missingTitle = await callUnary("updateCase", {
+      caseId: createdCaseId,
+      title: "",
+      goal: "g",
+      alignments: [],
+    });
+    assert.equal(missingTitle.err?.code, status.INVALID_ARGUMENT);
+  });
+
+  it("DeleteCase removes a case without runs and reports NOT_FOUND afterwards", async () => {
+    const { err } = await callUnary("deleteCase", { caseId: createdCaseId });
+    assert.equal(err, null);
+    const fetched = await callUnary("getCase", { caseId: createdCaseId });
+    assert.equal(fetched.err?.code, status.NOT_FOUND);
+  });
+
+  it("DeleteCase refuses cases referenced by runs and unknown ids", async () => {
+    const referenced = await callUnary("deleteCase", { caseId: runReferencedCaseId });
+    assert.equal(referenced.err?.code, status.ALREADY_EXISTS);
+    const missing = await callUnary("deleteCase", { caseId: "missing-case" });
+    assert.equal(missing.err?.code, status.NOT_FOUND);
   });
 });
 

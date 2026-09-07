@@ -351,6 +351,70 @@ async fn review_case(
 }
 
 #[tauri::command]
+async fn create_case(
+    state: State<'_, AppState>,
+    project_id: String,
+    title: String,
+    goal: String,
+    alignments: Vec<dto::AlignmentInput>,
+) -> Result<CaseDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .create_case(Request::new(hpath::CreateCaseRequest {
+            project_id,
+            title,
+            goal,
+            alignments: alignments.into_iter().map(Into::into).collect(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(CaseDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn update_case(
+    state: State<'_, AppState>,
+    case_id: String,
+    title: String,
+    goal: String,
+    alignments: Vec<dto::AlignmentInput>,
+) -> Result<CaseDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .update_case(Request::new(hpath::UpdateCaseRequest {
+            case_id,
+            title,
+            goal,
+            alignments: alignments.into_iter().map(Into::into).collect(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(CaseDto::from(&response.into_inner()))
+}
+
+#[tauri::command]
+async fn delete_case(state: State<'_, AppState>, case_id: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    client
+        .delete_case(Request::new(hpath::DeleteCaseRequest { case_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn list_runs(
     state: State<'_, AppState>,
     project_id: String,
@@ -713,6 +777,9 @@ pub fn run() {
             upsert_env,
             delete_env,
             list_cases,
+            create_case,
+            update_case,
+            delete_case,
             get_case,
             review_case,
             list_runs,

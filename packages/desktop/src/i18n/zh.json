@@ -153,7 +153,20 @@
     "evApiObserved": "后端输出",
     "evUiAnchor": "UI 元素",
     "evUiObserved": "前端展示",
-    "evMatch": "一致"
+    "evMatch": "一致",
+    "new": "新建用例",
+    "createTitle": "新建用例",
+    "editTitle": "编辑用例",
+    "created": "用例已创建",
+    "saved": "用例已保存",
+    "deleted": "用例已删除",
+    "deleteConfirm": "删除用例“{{title}}”？有运行记录引用的用例无法删除。",
+    "titleRequired": "请填写用例标题",
+    "goalRequired": "请填写验证目标",
+    "titlePlaceholder": "例如：登录流程正常",
+    "goalPlaceholder": "执行代理需要验证的目标（UI ↔ API ↔ 后端一致）",
+    "addAlignment": "添加对齐项",
+    "removeAlignment": "移除对齐项"
   },
   "runs": {
     "colTime": "时间",

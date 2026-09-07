@@ -94,6 +94,16 @@ export function reviewActionsFor(status: number): number[] {
   }
 }
 
+/** Whether a case's title/goal/alignments can be edited (mirror of the
+ * server-side UpdateCase rule: APPROVED must be disabled first). */
+export function caseEditableFor(status: number): boolean {
+  return (
+    status === CASE_STATUS.DRAFT ||
+    status === CASE_STATUS.PENDING ||
+    status === CASE_STATUS.DISABLED
+  );
+}
+
 /** Newest-first by startedAt; RFC3339 strings compare lexicographically. */
 export function sortRunsDesc(runs: Run[]): Run[] {
   return [...runs].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));

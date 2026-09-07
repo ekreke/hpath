@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
 import {
+  invokeDeleteCase,
   invokeGetCase,
   invokeGetRun,
   invokeListCases,
@@ -21,6 +22,7 @@ import {
   CASE_STATUS,
   REVIEW_ACTION,
   RUN_STATUS,
+  caseEditableFor,
   caseStatusKey,
   formatDateTime,
   formatDuration,
@@ -32,6 +34,7 @@ import {
 import { CaseStatusBadge, RunStatusTag } from '../components/Ui';
 import { HealthStrip } from '../components/HealthStrip';
 import RunPanel from '../components/RunPanel';
+import CaseFormModal from '../components/CaseFormModal';
 
 type CasesViewProps = {
   appliedServerAddr: string;
@@ -92,6 +95,9 @@ function CasesView({
   // Ticket guard for openCase: rapid clicks must not let a stale get_case /
   // list_runs response overwrite the detail of a case opened later.
   const caseSeq = useRef(0);
+  // Manual case management (create/edit modal): null = create mode.
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Case | null>(null);
   useEffect(() => {
     setSelectedCaseId(null);
     setDetail(null);
@@ -180,6 +186,45 @@ function CasesView({
     }
   };
 
+  // Re-fetch the case list (after create/update/delete) without bumping the
+  // parent refreshKey.
+  const reloadCases = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const list = await invokeListCases(projectId);
+      setCases(list);
+      onCountChange(list.length);
+    } catch (err) {
+      onToast(String(err), true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  const onCaseSaved = async (saved: Case) => {
+    setFormOpen(false);
+    await reloadCases();
+    // Editing from the detail page: refresh the open detail in place.
+    if (selectedCaseId === saved.id) await openCase(saved.id);
+  };
+
+  const deleteCurrentCase = async () => {
+    if (!detail) return;
+    if (!window.confirm(t('cases.deleteConfirm', { title: detail.title }))) return;
+    setBusy(true);
+    try {
+      await invokeDeleteCase(detail.id);
+      onToast(t('cases.deleted'));
+      setSelectedCaseId(null);
+      setDetail(null);
+      setDetailRuns([]);
+      await reloadCases();
+    } catch (err) {
+      onToast(String(err), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Live run trigger; `envIdOverride` re-runs a replayed run on its original
   // env (T13 re-run button) instead of the currently selected one.
   const triggerRun = async (envIdOverride?: string) => {
@@ -257,8 +302,15 @@ function CasesView({
         <>
           <div className="ph">
             <div>
-              <h1>{t('cases.title')}</h1>
+              <h1>
+                {t('cases.title')} <span className="pill">{cases.length}</span>
+              </h1>
               <div className="path">{t('cases.subtitle')}</div>
+            </div>
+            <div className="btns">
+              <button className="btn w" onClick={() => { setEditing(null); setFormOpen(true); }}>
+                ＋ {t('cases.new')}
+              </button>
             </div>
           </div>
           <section className="sec">
@@ -320,6 +372,16 @@ function CasesView({
               </div>
             </div>
             <div className="btns">
+              {detail && caseEditableFor(detail.status) && (
+                <button className="btn sm" onClick={() => { setEditing(detail); setFormOpen(true); }}>
+                  {t('common.edit')}
+                </button>
+              )}
+              {detail && (
+                <button className="btn ghost sm" disabled={busy} onClick={() => void deleteCurrentCase()}>
+                  {t('common.delete')}
+                </button>
+              )}
               <button className="btn ghost" onClick={() => setSelectedCaseId(null)}>
                 ← {t('common.back')}
               </button>
@@ -578,6 +640,15 @@ function CasesView({
             </>
           )}
         </>
+      )}
+      {formOpen && (
+        <CaseFormModal
+          projectId={projectId}
+          kase={editing}
+          onSaved={(saved) => void onCaseSaved(saved)}
+          onClose={() => setFormOpen(false)}
+          onToast={onToast}
+        />
       )}
     </div>
   );

@@ -113,6 +113,10 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   *Verify: all three PRD formats produce schema-valid pending drafts.*
   Scope note: the analyze-agent kernel side (definition + prd-analysis provider + ingest, covered by tests) is done; what remains is the real-mode `ParsePRD` gRPC wiring. Also in this iteration's scope: real-mode `ReviewCase` wiring (the review workflow currently works in mock only).
 
+- [x] **T19 Manual case management (CreateCase / UpdateCase / DeleteCase)**
+  Contract extension (same pattern as the UpdateProject/DeleteProject additions): `CreateCase` lands a human-created case in PENDING (creator `{type:human}`, empty `source_prd_ref`, version 1 + changelog), `UpdateCase` replaces title/goal/alignments of unapproved cases only (APPROVED must be disabled first; version bump + changelog, creator/source_prd_ref preserved — so agent drafts can be hand-corrected before approval), `DeleteCase` refuses cases referenced by runs (ALREADY_EXISTS), mirroring DeleteEnv. Implemented in mock + real handlers, `CaseRepository.update`, desktop Rust commands + `CaseFormModal` (list-header New button; detail-page Edit/Delete actions), i18n en/zh.
+  *Verify: `make test` unit suite + smoke cover create/update/delete and all guards; manual flow: create case -> visible PENDING in list -> edit -> approve -> run -> delete blocked by run history.*
+
 ## E. Wrap-up
 
 - [ ] **T15 E2E demo script + README**

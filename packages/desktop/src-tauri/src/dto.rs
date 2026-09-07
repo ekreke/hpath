@@ -104,6 +104,36 @@ impl From<pb::Case> for CaseDto {
     }
 }
 
+/// Optional per-env agent hard-limit overrides (deserialize + serialize: it
+/// round-trips between the UI form and the gRPC Env message).
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLimitsDto {
+    pub max_steps: i32,
+    pub token_budget: i32,
+    pub timeout_ms: i32,
+}
+
+impl From<&pb::AgentLimits> for AgentLimitsDto {
+    fn from(l: &pb::AgentLimits) -> Self {
+        AgentLimitsDto {
+            max_steps: l.max_steps,
+            token_budget: l.token_budget,
+            timeout_ms: l.timeout_ms,
+        }
+    }
+}
+
+impl From<AgentLimitsDto> for pb::AgentLimits {
+    fn from(l: AgentLimitsDto) -> Self {
+        pb::AgentLimits {
+            max_steps: l.max_steps,
+            token_budget: l.token_budget,
+            timeout_ms: l.timeout_ms,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvDto {
@@ -115,6 +145,7 @@ pub struct EnvDto {
     pub vars: std::collections::HashMap<String, String>,
     pub credentials: std::collections::HashMap<String, String>,
     pub is_default: bool,
+    pub agent_limits: Option<AgentLimitsDto>,
 }
 
 impl From<&pb::Env> for EnvDto {
@@ -128,6 +159,7 @@ impl From<&pb::Env> for EnvDto {
             vars: e.vars.clone(),
             credentials: e.credentials.clone(),
             is_default: e.is_default,
+            agent_limits: e.agent_limits.as_ref().map(AgentLimitsDto::from),
         }
     }
 }
@@ -143,6 +175,27 @@ impl From<EnvDto> for pb::Env {
             vars: e.vars,
             credentials: e.credentials,
             is_default: e.is_default,
+            agent_limits: e.agent_limits.map(Into::into),
+        }
+    }
+}
+
+/// Alignment payload sent from the UI when creating/updating a case
+/// (deserialize-only; responses reuse `AlignmentDto`).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentInput {
+    pub api_path: String,
+    pub ui_anchor: String,
+    pub rule: String,
+}
+
+impl From<AlignmentInput> for pb::Alignment {
+    fn from(a: AlignmentInput) -> Self {
+        pb::Alignment {
+            api_path: a.api_path,
+            ui_anchor: a.ui_anchor,
+            rule: a.rule,
         }
     }
 }

@@ -774,6 +774,40 @@ export interface ReviewCaseRequest {
   comment: string;
 }
 
+/**
+ * Creates a manual case (creator = human, no PRD traceability). The case
+ * starts in PENDING so it goes through the same review flow as agent-drafted
+ * cases. id / timestamps / version / changelog are assigned by the server.
+ */
+export interface CreateCaseRequest {
+  projectId: string;
+  /** required, non-empty */
+  title: string;
+  /** required, non-empty */
+  goal: string;
+  alignments: Alignment[];
+}
+
+/**
+ * Replaces the title, goal and alignments of a case. Only unapproved cases
+ * (DRAFT / PENDING / DISABLED) can be edited; editing an APPROVED case fails
+ * with FAILED_PRECONDITION (disable it first, then edit and re-approve).
+ * Bumps the version and appends a changelog entry; other fields (creator,
+ * source_prd_ref, status) are preserved.
+ */
+export interface UpdateCaseRequest {
+  caseId: string;
+  /** required, non-empty */
+  title: string;
+  /** required, non-empty */
+  goal: string;
+  alignments: Alignment[];
+}
+
+export interface DeleteCaseRequest {
+  caseId: string;
+}
+
 export interface RunCaseRequest {
   projectId: string;
   envId: string;
@@ -5630,6 +5664,325 @@ export const ReviewCaseRequest: MessageFns<ReviewCaseRequest> = {
   },
 };
 
+function createBaseCreateCaseRequest(): CreateCaseRequest {
+  return { projectId: "", title: "", goal: "", alignments: [] };
+}
+
+export const CreateCaseRequest: MessageFns<CreateCaseRequest> = {
+  encode(message: CreateCaseRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    if (message.title !== "") {
+      writer.uint32(18).string(message.title);
+    }
+    if (message.goal !== "") {
+      writer.uint32(26).string(message.goal);
+    }
+    for (const v of message.alignments) {
+      Alignment.encode(v!, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CreateCaseRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseCreateCaseRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.title = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.goal = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.alignments.push(Alignment.decode(reader, reader.uint32()));
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): CreateCaseRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      goal: isSet(object.goal) ? globalThis.String(object.goal) : "",
+      alignments: globalThis.Array.isArray(object?.alignments)
+        ? object.alignments.map((e: any) => Alignment.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: CreateCaseRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.goal !== "") {
+      obj.goal = message.goal;
+    }
+    if (message.alignments?.length) {
+      obj.alignments = message.alignments.map((e) => Alignment.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateCaseRequest>, I>>(base?: I): CreateCaseRequest {
+    return CreateCaseRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateCaseRequest>, I>>(object: I): CreateCaseRequest {
+    const message = createBaseCreateCaseRequest();
+    message.projectId = object.projectId ?? "";
+    message.title = object.title ?? "";
+    message.goal = object.goal ?? "";
+    message.alignments = object.alignments?.map((e) => Alignment.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseUpdateCaseRequest(): UpdateCaseRequest {
+  return { caseId: "", title: "", goal: "", alignments: [] };
+}
+
+export const UpdateCaseRequest: MessageFns<UpdateCaseRequest> = {
+  encode(message: UpdateCaseRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.caseId !== "") {
+      writer.uint32(10).string(message.caseId);
+    }
+    if (message.title !== "") {
+      writer.uint32(18).string(message.title);
+    }
+    if (message.goal !== "") {
+      writer.uint32(26).string(message.goal);
+    }
+    for (const v of message.alignments) {
+      Alignment.encode(v!, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UpdateCaseRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseUpdateCaseRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.caseId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.title = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.goal = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.alignments.push(Alignment.decode(reader, reader.uint32()));
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): UpdateCaseRequest {
+    return {
+      caseId: isSet(object.caseId)
+        ? globalThis.String(object.caseId)
+        : isSet(object.case_id)
+        ? globalThis.String(object.case_id)
+        : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      goal: isSet(object.goal) ? globalThis.String(object.goal) : "",
+      alignments: globalThis.Array.isArray(object?.alignments)
+        ? object.alignments.map((e: any) => Alignment.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: UpdateCaseRequest): unknown {
+    const obj: any = {};
+    if (message.caseId !== "") {
+      obj.caseId = message.caseId;
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.goal !== "") {
+      obj.goal = message.goal;
+    }
+    if (message.alignments?.length) {
+      obj.alignments = message.alignments.map((e) => Alignment.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<UpdateCaseRequest>, I>>(base?: I): UpdateCaseRequest {
+    return UpdateCaseRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UpdateCaseRequest>, I>>(object: I): UpdateCaseRequest {
+    const message = createBaseUpdateCaseRequest();
+    message.caseId = object.caseId ?? "";
+    message.title = object.title ?? "";
+    message.goal = object.goal ?? "";
+    message.alignments = object.alignments?.map((e) => Alignment.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseDeleteCaseRequest(): DeleteCaseRequest {
+  return { caseId: "" };
+}
+
+export const DeleteCaseRequest: MessageFns<DeleteCaseRequest> = {
+  encode(message: DeleteCaseRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.caseId !== "") {
+      writer.uint32(10).string(message.caseId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteCaseRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseDeleteCaseRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.caseId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): DeleteCaseRequest {
+    return {
+      caseId: isSet(object.caseId)
+        ? globalThis.String(object.caseId)
+        : isSet(object.case_id)
+        ? globalThis.String(object.case_id)
+        : "",
+    };
+  },
+
+  toJSON(message: DeleteCaseRequest): unknown {
+    const obj: any = {};
+    if (message.caseId !== "") {
+      obj.caseId = message.caseId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteCaseRequest>, I>>(base?: I): DeleteCaseRequest {
+    return DeleteCaseRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteCaseRequest>, I>>(object: I): DeleteCaseRequest {
+    const message = createBaseDeleteCaseRequest();
+    message.caseId = object.caseId ?? "";
+    return message;
+  },
+};
+
 function createBaseRunCaseRequest(): RunCaseRequest {
   return { projectId: "", envId: "", caseId: "", trigger: 0 };
 }
@@ -7693,6 +8046,49 @@ export const HpathService = {
     responseDeserialize: (value: Buffer): Case => Case.decode(value),
   },
   /**
+   * Creates a manual case (creator = human) in PENDING review status; the
+   * server assigns id / timestamps / version / changelog. Requires project_id,
+   * non-empty title and goal (INVALID_ARGUMENT otherwise); unknown project
+   * fails with NOT_FOUND.
+   */
+  createCase: {
+    path: "/hpath.v1.Hpath/CreateCase" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: CreateCaseRequest): Buffer => Buffer.from(CreateCaseRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): CreateCaseRequest => CreateCaseRequest.decode(value),
+    responseSerialize: (value: Case): Buffer => Buffer.from(Case.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Case => Case.decode(value),
+  },
+  /**
+   * Replaces title/goal/alignments of an unapproved case (DRAFT / PENDING /
+   * DISABLED); editing an APPROVED case fails with FAILED_PRECONDITION.
+   * Unknown cases fail with NOT_FOUND.
+   */
+  updateCase: {
+    path: "/hpath.v1.Hpath/UpdateCase" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: UpdateCaseRequest): Buffer => Buffer.from(UpdateCaseRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): UpdateCaseRequest => UpdateCaseRequest.decode(value),
+    responseSerialize: (value: Case): Buffer => Buffer.from(Case.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Case => Case.decode(value),
+  },
+  /**
+   * Deletes a case together with its alignments and changelog. Fails with
+   * FAILED_PRECONDITION when runs reference the case (run history must keep
+   * pointing at a valid case definition).
+   */
+  deleteCase: {
+    path: "/hpath.v1.Hpath/DeleteCase" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: DeleteCaseRequest): Buffer => Buffer.from(DeleteCaseRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DeleteCaseRequest => DeleteCaseRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
+  /**
    * Execute an approved case against an env. Streams run events in order.
    * Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.
    */
@@ -7855,6 +8251,25 @@ export interface HpathServer extends UntypedServiceImplementation {
    * FAILED_PRECONDITION.
    */
   reviewCase: handleUnaryCall<ReviewCaseRequest, Case>;
+  /**
+   * Creates a manual case (creator = human) in PENDING review status; the
+   * server assigns id / timestamps / version / changelog. Requires project_id,
+   * non-empty title and goal (INVALID_ARGUMENT otherwise); unknown project
+   * fails with NOT_FOUND.
+   */
+  createCase: handleUnaryCall<CreateCaseRequest, Case>;
+  /**
+   * Replaces title/goal/alignments of an unapproved case (DRAFT / PENDING /
+   * DISABLED); editing an APPROVED case fails with FAILED_PRECONDITION.
+   * Unknown cases fail with NOT_FOUND.
+   */
+  updateCase: handleUnaryCall<UpdateCaseRequest, Case>;
+  /**
+   * Deletes a case together with its alignments and changelog. Fails with
+   * FAILED_PRECONDITION when runs reference the case (run history must keep
+   * pointing at a valid case definition).
+   */
+  deleteCase: handleUnaryCall<DeleteCaseRequest, Empty>;
   /**
    * Execute an approved case against an env. Streams run events in order.
    * Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.

@@ -245,6 +245,65 @@ export class CaseRepository {
   }
 
   /**
+   * Replace the editable fields (title, goal, alignments) of an unapproved
+   * case. APPROVED cases must be disabled before editing. Bumps the version
+   * and appends a changelog entry, in one transaction; alignments are
+   * replaced wholesale. Throws NotFoundError for unknown cases and
+   * InvalidTransitionError when the current status is not editable.
+   */
+  update(
+    id: string,
+    patch: { title: string; goal: string; alignments: Alignment[] },
+    options?: { author?: string; comment?: string },
+  ): Case {
+    const kase = this.getRequired(id);
+    const editable: CaseStatus[] = [
+      CaseStatus.CASE_STATUS_DRAFT,
+      CaseStatus.CASE_STATUS_PENDING,
+      CaseStatus.CASE_STATUS_DISABLED,
+    ];
+    if (!editable.includes(kase.status)) {
+      throw new InvalidTransitionError(
+        `cannot edit a case in status ${CaseStatus[kase.status]} (disable it first)`,
+      );
+    }
+    const version = kase.version + 1;
+    const changedAt = new Date().toISOString();
+    try {
+      withTransaction(this.db, () => {
+        this.db
+          .prepare("UPDATE cases SET title = ?, goal = ?, version = ?, updated_at = ? WHERE id = ?")
+          .run(patch.title, patch.goal, version, changedAt, id);
+        this.db.prepare("DELETE FROM case_alignments WHERE case_id = ?").run(id);
+        const insertAlignment = this.db.prepare(
+          `INSERT INTO case_alignments (case_id, idx, api_path, ui_anchor, rule)
+           VALUES (?, ?, ?, ?, ?)`,
+        );
+        patch.alignments.forEach((alignment, idx) => {
+          insertAlignment.run(id, idx, alignment.apiPath, alignment.uiAnchor, alignment.rule);
+        });
+        this.db
+          .prepare(
+            `INSERT INTO case_changelog (case_id, version, author, comment, changed_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            version,
+            options?.author ?? "editor",
+            options?.comment && options.comment !== ""
+              ? options.comment
+              : "Updated manually",
+            changedAt,
+          );
+      });
+    } catch (err) {
+      throw translateConstraintError(err, `update case ${id}`);
+    }
+    return this.getRequired(id);
+  }
+
+  /**
    * Delete a case. Throws NotFoundError for unknown ids and ConflictError when
    * runs reference the case: run history must keep pointing at a valid case
    * definition.

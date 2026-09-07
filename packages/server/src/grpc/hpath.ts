@@ -1,7 +1,8 @@
 // Handler dispatch: chooses between the mock implementation (--mock, default)
 // and the real one (SQLite-backed). Real mode serves the read path
 // (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project create/update/
-// cascade-delete, settings, status chat + chat sessions (chat.ts) and the T8
+// cascade-delete, manual case management (CreateCase/UpdateCase/DeleteCase),
+// settings, status chat + chat sessions (chat.ts) and the T8
 // run execution path (RunCase via the AgentKernel, GetRun, DownloadArtifact
 // via the artifact store). Every other method reports UNIMPLEMENTED until its
 // wiring task lands (PRD parse in T9).
@@ -20,8 +21,10 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatSession,
+  CreateCaseRequest,
   CreateChatSessionRequest,
   CreateProjectRequest,
+  DeleteCaseRequest,
   DeleteChatSessionRequest,
   DeleteEnvRequest,
   DeleteProjectRequest,
@@ -39,10 +42,11 @@ import type {
   ListRunsRequest,
   ListRunsResponse,
   Project,
+  UpdateCaseRequest,
   UpdateProjectRequest,
   UpsertEnvRequest,
 } from "@hpath/contract";
-import { Empty, RunStatus } from "@hpath/contract";
+import { CaseStatus, CreatorType, Empty, RunStatus } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
@@ -72,7 +76,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -93,6 +97,9 @@ function createUnimplementedHandlers(): HpathServer {
     deleteEnv: unary,
     parsePrd: streaming,
     listCases: unary,
+    createCase: unary,
+    updateCase: unary,
+    deleteCase: unary,
     getCase: unary,
     reviewCase: unary,
     runCase: streaming,
@@ -370,6 +377,79 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
     ): void => {
       try {
         callback(null, db.cases.getRequired(call.request.caseId));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    createCase: (
+      call: ServerUnaryCall<CreateCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ): void => {
+      try {
+        const req = call.request;
+        if (!req.title) {
+          throw grpcError(status.INVALID_ARGUMENT, "title is required");
+        }
+        if (!req.goal) {
+          throw grpcError(status.INVALID_ARGUMENT, "goal is required");
+        }
+        db.projects.getRequired(req.projectId);
+        const now = new Date().toISOString();
+        const kase: Case = {
+          id: randomUUID(),
+          projectId: req.projectId,
+          title: req.title,
+          goal: req.goal,
+          alignments: req.alignments ?? [],
+          creator: { type: CreatorType.CREATOR_TYPE_HUMAN, name: "human", runRef: "" },
+          status: CaseStatus.CASE_STATUS_PENDING,
+          sourcePrdRef: "",
+          version: 1,
+          changelog: [
+            { version: 1, author: "human", comment: "Created manually", changedAt: now },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        };
+        callback(null, db.cases.create(kase));
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    updateCase: (
+      call: ServerUnaryCall<UpdateCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ): void => {
+      try {
+        const req = call.request;
+        if (!req.title) {
+          throw grpcError(status.INVALID_ARGUMENT, "title is required");
+        }
+        if (!req.goal) {
+          throw grpcError(status.INVALID_ARGUMENT, "goal is required");
+        }
+        callback(
+          null,
+          db.cases.update(req.caseId, {
+            title: req.title,
+            goal: req.goal,
+            alignments: req.alignments ?? [],
+          }),
+        );
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    deleteCase: (
+      call: ServerUnaryCall<DeleteCaseRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ): void => {
+      try {
+        db.cases.delete(call.request.caseId);
+        callback(null, Empty.create());
       } catch (err) {
         callback(toGrpcError(err));
       }
