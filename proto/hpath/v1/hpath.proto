@@ -107,6 +107,15 @@ message Project {
   string created_at = 4;  // ISO-8601
 }
 
+// Per-env overrides for the agent kernel's hard limits. A value of 0 means
+// "not set" — the run falls back to the executing AgentDefinition's default
+// (e.g. execute-agent: 32 steps / 400k tokens / 300s).
+message AgentLimits {
+  int32 max_steps = 1;     // maximum LLM turns per run
+  int32 token_budget = 2;  // cumulative input+output token cap
+  int32 timeout_ms = 3;    // wall-clock cap for the whole run
+}
+
 // A named target of a project (dev / staging / ...).
 message Env {
   string id = 1;
@@ -120,6 +129,8 @@ message Env {
   // partial unique index in SQLite). The first env of a project becomes the
   // default automatically; deleting the default promotes the next env.
   bool is_default = 8;
+  // Optional agent hard-limit overrides; 0 values fall back to agent defaults.
+  AgentLimits agent_limits = 9;
 }
 
 // One three-way alignment declaration of a case.

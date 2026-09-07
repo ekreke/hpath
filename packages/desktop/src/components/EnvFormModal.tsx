@@ -22,7 +22,16 @@ type EnvForm = {
   grpcAddress: string;
   varsText: string;
   credentialsText: string;
+  // Agent hard-limit overrides; '' = not set (falls back to agent defaults).
+  maxStepsText: string;
+  tokenBudgetText: string;
+  timeoutMsText: string;
 };
+
+// 0 means "not set" on the wire, so it renders as an empty input.
+function limitText(value?: number): string {
+  return value && value > 0 ? String(value) : '';
+}
 
 function parseKv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -50,6 +59,9 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
     grpcAddress: env?.grpcAddress ?? '',
     varsText: kvToText(env?.vars ?? {}),
     credentialsText: kvToText(env?.credentials ?? {}),
+    maxStepsText: limitText(env?.agentLimits?.maxSteps),
+    tokenBudgetText: limitText(env?.agentLimits?.tokenBudget),
+    timeoutMsText: limitText(env?.agentLimits?.timeoutMs),
   });
   const [busy, setBusy] = useState(false);
 
@@ -58,6 +70,25 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
       onToast(t('envs.nameRequired'), true);
       return;
     }
+    // Agent limit overrides: blank = not set (0 on the wire); anything else
+    // must be a non-negative integer so bad input never reaches the server.
+    const rawLimits = [
+      { key: 'maxSteps' as const, text: form.maxStepsText },
+      { key: 'tokenBudget' as const, text: form.tokenBudgetText },
+      { key: 'timeoutMs' as const, text: form.timeoutMsText },
+    ];
+    const parsed: Record<string, number> = {};
+    for (const { key, text } of rawLimits) {
+      const trimmed = text.trim();
+      if (!trimmed) continue;
+      const n = Number(trimmed);
+      if (!Number.isInteger(n) || n < 0) {
+        onToast(t('envs.limitsInvalid'), true);
+        return;
+      }
+      parsed[key] = n;
+    }
+    const hasLimits = Object.keys(parsed).length > 0;
     setBusy(true);
     try {
       const saved = await invokeUpsertEnv({
@@ -69,6 +100,15 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
         vars: parseKv(form.varsText),
         credentials: parseKv(form.credentialsText),
         isDefault: env?.isDefault ?? false,
+        ...(hasLimits
+          ? {
+              agentLimits: {
+                maxSteps: parsed.maxSteps ?? 0,
+                tokenBudget: parsed.tokenBudget ?? 0,
+                timeoutMs: parsed.timeoutMs ?? 0,
+              },
+            }
+          : {}),
       });
       onSaved(saved);
       onToast(t(env ? 'envs.saved' : 'envs.created'));
@@ -127,6 +167,28 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
             value={form.credentialsText}
             onChange={(e) => setForm({ ...form, credentialsText: e.target.value })}
           />
+        </div>
+        <div className="field">
+          <label>{t('envs.limits')}</label>
+          <input
+            inputMode="numeric"
+            value={form.maxStepsText}
+            placeholder={t('envs.maxSteps')}
+            onChange={(e) => setForm({ ...form, maxStepsText: e.target.value })}
+          />
+          <input
+            inputMode="numeric"
+            value={form.tokenBudgetText}
+            placeholder={t('envs.tokenBudget')}
+            onChange={(e) => setForm({ ...form, tokenBudgetText: e.target.value })}
+          />
+          <input
+            inputMode="numeric"
+            value={form.timeoutMsText}
+            placeholder={t('envs.timeoutMs')}
+            onChange={(e) => setForm({ ...form, timeoutMsText: e.target.value })}
+          />
+          <span className="hint">{t('envs.limitsHint')}</span>
         </div>
         <div className="mfoot">
           <button className="btn ghost" onClick={onClose}>

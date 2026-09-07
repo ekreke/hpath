@@ -37,6 +37,7 @@ import type {
   AgentRunFailureReason,
   AgentRunResult,
   EnvBinding,
+  HardLimits,
   ModelResolver,
   Verdict,
 } from "./types.js";
@@ -120,6 +121,17 @@ export class AgentKernel {
     const runId = options.runId ?? crypto.randomUUID();
     const sink = options.sink ?? new InMemoryEventSink({ runId, now: this.now });
     const startedAt = this.now();
+
+    // Effective hard limits: the definition's defaults, overridden field by
+    // field by the bound env's "agent limits" (0/absent = keep the default).
+    // Env-level editing must not know about agents; merging here keeps the
+    // shared orchestration the only enforcement point.
+    const hardLimits: HardLimits = {
+      ...definition.hardLimits,
+      ...Object.fromEntries(
+        Object.entries(options.env.agentLimits ?? {}).filter(([, v]) => typeof v === "number" && v > 0),
+      ),
+    };
 
     // Mutable run state. Declared before `settle` so failure paths taken
     // before the agent starts still settle correctly.
@@ -279,7 +291,7 @@ export class AgentKernel {
             .join("");
           if (thinking) sink.append({ kind: "agent_thinking", text: thinking });
           tokenCost += tokensOf(message);
-          if (tokenCost > definition.hardLimits.tokenBudget) {
+          if (tokenCost > hardLimits.tokenBudget) {
             breach ||= "limit:token_budget";
             agent.abort();
             runAbort.abort();
@@ -293,7 +305,7 @@ export class AgentKernel {
           steps += 1;
           // Reaching the cap is legal when the agent used it to submit its
           // verdict; continuing past it without a verdict is a breach.
-          if (!channel.isRecorded && steps >= definition.hardLimits.maxSteps) {
+          if (!channel.isRecorded && steps >= hardLimits.maxSteps) {
             breach ||= "limit:max_steps";
             agent.abort();
             runAbort.abort();
@@ -315,7 +327,7 @@ export class AgentKernel {
       breach ||= "limit:timeout_ms";
       agent.abort();
       runAbort.abort();
-    }, definition.hardLimits.timeoutMs);
+    }, hardLimits.timeoutMs);
 
     try {
       const userMessage = typeof options.input === "string" ? options.input : JSON.stringify(options.input);

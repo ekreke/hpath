@@ -461,6 +461,20 @@ export interface Project {
   createdAt: string;
 }
 
+/**
+ * Per-env overrides for the agent kernel's hard limits. A value of 0 means
+ * "not set" — the run falls back to the executing AgentDefinition's default
+ * (e.g. execute-agent: 32 steps / 400k tokens / 300s).
+ */
+export interface AgentLimits {
+  /** maximum LLM turns per run */
+  maxSteps: number;
+  /** cumulative input+output token cap */
+  tokenBudget: number;
+  /** wall-clock cap for the whole run */
+  timeoutMs: number;
+}
+
 /** A named target of a project (dev / staging / ...). */
 export interface Env {
   id: string;
@@ -478,6 +492,8 @@ export interface Env {
    * default automatically; deleting the default promotes the next env.
    */
   isDefault: boolean;
+  /** Optional agent hard-limit overrides; 0 values fall back to agent defaults. */
+  agentLimits?: AgentLimits | undefined;
 }
 
 export interface Env_VarsEntry {
@@ -1140,6 +1156,119 @@ export const Project: MessageFns<Project> = {
   },
 };
 
+function createBaseAgentLimits(): AgentLimits {
+  return { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 };
+}
+
+export const AgentLimits: MessageFns<AgentLimits> = {
+  encode(message: AgentLimits, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.maxSteps !== 0) {
+      writer.uint32(8).int32(message.maxSteps);
+    }
+    if (message.tokenBudget !== 0) {
+      writer.uint32(16).int32(message.tokenBudget);
+    }
+    if (message.timeoutMs !== 0) {
+      writer.uint32(24).int32(message.timeoutMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AgentLimits {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAgentLimits();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.maxSteps = reader.int32();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.tokenBudget = reader.int32();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.timeoutMs = reader.int32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): AgentLimits {
+    return {
+      maxSteps: isSet(object.maxSteps)
+        ? globalThis.Number(object.maxSteps)
+        : isSet(object.max_steps)
+        ? globalThis.Number(object.max_steps)
+        : 0,
+      tokenBudget: isSet(object.tokenBudget)
+        ? globalThis.Number(object.tokenBudget)
+        : isSet(object.token_budget)
+        ? globalThis.Number(object.token_budget)
+        : 0,
+      timeoutMs: isSet(object.timeoutMs)
+        ? globalThis.Number(object.timeoutMs)
+        : isSet(object.timeout_ms)
+        ? globalThis.Number(object.timeout_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: AgentLimits): unknown {
+    const obj: any = {};
+    if (message.maxSteps !== 0) {
+      obj.maxSteps = Math.round(message.maxSteps);
+    }
+    if (message.tokenBudget !== 0) {
+      obj.tokenBudget = Math.round(message.tokenBudget);
+    }
+    if (message.timeoutMs !== 0) {
+      obj.timeoutMs = Math.round(message.timeoutMs);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AgentLimits>, I>>(base?: I): AgentLimits {
+    return AgentLimits.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AgentLimits>, I>>(object: I): AgentLimits {
+    const message = createBaseAgentLimits();
+    message.maxSteps = object.maxSteps ?? 0;
+    message.tokenBudget = object.tokenBudget ?? 0;
+    message.timeoutMs = object.timeoutMs ?? 0;
+    return message;
+  },
+};
+
 function createBaseEnv(): Env {
   return {
     id: "",
@@ -1150,6 +1279,7 @@ function createBaseEnv(): Env {
     vars: {},
     credentials: {},
     isDefault: false,
+    agentLimits: undefined,
   };
 }
 
@@ -1178,6 +1308,9 @@ export const Env: MessageFns<Env> = {
     });
     if (message.isDefault !== false) {
       writer.uint32(64).bool(message.isDefault);
+    }
+    if (message.agentLimits !== undefined) {
+      AgentLimits.encode(message.agentLimits, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -1265,6 +1398,14 @@ export const Env: MessageFns<Env> = {
             message.isDefault = reader.bool();
             continue;
           }
+          case 9: {
+            if (tag !== 74) {
+              break;
+            }
+
+            message.agentLimits = AgentLimits.decode(reader, reader.uint32());
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -1329,6 +1470,11 @@ export const Env: MessageFns<Env> = {
         : isSet(object.is_default)
         ? globalThis.Boolean(object.is_default)
         : false,
+      agentLimits: isSet(object.agentLimits)
+        ? AgentLimits.fromJSON(object.agentLimits)
+        : isSet(object.agent_limits)
+        ? AgentLimits.fromJSON(object.agent_limits)
+        : undefined,
     };
   },
 
@@ -1370,6 +1516,9 @@ export const Env: MessageFns<Env> = {
     if (message.isDefault !== false) {
       obj.isDefault = message.isDefault;
     }
+    if (message.agentLimits !== undefined) {
+      obj.agentLimits = AgentLimits.toJSON(message.agentLimits);
+    }
     return obj;
   },
 
@@ -1402,6 +1551,9 @@ export const Env: MessageFns<Env> = {
       {},
     );
     message.isDefault = object.isDefault ?? false;
+    message.agentLimits = (object.agentLimits !== undefined && object.agentLimits !== null)
+      ? AgentLimits.fromPartial(object.agentLimits)
+      : undefined;
     return message;
   },
 };

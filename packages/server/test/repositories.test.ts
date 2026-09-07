@@ -178,6 +178,34 @@ describe("EnvRepository", () => {
     }
   });
 
+  it("round-trips agent limits and clears them back to defaults", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const env = makeEnv(project, {
+        agentLimits: { maxSteps: 8, tokenBudget: 50_000, timeoutMs: 60_000 },
+      });
+      db.envs.create(env);
+      assert.deepEqual(db.envs.getRequired(env.id).agentLimits, {
+        maxSteps: 8,
+        tokenBudget: 50_000,
+        timeoutMs: 60_000,
+      });
+
+      // Writing 0 values ("not set") reads back as undefined so the kernel
+      // falls back to the agent definition's defaults.
+      const env2 = makeEnv(project, { name: "no-limits" });
+      db.envs.create(env2);
+      assert.equal(db.envs.getRequired(env2.id).agentLimits, undefined);
+
+      db.envs.update({ ...env, agentLimits: { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 } });
+      assert.equal(db.envs.getRequired(env.id).agentLimits, undefined);
+    } finally {
+      db.close();
+    }
+  });
+
   it("makes the project's first env the default automatically", () => {
     const db = HpathDb.inMemory();
     try {

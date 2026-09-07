@@ -203,6 +203,17 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX idx_chat_sessions_updated ON chat_sessions(updated_at);
     `,
   },
+  {
+    name: "0005_envs_agent_limits",
+    sql: `
+      -- Per-env overrides for the agent kernel's hard limits. A value of 0
+      -- means "not set": the run falls back to the executing AgentDefinition's
+      -- defaults. Existing envs keep the previous behavior (all defaults).
+      ALTER TABLE envs ADD COLUMN agent_max_steps    INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE envs ADD COLUMN agent_token_budget INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE envs ADD COLUMN agent_timeout_ms   INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 function nowIso(): string {

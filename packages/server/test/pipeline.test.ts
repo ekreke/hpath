@@ -238,6 +238,49 @@ test("maxSteps limit: stop, preserve evidence, mark failed as limit:max_steps", 
   });
 });
 
+test("env agentLimits override the definition defaults per field", async () => {
+  const calls: StreamCallRecord[] = [];
+  const streamFn = scriptedStreamFn(() => assistantToolCallMessage("noop", {}), calls);
+  // Generous definition default; the env tightens only maxSteps.
+  const agents = new AgentRegistry().register(
+    stubDefinition({
+      toolBindings: ["sandbox"],
+      hardLimits: { maxSteps: 10, tokenBudget: 100_000, timeoutMs: 5_000 },
+    }),
+  );
+  const toolProviders = new ToolProviderRegistry().register(sandboxProvider());
+  const kernel = new AgentKernel({
+    agents,
+    toolProviders,
+    streamFn,
+    resolveModel: () => STUB_MODEL,
+  });
+  const result = await kernel.run({
+    agentId: "stub-agent",
+    input: BASE_INPUT,
+    env: { ...STUB_ENV, agentLimits: { maxSteps: 2 } },
+  });
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_FAILED);
+  assert.equal(result.failReason, "limit:max_steps");
+  // The loop stopped after exactly the env-overridden step count.
+  assert.equal(calls.length, 2);
+});
+
+test("env agentLimits with 0 values fall back to the definition defaults", async () => {
+  const kernel = makeKernel(
+    scriptedStreamFn(() => assistantToolCallMessage("finish_verdict", VALID_VERDICT)),
+  );
+  const result = await kernel.run({
+    agentId: "stub-agent",
+    input: BASE_INPUT,
+    env: { ...STUB_ENV, agentLimits: { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 } },
+  });
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_PASSED);
+  assert.equal(result.failReason, "");
+});
+
 test("tokenBudget limit: cumulative usage is capped and reported", async () => {
   const usage = { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens: 150, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   const agents = new AgentRegistry().register(

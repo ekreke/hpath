@@ -92,19 +92,28 @@ export function mapKernelVerdict(kernel: KernelVerdict): Verdict {
 
 /** Persisted Env -> kernel EnvBinding: the web base URL becomes the browser's
  * origin fence, the gRPC address becomes the conventional `grpc_target`
- * variable, and vars + credentials are exposed to the system prompt as-is
- * (plaintext in the 1.0 spike). Mirrors the shape tests use (DEMO_ENV). */
+ * variable, vars + credentials are exposed to the system prompt as-is
+ * (plaintext in the 1.0 spike), and positive agent-limit overrides ride along
+ * (0 = "not set" — the kernel falls back to the agent definition's defaults).
+ * Mirrors the shape tests use (DEMO_ENV). */
 export function buildEnvBinding(env: Env): EnvBinding {
   const variables: Record<string, string> = { ...env.vars, ...env.credentials };
   if (env.grpcAddress) {
     variables.grpc_target = env.grpcAddress;
   }
+  const { maxSteps, tokenBudget, timeoutMs } = env.agentLimits ?? {};
+  const agentLimits: EnvBinding["agentLimits"] = {
+    ...(maxSteps ? { maxSteps } : {}),
+    ...(tokenBudget ? { tokenBudget } : {}),
+    ...(timeoutMs ? { timeoutMs } : {}),
+  };
   return {
     projectId: env.projectId,
     envId: env.id,
     name: env.name,
     baseUrl: env.webBaseUrl,
     variables,
+    ...(Object.keys(agentLimits).length > 0 ? { agentLimits } : {}),
   };
 }
 

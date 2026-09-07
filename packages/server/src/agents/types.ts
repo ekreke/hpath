@@ -64,6 +64,12 @@ export interface EnvBinding {
   baseUrl: string;
   /** Env variables injected into the system prompt / tool configuration. */
   variables: Record<string, string>;
+  /**
+   * Per-env hard-limit overrides (env "agent limits" editing). Only present
+   * fields override the executing AgentDefinition's defaults; the kernel
+   * merges them at run start, so shared orchestration is unchanged.
+   */
+  agentLimits?: Partial<HardLimits>;
 }
 
 /** Structured verdict submitted via the kernel `finish_verdict` tool. */

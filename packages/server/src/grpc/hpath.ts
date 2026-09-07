@@ -320,6 +320,13 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         if (!env) {
           throw grpcError(status.INVALID_ARGUMENT, "env is required");
         }
+        // Per-env agent hard-limit overrides: 0 = "use agent defaults", but a
+        // negative value is always a client bug — reject it here so bad input
+        // never reaches the repository or the kernel.
+        const limits = env.agentLimits;
+        if (limits && (limits.maxSteps < 0 || limits.tokenBudget < 0 || limits.timeoutMs < 0)) {
+          throw grpcError(status.INVALID_ARGUMENT, "env agent limits must be >= 0");
+        }
         if (env.id === "") {
           db.projects.getRequired(env.projectId);
           callback(null, db.envs.create({ ...env, id: randomUUID() }));

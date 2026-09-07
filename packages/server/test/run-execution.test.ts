@@ -103,6 +103,34 @@ describe("buildEnvBinding / buildRunInput", () => {
     });
   });
 
+  it("forwards positive agent-limit overrides and drops 0 values", () => {
+    const binding = buildEnvBinding({
+      id: "e1",
+      projectId: "p1",
+      name: "dev",
+      webBaseUrl: "http://localhost:8081",
+      grpcAddress: "",
+      vars: {},
+      credentials: {},
+      isDefault: false,
+      agentLimits: { maxSteps: 4, tokenBudget: 0, timeoutMs: 90_000 },
+    });
+    assert.deepEqual(binding.agentLimits, { maxSteps: 4, timeoutMs: 90_000 });
+
+    const noLimits = buildEnvBinding({
+      id: "e2",
+      projectId: "p1",
+      name: "staging",
+      webBaseUrl: "http://localhost:8082",
+      grpcAddress: "",
+      vars: {},
+      credentials: {},
+      isDefault: false,
+      agentLimits: { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 },
+    });
+    assert.equal(noLimits.agentLimits, undefined);
+  });
+
   it("builds the execute-agent input from the case definition", () => {
     const input = buildRunInput({
       id: "c1",

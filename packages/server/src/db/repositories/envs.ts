@@ -4,7 +4,7 @@
 // the flag consistent on create/update/delete using clear-then-set writes.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Env } from "@hpath/contract";
+import type { AgentLimits, Env } from "@hpath/contract";
 import {
   ConflictError,
   ForeignKeyError,
@@ -21,9 +21,28 @@ interface EnvRow {
   vars_json: string;
   credentials_json: string;
   is_default: number;
+  agent_max_steps: number;
+  agent_token_budget: number;
+  agent_timeout_ms: number;
+}
+
+// 0 in a column means "not set" — the field is omitted so the agent kernel
+// falls back to the AgentDefinition's defaults.
+function toAgentLimits(row: EnvRow): AgentLimits | undefined {
+  if (!row.agent_max_steps && !row.agent_token_budget && !row.agent_timeout_ms) {
+    return undefined;
+  }
+  return {
+    maxSteps: row.agent_max_steps,
+    tokenBudget: row.agent_token_budget,
+    timeoutMs: row.agent_timeout_ms,
+  };
 }
 
 function toEnv(row: EnvRow): Env {
+  // Omit the key entirely when no override is set, so a reloaded env is
+  // shape-identical to one that was never given limits.
+  const limits = toAgentLimits(row);
   return {
     id: row.id,
     projectId: row.project_id,
@@ -33,6 +52,7 @@ function toEnv(row: EnvRow): Env {
     vars: JSON.parse(row.vars_json) as { [key: string]: string },
     credentials: JSON.parse(row.credentials_json) as { [key: string]: string },
     isDefault: row.is_default === 1,
+    ...(limits ? { agentLimits: limits } : {}),
   };
 }
 
@@ -50,8 +70,9 @@ export class EnvRepository {
       }
       this.db
         .prepare(
-          `INSERT INTO envs (id, project_id, name, web_base_url, grpc_address, vars_json, credentials_json, is_default)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO envs (id, project_id, name, web_base_url, grpc_address, vars_json, credentials_json, is_default,
+                             agent_max_steps, agent_token_budget, agent_timeout_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           env.id,
@@ -62,6 +83,9 @@ export class EnvRepository {
           JSON.stringify(env.vars ?? {}),
           JSON.stringify(env.credentials ?? {}),
           wantsDefault ? 1 : 0,
+          env.agentLimits?.maxSteps ?? 0,
+          env.agentLimits?.tokenBudget ?? 0,
+          env.agentLimits?.timeoutMs ?? 0,
         );
     } catch (err) {
       throw translateConstraintError(err, `create env "${env.name}"`);
@@ -79,8 +103,9 @@ export class EnvRepository {
       info = this.db
         .prepare(
           `UPDATE envs
-           SET name = ?, web_base_url = ?, grpc_address = ?, vars_json = ?, credentials_json = ?, is_default = ?
-           WHERE id = ?`,
+           SET name = ?, web_base_url = ?, grpc_address = ?, vars_json = ?, credentials_json = ?, is_default = ?,
+               agent_max_steps = ?, agent_token_budget = ?, agent_timeout_ms = ?
+           WHERE id = ?`
         )
         .run(
           env.name,
@@ -89,6 +114,9 @@ export class EnvRepository {
           JSON.stringify(env.vars ?? {}),
           JSON.stringify(env.credentials ?? {}),
           env.isDefault ? 1 : 0,
+          env.agentLimits?.maxSteps ?? 0,
+          env.agentLimits?.tokenBudget ?? 0,
+          env.agentLimits?.timeoutMs ?? 0,
           env.id,
         );
     } catch (err) {

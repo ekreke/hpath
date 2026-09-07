@@ -1,11 +1,16 @@
 // Run panel: live mode (T12) renders the event stream forwarded by the Rust
 // side on the `run-event` channel while run_case is in flight; replay mode
 // (T13) renders a finished run fetched via get_run — inline session video,
-// screenshot timeline, agent transcript, trace.zip download + one-click
-// `playwright show-trace`, and a re-run button.
+// agent transcript, trace.zip download + one-click `playwright show-trace`,
+// and a re-run button.
+//
+// Execution-history redesign: a dual-row mini timeline (model row = green
+// activity spans, tools row = green tool spans + blue ticks for screenshots),
+// a search toolbar and a merged step list. Color semantics: green = generic
+// agent activity, blue = screenshots, red = errors.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Artifact, Run } from '@hpath/contract';
+import type { Artifact, Run, Verdict } from '@hpath/contract';
 import { ArtifactKind } from '@hpath/contract';
 import {
   invokeDownloadArtifact,
@@ -118,6 +123,7 @@ function Screenshot({
   artifactId,
   caption,
   sizeBytes,
+  accent,
   onZoom,
   onToast,
 }: {
@@ -126,10 +132,13 @@ function Screenshot({
   // Total size when known (timeline artifacts): enables a download percent in
   // the placeholder. Transcript-only screenshots have no artifact entity.
   sizeBytes?: number;
+  // Border accent for the thumbnail frame; screenshots render blue.
+  accent?: string;
   onZoom: (src: string) => void;
   onToast: (text: string, error?: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const frame = accent ?? 'var(--border2)';
   const cached = thumbnailCache.get(artifactId) ?? null;
   const [src, setSrc] = useState<string | null>(cached);
   const [pct, setPct] = useState(0);
@@ -161,7 +170,7 @@ function Screenshot({
         style={{
           width: 220,
           height: 90,
-          border: '1px dashed var(--line, #ccc)',
+          border: `1px dashed ${frame}`,
           borderRadius: 8,
           display: 'flex',
           alignItems: 'center',
@@ -179,7 +188,7 @@ function Screenshot({
       <img
         src={src}
         alt={caption}
-        style={{ maxWidth: 260, maxHeight: 140, borderRadius: 8, cursor: 'zoom-in', border: '1px solid var(--line, #ccc)' }}
+        style={{ maxWidth: 260, maxHeight: 140, borderRadius: 8, cursor: 'zoom-in', border: `1px solid ${frame}` }}
         onClick={() => onZoom(src)}
       />
       <figcaption className="dim" style={{ fontSize: 12 }}>{caption}</figcaption>
@@ -224,85 +233,361 @@ function SessionVideo({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function EventLine({
-  ev,
+// ── merged step model ────────────────────────────────────────────────────
+// The raw event stream separates toolStarted/toolFinished; the step list
+// merges each pair into one row (like the reference design) so per-call
+// durations can be shown on the right. Color: green = default agent
+// activity, blue = screenshots, red = errors.
+type StepKind = 'think' | 'agent' | 'tool' | 'shot' | 'http' | 'verdict' | 'error' | 'status';
+type StepColor = 'green' | 'blue' | 'red';
+
+type Step = {
+  key: string;
+  seq: number;
+  relMs: number;
+  kind: StepKind;
+  color: StepColor;
+  // tool
+  tool?: string;
+  argsJson?: string;
+  ok?: boolean;
+  resultSummary?: string;
+  durationMs?: number;
+  running?: boolean;
+  // shot
+  artifactId?: string;
+  caption?: string;
+  // http
+  direction?: string;
+  method?: string;
+  target?: string;
+  requestJson?: string;
+  responseJson?: string;
+  // think / agent text
+  text?: string;
+  // verdict
+  verdict?: Verdict | null;
+  // error
+  errorKind?: string;
+  errorMessage?: string;
+  // status
+  status?: number;
+  reason?: string;
+};
+
+const STEP_ICONS: Record<StepKind, string> = {
+  think: '✻',
+  agent: '❯',
+  tool: '▸',
+  shot: '▣',
+  http: '⇄',
+  verdict: '⚑',
+  error: '✗',
+  status: '●',
+};
+
+// Compact duration for step rows and the timeline axis: "0.0s" / "1.5s" /
+// "3m11s" (mirrors the reference design's right-hand column).
+function fmtDur(ms: number): string {
+  if (ms < 0) ms = 0;
+  if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rs = Math.round(s - m * 60);
+  if (rs >= 60) return `${m + 1}m00s`;
+  return `${m}m${String(rs).padStart(2, '0')}s`;
+}
+
+// Relative offset from run start as "+MM:SS".
+function fmtRel(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function relMs(t0: number, timestamp: string): number {
+  const v = Date.parse(timestamp);
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, v - t0);
+}
+
+function buildSteps(events: RunEvent[]): Step[] {
+  const steps: Step[] = [];
+  if (!events.length) return steps;
+  const t0 = Date.parse(events[0].timestamp);
+  const base0 = Number.isNaN(t0) ? 0 : t0;
+  // Started-but-unfinished tool calls, queued per tool name so nested or
+  // repeated same-tool calls pair in order.
+  const pending = new Map<string, Step[]>();
+
+  for (const ev of events) {
+    const key = `${ev.runId}-${ev.seq}`;
+    const rel = relMs(base0, ev.timestamp);
+    switch (ev.kind) {
+      case 'toolStarted': {
+        const step: Step = {
+          key, seq: ev.seq, relMs: rel, kind: 'tool', color: 'green',
+          tool: ev.tool, argsJson: ev.argsJson, running: true,
+        };
+        steps.push(step);
+        const q = pending.get(ev.tool ?? '') ?? [];
+        q.push(step);
+        pending.set(ev.tool ?? '', q);
+        break;
+      }
+      case 'toolFinished': {
+        const q = ev.tool ? pending.get(ev.tool) : undefined;
+        const started = q?.shift();
+        if (started) {
+          if (q && q.length === 0) pending.delete(ev.tool ?? '');
+          started.running = false;
+          started.ok = ev.ok;
+          started.resultSummary = ev.resultSummary;
+          started.durationMs = Math.max(0, rel - started.relMs);
+        } else {
+          // Finish without a visible start (truncated stream): keep the row.
+          steps.push({
+            key, seq: ev.seq, relMs: rel, kind: 'tool', color: 'green',
+            tool: ev.tool, ok: ev.ok, resultSummary: ev.resultSummary,
+          });
+        }
+        break;
+      }
+      case 'screenshot':
+        if (ev.artifactId) {
+          steps.push({
+            key, seq: ev.seq, relMs: rel, kind: 'shot', color: 'blue',
+            artifactId: ev.artifactId, caption: ev.caption,
+          });
+        }
+        break;
+      case 'requestRecord':
+        steps.push({
+          key, seq: ev.seq, relMs: rel, kind: 'http', color: 'green',
+          direction: ev.direction, method: ev.method, target: ev.target,
+          requestJson: ev.requestJson, responseJson: ev.responseJson,
+        });
+        break;
+      case 'agentThinking':
+        steps.push({ key, seq: ev.seq, relMs: rel, kind: 'think', color: 'green', text: ev.text });
+        break;
+      case 'agentText':
+        steps.push({ key, seq: ev.seq, relMs: rel, kind: 'agent', color: 'green', text: ev.text });
+        break;
+      case 'verdict':
+        if (ev.verdict) {
+          steps.push({ key, seq: ev.seq, relMs: rel, kind: 'verdict', color: 'green', verdict: ev.verdict });
+        }
+        break;
+      case 'error':
+        steps.push({
+          key, seq: ev.seq, relMs: rel, kind: 'error', color: 'red',
+          errorKind: ev.errorKind, errorMessage: ev.errorMessage,
+        });
+        break;
+      case 'runStatus':
+        steps.push({
+          key, seq: ev.seq, relMs: rel, kind: 'status', color: 'green',
+          status: ev.status, reason: ev.reason,
+        });
+        break;
+    }
+  }
+  return steps;
+}
+
+// Lowercased haystack per step for the search toolbar.
+function stepHaystack(s: Step): string {
+  return [
+    s.tool, s.argsJson, s.resultSummary, s.text, s.caption,
+    s.method, s.target, s.direction, s.errorKind, s.errorMessage,
+    s.verdict?.summary ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+// ── dual-row mini timeline ───────────────────────────────────────────────
+// Model row: green spans where the agent generates (gaps between tool calls).
+// Tools row: green spans per tool call, blue ticks at screenshot moments.
+// Clicking a blue tick scrolls the step list to that screenshot row.
+function RunTimelineBar({
+  events,
+  totalMs,
+  onPickShot,
+}: {
+  events: RunEvent[];
+  totalMs: number;
+  onPickShot: (key: string) => void;
+}) {
+  const { t } = useTranslation();
+
+  const tl = useMemo(() => {
+    const model: Array<{ a: number; b: number }> = [];
+    const tools: Array<{ a: number; b: number }> = [];
+    const shots: Array<{ at: number; key: string; caption?: string }> = [];
+    if (!events.length) return { model, tools, shots };
+    const t0 = Date.parse(events[0].timestamp);
+    const base0 = Number.isNaN(t0) ? 0 : t0;
+    const pending = new Map<string, number[]>();
+    let cursor = 0;
+    const closeModel = (until: number) => {
+      if (until > cursor) {
+        model.push({ a: cursor, b: until });
+        cursor = until;
+      }
+    };
+
+    for (const ev of events) {
+      const r = relMs(base0, ev.timestamp);
+      if (ev.kind === 'toolStarted') {
+        closeModel(r);
+        const q = pending.get(ev.tool ?? '') ?? [];
+        q.push(r);
+        pending.set(ev.tool ?? '', q);
+      } else if (ev.kind === 'toolFinished') {
+        const q = ev.tool ? pending.get(ev.tool) : undefined;
+        const start = q?.shift();
+        if (start !== undefined) {
+          tools.push({ a: start, b: Math.max(start + 1, r) });
+          closeModel(r);
+        }
+      } else if (ev.kind === 'screenshot' && ev.artifactId) {
+        shots.push({ at: r, key: `${ev.runId}-${ev.seq}`, caption: ev.caption });
+      }
+    }
+    const end = Math.max(totalMs, cursor);
+    // Tools still in flight (live mode): render as growing spans.
+    for (const starts of pending.values()) {
+      for (const a of starts) tools.push({ a, b: Math.max(a + 1, end) });
+    }
+    closeModel(end);
+    return { model, tools, shots };
+  }, [events, totalMs]);
+
+  const total = Math.max(totalMs, 1);
+  const pct = (v: number) => `${Math.min(100, (v / total) * 100)}%`;
+
+  return (
+    <div className="rt">
+      <div className="rt-axis">
+        <span>0s</span>
+        <span>{fmtDur(total / 2)}</span>
+        <span>{fmtDur(total)}</span>
+      </div>
+      <div className="rt-row">
+        <span className="rt-label">{t('runPanel.rowModel')}</span>
+        <div className="rt-track">
+          {tl.model.map((s, i) => (
+            <i key={i} className="rt-seg" style={{ left: pct(s.a), width: `${(Math.max(0, s.b - s.a) / total) * 100}%` }} />
+          ))}
+        </div>
+      </div>
+      <div className="rt-row">
+        <span className="rt-label">{t('runPanel.rowTools')}</span>
+        <div className="rt-track">
+          {tl.tools.map((s, i) => (
+            <i key={i} className="rt-seg" style={{ left: pct(s.a), width: `${(Math.max(0, s.b - s.a) / total) * 100}%` }} />
+          ))}
+          {tl.shots.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className="rt-tick"
+              style={{ left: pct(s.at) }}
+              title={s.caption || undefined}
+              onClick={() => onPickShot(s.key)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepRow({
+  step,
   onZoom,
   onToast,
 }: {
-  ev: RunEvent;
+  step: Step;
   onZoom: (src: string) => void;
   onToast: (text: string, error?: boolean) => void;
 }) {
-  const { t, i18n } = useTranslation();
-  const ts = new Date(ev.timestamp);
-  const time = Number.isNaN(ts.getTime()) ? '' : ts.toLocaleTimeString(i18n.language);
-  const errorStyle = ev.kind === 'error' ? { color: 'var(--bad, #c0392b)' } : undefined;
+  const { t } = useTranslation();
+  const dur =
+    step.durationMs !== undefined
+      ? fmtDur(step.durationMs)
+      : step.running
+        ? '…'
+        : '';
 
   return (
-    <div className="ln">
-      {time && <span className="ts">{time}</span>}
-      <span className="tx" style={errorStyle}>
-        {ev.kind === 'agentThinking' && <><b>think</b> <i>{ev.text}</i></>}
-        {ev.kind === 'agentText' && <><b>agent</b> {ev.text}</>}
-        {ev.kind === 'toolStarted' && (
+    <div id={`hstep-${step.key}`} className={`step ${step.color}`}>
+      <span className="rel num">+{fmtRel(step.relMs)}</span>
+      <span className="bar" />
+      <span className="ic">{STEP_ICONS[step.kind]}</span>
+      <span className="bd">
+        {step.kind === 'think' && <span className="think">{step.text}</span>}
+        {step.kind === 'agent' && <span>{step.text}</span>}
+        {step.kind === 'tool' && (
           <>
-            <b>tool ▸</b> <span className="mono">{ev.tool}</span>
-            {ev.argsJson && ev.argsJson !== '{}' && (
-              <span className="mono dim"> {ev.argsJson}</span>
-            )}
+            <span className="tn">{step.tool}</span>
+            <span className="sum" title={step.argsJson || undefined}>
+              {step.running ? (
+                step.argsJson && step.argsJson !== '{}' ? step.argsJson : null
+              ) : step.ok === false ? (
+                <b>{t('runPanel.toolFailed')}</b>
+              ) : (
+                step.resultSummary || step.argsJson || ''
+              )}
+            </span>
           </>
         )}
-        {ev.kind === 'toolFinished' && (
-          <>
-            <b>tool ✓</b> <span className="mono">{ev.tool}</span>
-            {' '}
-            {ev.ok ? (
-              <span className="dim">{ev.resultSummary}</span>
-            ) : (
-              <b>{t('runPanel.toolFailed')}</b>
-            )}
-          </>
-        )}
-        {ev.kind === 'screenshot' && ev.artifactId && (
+        {step.kind === 'shot' && step.artifactId && (
           <Screenshot
-            artifactId={ev.artifactId}
-            caption={ev.caption ?? ''}
+            artifactId={step.artifactId}
+            caption={step.caption ?? ''}
+            accent="var(--hc-3)"
             onZoom={onZoom}
             onToast={onToast}
           />
         )}
-        {ev.kind === 'requestRecord' && (
+        {step.kind === 'http' && (
           <>
-            <b>{ev.direction || 'http'}</b>{' '}
-            <span className="mono">{ev.method}</span>{' '}
-            <span className="mono">{ev.target}</span>
-            {(ev.requestJson || ev.responseJson) && (
+            <span className="tn">{step.direction || 'http'}</span>
+            <span className="mono">{step.method}</span> <span className="mono">{step.target}</span>
+            {(step.requestJson || step.responseJson) && (
               <details style={{ marginTop: 4 }}>
                 <summary className="dim" style={{ cursor: 'pointer', fontSize: 12 }}>
                   {t('runPanel.showJson')}
                 </summary>
-                {ev.requestJson && (
+                {step.requestJson && (
                   <pre className="mono" style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '4px 0' }}>
-                    {ev.requestJson}
+                    {step.requestJson}
                   </pre>
                 )}
-                {ev.responseJson && (
+                {step.responseJson && (
                   <pre className="mono dim" style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '4px 0' }}>
-                    {ev.responseJson}
+                    {step.responseJson}
                   </pre>
                 )}
               </details>
             )}
           </>
         )}
-        {ev.kind === 'verdict' && ev.verdict && <><b>verdict</b> {ev.verdict.summary}</>}
-        {ev.kind === 'error' && (
-          <><b>error</b> <span className="mono">{ev.errorKind}</span>: {ev.errorMessage}</>
+        {step.kind === 'verdict' && step.verdict && <><b>verdict</b> {step.verdict.summary}</>}
+        {step.kind === 'error' && (
+          <><b>error</b> <span className="mono">{step.errorKind}</span>: {step.errorMessage}</>
         )}
-        {ev.kind === 'runStatus' && (
-          <><b>status</b> {t(runStatusKey(ev.status ?? 0))}{ev.reason ? ` · ${ev.reason}` : ''}</>
+        {step.kind === 'status' && (
+          <><b>status</b> {t(runStatusKey(step.status ?? 0))}{step.reason ? ` · ${step.reason}` : ''}</>
         )}
       </span>
+      {dur && <span className="dur">{dur}</span>}
     </div>
   );
 }
@@ -324,27 +609,20 @@ function RunPanel({
   const { t } = useTranslation();
   const [elapsedMs, setElapsedMs] = useState(0);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const steps = events.filter((e) => e.kind === 'toolStarted').length;
+  const allSteps = useMemo(() => buildSteps(events), [events]);
+  const q = query.trim().toLowerCase();
+  const steps = useMemo(
+    () => (q ? allSteps.filter((s) => stepHaystack(s).includes(q)) : allSteps),
+    [allSteps, q],
+  );
 
-  // Replay material (T13): session video, screenshot timeline, trace.zip.
+  // Replay material (T13): session video + trace.zip. Screenshots render
+  // inline in the step list, so no separate strip is needed.
   const video = (artifacts ?? []).find((a) => a.kind === ArtifactKind.ARTIFACT_KIND_VIDEO) ?? null;
   const trace = (artifacts ?? []).find((a) => a.kind === ArtifactKind.ARTIFACT_KIND_TRACE) ?? null;
-  const shots = useMemo(
-    () => (artifacts ?? []).filter((a) => a.kind === ArtifactKind.ARTIFACT_KIND_SCREENSHOT),
-    [artifacts],
-  );
-  // Event captions carry friendlier labels than artifact keys.
-  const shotCaptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const ev of events) {
-      if (ev.kind === 'screenshot' && ev.artifactId && !map.has(ev.artifactId)) {
-        map.set(ev.artifactId, ev.caption ?? '');
-      }
-    }
-    return map;
-  }, [events]);
 
   const saveTrace = async () => {
     if (!trace) return;
@@ -378,12 +656,27 @@ function RunPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
+  // Total span of the timeline bar: last event offset, extended by the live
+  // clock while running and by the run's recorded duration after completion.
+  const totalMs = useMemo(() => {
+    if (!events.length) return 0;
+    const t0 = Date.parse(events[0].timestamp);
+    const last = Date.parse(events[events.length - 1].timestamp);
+    const lastRel = Number.isNaN(t0) || Number.isNaN(last) ? 0 : Math.max(0, last - t0);
+    const base = Math.max(lastRel, finalRun?.durationMs ?? 0);
+    return running ? Math.max(base, elapsedMs) : base;
+  }, [events, running, elapsedMs, finalRun]);
+
   // Follow the live feed; a replay transcript starts at the top.
   useEffect(() => {
     if (!running) return;
     const el = feedRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight });
   }, [events.length, running]);
+
+  const scrollToStep = useCallback((key: string) => {
+    document.getElementById(`hstep-${key}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
 
   const status = running ? RUN_STATUS.RUNNING : (result?.status ?? RUN_STATUS.PENDING);
 
@@ -425,7 +718,7 @@ function RunPanel({
       >
           <RunStatusTag status={status} />
           <span>
-            {t('runPanel.steps')}: <b className="num">{steps}</b>
+            {t('runPanel.steps')}: <b className="num">{allSteps.length}</b>
           </span>
           {!replay && (
             <span>
@@ -446,41 +739,36 @@ function RunPanel({
 
       {replay && video && <SessionVideo artifact={video} />}
 
-      {replay && shots.length > 0 && (
-        <div className="panelbox" style={{ marginTop: video ? 12 : 0 }}>
-          <div className="panelh">
-            <span>{t('runPanel.timeline')}</span>
-            <span className="mono">{shots.length}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '12px 16px' }}>
-            {shots.map((shot) => (
-              <Screenshot
-                key={shot.id}
-                artifactId={shot.id}
-                caption={shotCaptions.get(shot.id) || shot.key.split('/').pop() || ''}
-                sizeBytes={shot.sizeBytes}
-                onZoom={setZoom}
-                onToast={onToast}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="panelbox" style={{ marginTop: replay && (video || shots.length > 0) ? 12 : 0 }}>
+      <div className="panelbox" style={{ marginTop: replay && video ? 12 : 0 }}>
         <div className="panelh">
           <span>{t(replay ? 'runPanel.transcript' : 'runPanel.events')}</span>
-          <span className="mono">{events.length}</span>
         </div>
-        <div className="log" ref={feedRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
-          {events.map((ev) => (
-            <EventLine key={`${ev.runId}-${ev.seq}`} ev={ev} onZoom={setZoom} onToast={onToast} />
+        {events.length > 0 && (
+          <>
+            <RunTimelineBar events={events} totalMs={totalMs} onPickShot={scrollToStep} />
+            <div className="rtoolbar">
+              <input
+                className="inline-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('runPanel.searchPlaceholder')}
+              />
+              <span className="ct">{t('runPanel.stepsCount', { n: steps.length })}</span>
+            </div>
+          </>
+        )}
+        <div className="steps" ref={feedRef}>
+          {steps.map((s) => (
+            <StepRow key={s.key} step={s} onZoom={setZoom} onToast={onToast} />
           ))}
           {events.length === 0 && (
-            <div className="ln">
-              <span className="tx" style={{ color: 'var(--faint2)' }}>
-                {t(replay ? 'runPanel.loadingRun' : 'runPanel.empty')}
-              </span>
+            <div className="step">
+              <span className="bd dim">{t(replay ? 'runPanel.loadingRun' : 'runPanel.empty')}</span>
+            </div>
+          )}
+          {events.length > 0 && steps.length === 0 && (
+            <div className="step">
+              <span className="bd dim">{t('runPanel.noMatch')}</span>
             </div>
           )}
         </div>
