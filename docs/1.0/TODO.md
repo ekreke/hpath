@@ -4,6 +4,11 @@ Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; huma
 
 ## Working notes
 
+- Real-mode ReviewCase wiring (2026-09-07, T9 scope note half landed; ParsePRD still open):
+  - `grpc/hpath.ts`: real `reviewCase` handler — delegates to `db.cases.review` (transaction + version bump + changelog). `REVIEW_ACTION_UNSPECIFIED` answers INVALID_ARGUMENT (matches mock); state-machine violations surface FAILED_PRECONDITION and unknown cases NOT_FOUND via the existing typed-error mapping. Changelog author is fixed to "reviewer" (1.0 has no operator identity); an empty comment falls back to the repo's "<ACTION> via review" convention.
+  - Zero contract / desktop / Rust changes: the desktop already calls `review_case` through `invokeReviewCase` and the Rust `review_case` IPC command existed — only the gRPC handler was missing.
+  - `test/real-read.test.ts`: the "keeps reviewCase UNIMPLEMENTED" boundary test was replaced with wired-behavior coverage over real gRPC (unspecified action, unknown case, approve with version bump + changelog entry, illegal transition FAILED_PRECONDITION, reject→draft / approve→approved round-trip on a throwaway case with cleanup). The boundary suite now pins ParsePRD as the remaining UNIMPLEMENTED method.
+  - Gates: `pnpm --filter @hpath/server test` 191 tests green; grpcurl smoke on `--real` verified approve / illegal-transition / unspecified-action end to end.
 - Project delete + rename (2026-09-07, deliberate contract extension; desktop + server + mock):
   - Contract: `UpdateProject(UpdateProjectRequest) returns Project` (name/repo_url, ALREADY_EXISTS on duplicate name) and `DeleteProject(DeleteProjectRequest) returns Empty` (cascade) added to `hpath.proto`; TS types + descriptor regenerated (`make proto`).
   - Real mode: `ProjectRepository.update` + `ProjectRepository.removeCascade` — one transaction deletes runs (events + artifact records cascade) → cases (alignments/changelog cascade) → envs → prds → project, returning artifact-store keys (run artifacts + PRD `content_ref`s) purged best-effort after commit via the new `ArtifactStore.remove(key)` (local: unlink, s3: DeleteObject; idempotent). `grpc/hpath.ts` wires both RPCs with the usual error translation.

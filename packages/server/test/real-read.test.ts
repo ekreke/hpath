@@ -348,16 +348,94 @@ describe("real mode manual case management (CreateCase/UpdateCase/DeleteCase)", 
   });
 });
 
-describe("real mode wiring boundary (UNIMPLEMENTED)", () => {
-  it("keeps reviewCase UNIMPLEMENTED", async () => {
-    // Enum fields must be present: protobufjs fails to serialize undefined
-    // int32/enum values client-side (INTERNAL 13 before the server answers).
+describe("real mode review workflow (ReviewCase)", () => {
+  it("rejects an unspecified action with INVALID_ARGUMENT", async () => {
     const { err } = await callUnary("reviewCase", {
       caseId: pendingCaseId,
+      action: ReviewAction.REVIEW_ACTION_UNSPECIFIED,
+      comment: "",
+    });
+    assert.equal(err?.code, status.INVALID_ARGUMENT);
+  });
+
+  it("rejects an unknown case with NOT_FOUND", async () => {
+    const { err } = await callUnary("reviewCase", {
+      caseId: "missing-case",
       action: ReviewAction.REVIEW_ACTION_APPROVE,
       comment: "",
     });
-    assert.equal(err?.code, status.UNIMPLEMENTED, "reviewCase must stay UNIMPLEMENTED");
+    assert.equal(err?.code, status.NOT_FOUND);
+  });
+
+  it("approves the pending draft: status transition, version bump and changelog", async () => {
+    const { err, res } = await callUnary("reviewCase", {
+      caseId: pendingCaseId,
+      action: ReviewAction.REVIEW_ACTION_APPROVE,
+      comment: "looks aligned",
+    });
+    assert.equal(err, null);
+    const kase = res as Case;
+    assert.equal(kase.status, CaseStatus.CASE_STATUS_APPROVED);
+    assert.equal(kase.version, 2);
+    const entry = kase.changelog[kase.changelog.length - 1]!;
+    assert.equal(entry.author, "reviewer");
+    assert.equal(entry.comment, "looks aligned");
+  });
+
+  it("rejects an approved case with FAILED_PRECONDITION (illegal transition)", async () => {
+    const { err } = await callUnary("reviewCase", {
+      caseId: approvedCaseId,
+      action: ReviewAction.REVIEW_ACTION_REJECT,
+      comment: "",
+    });
+    assert.equal(err?.code, status.FAILED_PRECONDITION);
+  });
+
+  it("reject -> draft and approve -> approved round-trip on a throwaway case", async () => {
+    const created = await callUnary("createCase", {
+      projectId,
+      title: "review round-trip probe",
+      goal: "g",
+      alignments: [],
+    });
+    assert.equal(created.err, null);
+    const id = (created.res as Case).id;
+
+    const rejected = await callUnary("reviewCase", {
+      caseId: id,
+      action: ReviewAction.REVIEW_ACTION_REJECT,
+      comment: "",
+    });
+    assert.equal(rejected.err, null);
+    assert.equal((rejected.res as Case).status, CaseStatus.CASE_STATUS_DRAFT);
+    // Empty comment falls back to the "<ACTION> via review" convention.
+    assert.equal(
+      (rejected.res as Case).changelog.at(-1)!.comment,
+      "REVIEW_ACTION_REJECT via review",
+    );
+
+    const approved = await callUnary("reviewCase", {
+      caseId: id,
+      action: ReviewAction.REVIEW_ACTION_APPROVE,
+      comment: "",
+    });
+    assert.equal(approved.err, null);
+    assert.equal((approved.res as Case).status, CaseStatus.CASE_STATUS_APPROVED);
+
+    const cleanup = await callUnary("deleteCase", { caseId: id });
+    assert.equal(cleanup.err, null);
+  });
+});
+
+describe("real mode wiring boundary (UNIMPLEMENTED)", () => {
+  it("keeps ParsePRD UNIMPLEMENTED", async () => {
+    const err = await streamError("parsePrd", {
+      projectId,
+      filename: "payment.md",
+      format: 1,
+      content: Buffer.from("# demo"),
+    });
+    assert.equal(err.code, status.UNIMPLEMENTED);
   });
 
   it("keeps RunCase and artifact serving UNIMPLEMENTED", async () => {

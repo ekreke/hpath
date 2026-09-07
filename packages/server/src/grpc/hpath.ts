@@ -2,10 +2,10 @@
 // and the real one (SQLite-backed). Real mode serves the read path
 // (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project create/update/
 // cascade-delete, manual case management (CreateCase/UpdateCase/DeleteCase),
-// settings, status chat + chat sessions (chat.ts) and the T8
-// run execution path (RunCase via the AgentKernel, GetRun, DownloadArtifact
-// via the artifact store). Every other method reports UNIMPLEMENTED until its
-// wiring task lands (PRD parse in T9).
+// the review workflow (ReviewCase), settings, status chat + chat sessions
+// (chat.ts) and the T8 run execution path (RunCase via the AgentKernel,
+// GetRun, DownloadArtifact via the artifact store). Every other method
+// reports UNIMPLEMENTED until its wiring task lands (PRD parse in T9).
 
 import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
@@ -42,11 +42,12 @@ import type {
   ListRunsRequest,
   ListRunsResponse,
   Project,
+  ReviewCaseRequest,
   UpdateCaseRequest,
   UpdateProjectRequest,
   UpsertEnvRequest,
 } from "@hpath/contract";
-import { CaseStatus, CreatorType, Empty, RunStatus } from "@hpath/contract";
+import { CaseStatus, CreatorType, Empty, ReviewAction, RunStatus } from "@hpath/contract";
 import type { MockStore } from "../mock/store.js";
 import { createMockHandlers } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
@@ -76,7 +77,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -450,6 +451,27 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
       try {
         db.cases.delete(call.request.caseId);
         callback(null, Empty.create());
+      } catch (err) {
+        callback(toGrpcError(err));
+      }
+    },
+
+    reviewCase: (
+      call: ServerUnaryCall<ReviewCaseRequest, Case>,
+      callback: sendUnaryData<Case>,
+    ): void => {
+      try {
+        const req = call.request;
+        if (req.action === ReviewAction.REVIEW_ACTION_UNSPECIFIED) {
+          throw grpcError(status.INVALID_ARGUMENT, "review action is required");
+        }
+        callback(
+          null,
+          db.cases.review(req.caseId, req.action, {
+            author: "reviewer",
+            comment: req.comment || undefined,
+          }),
+        );
       } catch (err) {
         callback(toGrpcError(err));
       }
