@@ -77,6 +77,24 @@ function requireProject(store: MockStore, projectId: string): Project {
   return project;
 }
 
+/**
+ * Same invariant as the real repository: the execute-agent's input schema
+ * requires at least one alignment with a non-empty rule, so a case without
+ * one could never be run.
+ */
+function assertAlignments(alignments: { rule?: string | null }[]): void {
+  if (alignments.length === 0) {
+    throw grpcError(status.INVALID_ARGUMENT, "at least one alignment is required");
+  }
+  const emptyRule = alignments.findIndex((alignment) => !alignment.rule || alignment.rule.trim() === "");
+  if (emptyRule !== -1) {
+    throw grpcError(
+      status.INVALID_ARGUMENT,
+      `alignment #${emptyRule + 1} needs a non-empty rule (the PRD logic the run must verify)`,
+    );
+  }
+}
+
 /** Clear the default flag on every env of a project (keepId stays default). */
 function clearProjectDefault(store: MockStore, projectId: string, keepId?: string): void {
   for (const env of store.envs.values()) {
@@ -397,6 +415,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
           throw grpcError(status.INVALID_ARGUMENT, "goal is required");
         }
         requireProject(store, req.projectId);
+        assertAlignments(req.alignments ?? []);
         const now = nowIso();
         const kase: Case = {
           id: randomUUID(),
@@ -448,6 +467,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
             `cannot edit a case in status ${CaseStatus[kase.status]} (disable it first)`,
           );
         }
+        assertAlignments(req.alignments ?? []);
         kase.title = req.title;
         kase.goal = req.goal;
         kase.alignments = req.alignments ?? [];

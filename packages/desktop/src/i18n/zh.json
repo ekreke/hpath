@@ -163,6 +163,8 @@
     "deleteConfirm": "删除用例“{{title}}”？有运行记录引用的用例无法删除。",
     "titleRequired": "请填写用例标题",
     "goalRequired": "请填写验证目标",
+    "alignmentRequired": "至少需要一条对齐项 — 没有对齐规则的用例无法运行",
+    "alignmentRuleRequired": "每条对齐项都需要填写对齐规则(rule)",
     "titlePlaceholder": "例如：登录流程正常",
     "goalPlaceholder": "执行代理需要验证的目标（UI ↔ API ↔ 后端一致）",
     "addAlignment": "添加对齐项",

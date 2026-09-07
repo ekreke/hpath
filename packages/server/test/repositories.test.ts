@@ -14,12 +14,13 @@ import {
   RunTrigger,
   VerdictStatus,
 } from "@hpath/contract";
-import { HpathDb } from "../src/db/index.js";
+import { HpathDb, repairZeroAlignmentCases } from "../src/db/index.js";
 import {
   ConflictError,
   ForeignKeyError,
   InvalidTransitionError,
   NotFoundError,
+  RepositoryError,
 } from "../src/db/errors.js";
 import {
   makeCase,
@@ -386,6 +387,78 @@ describe("CaseRepository", () => {
     }
   });
 
+  it("refuses zero-alignment and empty-rule cases (run-path invariant)", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      assert.throws(
+        () => db.cases.create(makeCase(project, { alignments: [] })),
+        RepositoryError,
+      );
+      assert.throws(
+        () => db.cases.create(makeCase(project, { alignments: [{ apiPath: "", uiAnchor: "", rule: "  " }] })),
+        RepositoryError,
+      );
+      // update() enforces the same invariant.
+      const kase = makeCase(project);
+      db.cases.create(kase);
+      assert.throws(
+        () => db.cases.update(kase.id, { title: "t", goal: "g", alignments: [] }),
+        RepositoryError,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("repairZeroAlignmentCases gives unrunnable cases a placeholder alignment", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      // Raw insert bypasses the repository on purpose: this fixture is the
+      // pre-invariant data the startup repair exists for.
+      const broken = makeCase(project, { title: "broken" });
+      db.database
+        .prepare(
+          `INSERT INTO cases (id, project_id, title, goal, creator_type, creator_name,
+                              creator_run_ref, status, source_prd_ref, version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          broken.id,
+          broken.projectId,
+          broken.title,
+          broken.goal,
+          broken.creator?.type ?? 0,
+          broken.creator?.name ?? "",
+          broken.creator?.runRef ?? "",
+          broken.status,
+          broken.sourcePrdRef,
+          broken.version,
+          broken.createdAt,
+          broken.updatedAt,
+        );
+      const healthy = makeCase(project, { title: "healthy" });
+      db.cases.create(healthy);
+
+      const repaired = repairZeroAlignmentCases(
+        db.database,
+        "The PRD logic must hold across frontend display and backend output.",
+      );
+      assert.equal(repaired, 1);
+      const fixed = db.cases.getRequired(broken.id);
+      assert.equal(fixed.alignments.length, 1);
+      assert.ok(fixed.alignments[0]!.rule.includes("PRD logic"));
+      // Idempotent: the healthy case is untouched and a second pass is a no-op.
+      assert.equal(db.cases.getRequired(healthy.id).alignments.length, 1);
+      assert.equal(repairZeroAlignmentCases(db.database, "x"), 0);
+    } finally {
+      db.close();
+    }
+  });
+
   it("filters by project and status", () => {
     const db = HpathDb.inMemory();
     try {
@@ -525,12 +598,17 @@ describe("CaseRepository", () => {
           db.cases.update(approved.id, {
             title: "x",
             goal: "y",
-            alignments: [],
+            alignments: [{ apiPath: "", uiAnchor: "", rule: "keep" }],
           }),
         InvalidTransitionError,
       );
       assert.throws(
-        () => db.cases.update("missing", { title: "x", goal: "y", alignments: [] }),
+        () =>
+          db.cases.update("missing", {
+            title: "x",
+            goal: "y",
+            alignments: [{ apiPath: "", uiAnchor: "", rule: "keep" }],
+          }),
         NotFoundError,
       );
 
@@ -539,7 +617,7 @@ describe("CaseRepository", () => {
       const updated = db.cases.update(approved.id, {
         title: "fixed title",
         goal: "fixed goal",
-        alignments: [],
+        alignments: [{ apiPath: "/api/x", uiAnchor: "Card", rule: "Values agree." }],
       });
       assert.equal(updated.status, CaseStatus.CASE_STATUS_DISABLED);
       const last = updated.changelog[updated.changelog.length - 1]!;

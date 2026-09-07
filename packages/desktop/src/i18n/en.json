@@ -163,6 +163,8 @@
     "deleteConfirm": "Delete case \"{{title}}\"? Cases referenced by runs cannot be deleted.",
     "titleRequired": "Title is required",
     "goalRequired": "Goal is required",
+    "alignmentRequired": "At least one alignment is required — a case without alignment rules can never be run",
+    "alignmentRuleRequired": "Every alignment needs a non-empty rule",
     "titlePlaceholder": "e.g. Login flow works",
     "goalPlaceholder": "What the agent must verify (UI ↔ API ↔ backend agree)",
     "addAlignment": "Add alignment",

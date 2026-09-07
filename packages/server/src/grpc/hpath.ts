@@ -81,6 +81,26 @@ function unimplemented(): ServiceError {
   );
 }
 
+/**
+ * Case invariants the run path depends on: the execute-agent's input schema
+ * requires at least one alignment (minItems 1) and each alignment carries a
+ * non-empty rule. Enforcing it at create/update time keeps a case runnable
+ * for its whole lifecycle instead of failing at the kernel's run-input
+ * validation, far from the cause.
+ */
+function assertAlignments(alignments: { rule?: string | null }[]): void {
+  if (alignments.length === 0) {
+    throw grpcError(status.INVALID_ARGUMENT, "at least one alignment is required");
+  }
+  const emptyRule = alignments.findIndex((alignment) => !alignment.rule || alignment.rule.trim() === "");
+  if (emptyRule !== -1) {
+    throw grpcError(
+      status.INVALID_ARGUMENT,
+      `alignment #${emptyRule + 1} needs a non-empty rule (the PRD logic the run must verify)`,
+    );
+  }
+}
+
 function createUnimplementedHandlers(): HpathServer {
   const unary = (_call: unknown, callback: (err: ServiceError | null) => void): void => {
     callback(unimplemented());
@@ -396,6 +416,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
           throw grpcError(status.INVALID_ARGUMENT, "goal is required");
         }
         db.projects.getRequired(req.projectId);
+        assertAlignments(req.alignments ?? []);
         const now = new Date().toISOString();
         const kase: Case = {
           id: randomUUID(),
@@ -431,6 +452,9 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         if (!req.goal) {
           throw grpcError(status.INVALID_ARGUMENT, "goal is required");
         }
+        // The alignment invariant is enforced inside the repository, after the
+        // status check — an APPROVED/DISABLED case reports its editability
+        // before the payload is judged.
         callback(
           null,
           db.cases.update(req.caseId, {

@@ -396,7 +396,7 @@ describe("real mode review workflow (ReviewCase)", () => {
       projectId,
       title: "review round-trip probe",
       goal: "g",
-      alignments: [],
+      alignments: [{ apiPath: "/api/x", uiAnchor: "Card", rule: "Values agree." }],
     });
     assert.equal(created.err, null);
     const id = (created.res as Case).id;

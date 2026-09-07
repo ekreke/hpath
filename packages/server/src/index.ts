@@ -14,7 +14,7 @@ import { seedMockStore } from "./mock/seed.js";
 import type { MockStore } from "./mock/store.js";
 import { startServer } from "./grpc/server.js";
 import type { RealExecutionDeps, ServerMode } from "./grpc/hpath.js";
-import { HpathDb, defaultDbPath } from "./db/index.js";
+import { HpathDb, defaultDbPath, repairZeroAlignmentCases } from "./db/index.js";
 import { seedDatabase } from "./db/seed.js";
 import { SettingsStore, agentModelOverrides } from "./settings.js";
 import { AgentKernel } from "./agents/pipeline.js";
@@ -119,6 +119,15 @@ async function main(): Promise<void> {
     db = HpathDb.open();
     if (seedDatabase(db)) {
       console.log(`[hpath-server] seeded demo data into ${defaultDbPath()}`);
+    }
+    // One-shot repair: cases created before the alignment invariant could
+    // carry zero alignments and were unrunnable; give them a placeholder.
+    const repaired = repairZeroAlignmentCases(
+      db.database,
+      "The PRD logic must hold across frontend display and backend output.",
+    );
+    if (repaired > 0) {
+      console.log(`[hpath-server] repaired ${repaired} zero-alignment case(s) with a placeholder alignment`);
     }
     // Model provider settings (chat + agents); seeded on first boot.
     settings = SettingsStore.load();

@@ -15,7 +15,7 @@ export {
 
 export { ProjectRepository } from "./repositories/projects.js";
 export { EnvRepository } from "./repositories/envs.js";
-export { CaseRepository } from "./repositories/cases.js";
+export { CaseRepository, repairZeroAlignmentCases } from "./repositories/cases.js";
 export { RunRepository, type RunFilter, type RunFinishPatch } from "./repositories/runs.js";
 export { EventRepository } from "./repositories/events.js";
 export { ArtifactRepository } from "./repositories/artifacts.js";

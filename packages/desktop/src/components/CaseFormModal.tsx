@@ -41,12 +41,24 @@ function CaseFormModal({ projectId, kase, onSaved, onClose, onToast }: CaseFormM
       return;
     }
     // Drop fully empty rows so stray clicks never create junk alignments.
+    const cleaned = alignments
+      .map((a) => ({ apiPath: a.apiPath.trim(), uiAnchor: a.uiAnchor.trim(), rule: a.rule.trim() }))
+      .filter((a) => a.apiPath || a.uiAnchor || a.rule);
+    // The run path requires at least one non-empty rule (execute-agent input
+    // schema, minItems 1) — surface the error here instead of at run time.
+    if (cleaned.length === 0) {
+      onToast(t('cases.alignmentRequired'), true);
+      return;
+    }
+    const emptyRule = cleaned.findIndex((a) => !a.rule);
+    if (emptyRule !== -1) {
+      onToast(t('cases.alignmentRuleRequired'), true);
+      return;
+    }
     const input: CaseFormInput = {
       title: title.trim(),
       goal: goal.trim(),
-      alignments: alignments
-        .map((a) => ({ apiPath: a.apiPath.trim(), uiAnchor: a.uiAnchor.trim(), rule: a.rule.trim() }))
-        .filter((a) => a.apiPath || a.uiAnchor || a.rule),
+      alignments: cleaned,
     };
     setBusy(true);
     try {

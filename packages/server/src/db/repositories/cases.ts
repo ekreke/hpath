@@ -11,8 +11,60 @@ import {
   ForeignKeyError,
   InvalidTransitionError,
   NotFoundError,
+  RepositoryError,
   translateConstraintError,
 } from "../errors.js";
+
+/**
+ * Run-path invariant: the execute-agent's input schema requires at least one
+ * alignment with a non-empty rule (minItems 1), so a zero-alignment case can
+ * never be executed. Enforced here so every write path (gRPC handlers, seed,
+ * future callers) keeps cases runnable; the handler layer maps the
+ * RepositoryError onto INVALID_ARGUMENT.
+ */
+function assertRunnableAlignments(alignments: Alignment[]): void {
+  if (alignments.length === 0) {
+    throw new RepositoryError(
+      "case needs at least one alignment (the PRD logic the run must verify)",
+    );
+  }
+  if (alignments.some((alignment) => !alignment.rule || alignment.rule.trim() === "")) {
+    throw new RepositoryError("every alignment needs a non-empty rule");
+  }
+}
+
+/**
+ * One-shot startup repair for cases created before the alignment invariant
+ * landed: zero-alignment cases could never be executed (the execute-agent
+ * input schema requires minItems 1), so each gets a single placeholder
+ * alignment stating the generic rule. Returns the number of repaired cases.
+ * Idempotent: cases that already carry an alignment are left untouched.
+ */
+export function repairZeroAlignmentCases(db: DatabaseSync, rule: string): number {
+  const rows = db
+    .prepare(
+      `SELECT c.id FROM cases c
+       WHERE NOT EXISTS (SELECT 1 FROM case_alignments a WHERE a.case_id = c.id)`,
+    )
+    .all();
+  if (rows.length === 0) {
+    return 0;
+  }
+  const now = new Date().toISOString();
+  return withTransaction(db, () => {
+    const insertAlignment = db.prepare(
+      `INSERT INTO case_alignments (case_id, idx, api_path, ui_anchor, rule)
+       VALUES (?, 0, '', '', ?)`,
+    );
+    let repaired = 0;
+    for (const row of rows) {
+      const id = (row as { id: string }).id;
+      insertAlignment.run(id, rule);
+      repaired += 1;
+    }
+    return repaired;
+  });
+}
 
 interface CaseRow {
   id: string;
@@ -95,9 +147,12 @@ export class CaseRepository {
 
   /**
    * Insert a fully-formed case together with its alignments and changelog,
-   * in one transaction.
+   * in one transaction. A case must carry at least one non-empty alignment
+   * rule — the run path's execute-agent input schema requires it (minItems 1),
+   * so a zero-alignment case could never be executed.
    */
   create(kase: Case): Case {
+    assertRunnableAlignments(kase.alignments ?? []);
     try {
       withTransaction(this.db, () => {
         this.db
@@ -250,6 +305,7 @@ export class CaseRepository {
    * and appends a changelog entry, in one transaction; alignments are
    * replaced wholesale. Throws NotFoundError for unknown cases and
    * InvalidTransitionError when the current status is not editable.
+   * Same alignment invariant as create: at least one non-empty rule.
    */
   update(
     id: string,
@@ -267,6 +323,9 @@ export class CaseRepository {
         `cannot edit a case in status ${CaseStatus[kase.status]} (disable it first)`,
       );
     }
+    // Payload validation after state checks: a stale-status or missing case
+    // reports that, not the alignment payload.
+    assertRunnableAlignments(patch.alignments ?? []);
     const version = kase.version + 1;
     const changedAt = new Date().toISOString();
     try {
