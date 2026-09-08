@@ -26,6 +26,7 @@ import {
 } from "@hpath/contract";
 import { InMemoryEventSink } from "../src/agents/events.js";
 import type { AgentEventSink } from "../src/agents/events.js";
+import { RunFrameHubRegistry } from "../src/agents/frames.js";
 import type { AgentKernel } from "../src/agents/pipeline.js";
 import type {
   AgentRunEventPayload,
@@ -119,6 +120,7 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
       kernel,
       artifactStore: new LocalArtifactStore(dir),
       artifactIndex: new ArtifactIndex(db.artifacts),
+      frameHubs: new RunFrameHubRegistry(),
     },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };

@@ -5,6 +5,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { EnvBinding, Verdict } from "./types.js";
 import type { AgentEventSink } from "./events.js";
+import type { RunFrameHub } from "./frames.js";
 import type { VerdictChannel } from "./verdict.js";
 import type { RunEvidence } from "./evidence.js";
 
@@ -18,6 +19,13 @@ export interface ToolContext {
   input: unknown;
   /** Event pipe for tool-side recording (screenshots, request records, ...). */
   events: AgentEventSink;
+  /**
+   * Live-view frame hub for this run (T21). Present only when the caller (the
+   * RunCase handler) created one; providers able to stream visuals (the
+   * browser provider's CDP screencast) publish frames into it when present.
+   * Ephemeral by design: never run evidence.
+   */
+  frames?: RunFrameHub;
   /** Structured verdict channel (kernel-owned). */
   verdict: VerdictChannel;
   /** Run-scoped evidence store + resource cleanup registry (kernel-owned). */

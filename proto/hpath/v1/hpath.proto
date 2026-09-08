@@ -281,6 +281,23 @@ message Event {
   }
 }
 
+// Ephemeral live-view frame streamed by WatchRun (T21). Frames are never
+// persisted as run evidence: the events table and GetRun replay stay
+// frame-free. Only the newest frame matters to observers; intermediate
+// frames may be dropped under backpressure.
+message RunFrame {
+  string run_id = 1;
+  int64 seq = 2;
+  string mime = 3;        // always "image/jpeg"
+  bytes data = 4;         // encoded frame body
+  int64 timestamp_ms = 5; // unix millis (server clock)
+}
+
+// Request a live frame stream for one run.
+message WatchRunRequest {
+  string run_id = 1;
+}
+
 // Binary evidence stored in SeaweedFS (real impl) or memory (mock).
 message Artifact {
   string id = 1;
@@ -617,6 +634,13 @@ service Hpath {
   rpc PauseRun(RunControlRequest) returns (Run);
   rpc ResumeRun(RunControlRequest) returns (Run);
   rpc CancelRun(RunControlRequest) returns (Run);
+
+  // Live browser screencast for an in-flight run (T21). Frames are ephemeral
+  // (never persisted); the stream ends when the run settles. Unknown run ids
+  // fail with NOT_FOUND; a run without an active frame hub (settled, or
+  // executed by a server without execution deps) ends the stream immediately.
+  // Subscribing mid-run is supported; multiple observers are allowed.
+  rpc WatchRun(WatchRunRequest) returns (stream RunFrame);
 
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
   rpc GetRun(GetRunRequest) returns (RunDetail);

@@ -15,7 +15,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T18.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T21 -> T18.**
 
 ---
 
@@ -119,8 +119,12 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
 
 - [x] **T20 Run state machine: PauseRun / ResumeRun / CancelRun + minute-unit timeout override**
   Full run lifecycle: `RunStatus.PAUSED = 6` added to the contract with an enforced state machine (PENDING -> RUNNING ⇄ PAUSED -> PASSED/FAILED/CANCELLED); new unary RPCs `PauseRun` / `ResumeRun` / `CancelRun` (returns the refreshed Run; unknown id NOT_FOUND, not-active or invalid transition FAILED_PRECONDITION) wired in mock (in-flight controller registry in the scripted run) and real mode (`AgentKernel.runControl` registry; pause parks the pi loop at a turn boundary via an awaited listener gate — browser session/transcript stay alive; the wall-clock timer stops while paused and suspended time is excluded from `durationMs`; cancel aborts agent + run signal and settles CANCELLED with evidence retained; a `limit:` breach always wins). Run rows now persist PENDING first and follow in-flight RUNNING/PAUSED transitions via `RunRepository.updateStatus`. Desktop: `control_run` Tauri command, RunPanel live status follows stream run_status events with Pause/Resume/Stop buttons and a pause-aware elapsed clock, CANCELLED treated as finished everywhere, PAUSED tag variant + i18n.
-  Timeout override re-unit: contract field `AgentLimits.timeout_ms` -> `timeout_min` (minutes, UI-capped 1440), SQLite migration `0006_env_timeout_minutes` renames the column and converts legacy ms values with ceil (never shortens a budget), converted to kernel-internal ms once at the env boundary (`buildEnvBinding`); failure reason `limit:timeout_ms` -> `limit:timeout`.
-  *Verify: `make test` covers pause/resume/cancel at the kernel, handler and mock levels plus migration conversion; grpcurl smoke against `--mock`: PauseRun freezes the event stream, ResumeRun completes PASSED, CancelRun settles CANCELLED with fail_reason `cancelled`, control on settled/unknown runs -> FAILED_PRECONDITION / NOT_FOUND.*
+   Timeout override re-unit: contract field `AgentLimits.timeout_ms` -> `timeout_min` (minutes, UI-capped 1440), SQLite migration `0006_env_timeout_minutes` renames the column and converts legacy ms values with ceil (never shortens a budget), converted to kernel-internal ms once at the env boundary (`buildEnvBinding`); failure reason `limit:timeout_ms` -> `limit:timeout`.
+   *Verify: `make test` covers pause/resume/cancel at the kernel, handler and mock levels plus migration conversion; grpcurl smoke against `--mock`: PauseRun freezes the event stream, ResumeRun completes PASSED, CancelRun settles CANCELLED with fail_reason `cancelled`, control on settled/unknown runs -> FAILED_PRECONDITION / NOT_FOUND.*
+
+- [ ] **T21 Live browser view (WatchRun CDP screencast)**
+  Contract extension: ephemeral `RunFrame` message + `rpc WatchRun(WatchRunRequest) returns (stream RunFrame)` — live browser frames for an in-flight run, streamed but never persisted as run evidence (events table / replay stay frame-free); the stream ends when the run settles. Server: per-run `RunFrameHub` (latest-wins backpressure, min-interval throttle, registry keyed by runId) closed on settle; optional `ToolContext.frames` injection; the browser provider drives CDP `Page.startScreencast` (jpeg q60, 800x600, ack-based flow control) into the hub on page init and stops it in `close()` (abort/cleanup paths reused); WatchRun handler: unknown run NOT_FOUND, settled/no-hub run ends the stream empty, mid-run subscribe supported, multiple observers allowed. Mock parity: synthetic jpeg frames on the scripted cadence until terminal status. Desktop: `watch_run` Tauri command forwarding frames over a Channel (`RunFrameDto`); RunPanel live-mode LiveView pane (latest-frame `<img>`, placeholder until first frame, auto-ends on terminal status).
+  *Verify: `make test` covers hub broadcast/latest-wins/close, mid-run WatchRun subscribe + settle-ended stream, unknown-run NOT_FOUND, and mock frame parity; manual: `make mock` + `tauri dev` shows live frames during a scripted run and freezes on PauseRun; `make real` against demo-app shows the live page.*
 
 ## E. Wrap-up
 
@@ -148,7 +152,7 @@ MCP facade, external MCP/skills ToolProviders, extra agents via registry, contai
 |-----------|--------------|
 | Docs (Phase 0) | Read-through, terminology consistency with this SPEC |
 | Contract/mock (T1) | pnpm build, grpcurl reflection, mock endpoint probes |
-| Desktop (T10-T14, T17) | `tauri dev` smoke against mock + manual checklist per view |
+| Desktop (T10-T14, T17, T21) | `tauri dev` smoke against mock + manual checklist per view |
 | Infra (T2, T4) | compose health checks, port probes, curl/grpcurl checks |
-| Server code (T5-T9) | pnpm build + unit/integration tests listed per task |
+| Server code (T5-T9, T19-T21) | pnpm build + unit/integration tests listed per task |
 | E2E (T15) | demo script green run |

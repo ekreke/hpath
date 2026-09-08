@@ -33,6 +33,7 @@ import { LocalArtifactStore } from "../src/artifacts/store.js";
 import { readAll } from "../src/artifacts/store.js";
 import { ArtifactIndex } from "../src/artifacts/artifact-index.js";
 import { HpathDb } from "../src/db/index.js";
+import { RunFrameHubRegistry } from "../src/agents/frames.js";
 import {
   buildEnvBinding,
   buildRunInput,
@@ -276,6 +277,7 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
       kernel,
       artifactStore: new LocalArtifactStore(dir),
       artifactIndex: new ArtifactIndex(db.artifacts),
+      frameHubs: new RunFrameHubRegistry(),
     },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };

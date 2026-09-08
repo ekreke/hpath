@@ -64,8 +64,10 @@ import {
   createGetRunHandler,
   createRunCaseHandler,
   createRunControlHandler,
+  createWatchRunHandler,
   type RunExecutionDeps,
 } from "./run-execution.js";
+import { RunFrameHubRegistry } from "../agents/frames.js";
 
 export type ServerMode = "mock" | "real";
 
@@ -80,7 +82,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/GetRun/DownloadArtifact/ParsePRD/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/WatchRun/GetRun/DownloadArtifact/ParsePRD/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -147,6 +149,9 @@ function createUnimplementedHandlers(): HpathServer {
  */
 function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: RealExecutionDeps): HpathServer {
   const chat = new ChatService(db, settings);
+  // One live-view registry per server: RunCase handlers create per-run hubs,
+  // the WatchRun handler consumes from them (T21).
+  const frameHubs = new RunFrameHubRegistry();
   const runDeps: RunExecutionDeps | undefined =
     execution?.kernel && execution.artifactStore && execution.artifactIndex
       ? {
@@ -154,6 +159,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         kernel: execution.kernel,
         artifactStore: execution.artifactStore,
         artifactIndex: execution.artifactIndex,
+        frameHubs,
       }
       : undefined;
   return {
@@ -168,6 +174,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         getRun: createGetRunHandler(runDeps),
         downloadArtifact: createDownloadArtifactHandler(runDeps),
         parsePrd: createParsePrdHandler(runDeps),
+        watchRun: createWatchRunHandler(runDeps),
       }
       : {}),
 

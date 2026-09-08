@@ -16,11 +16,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import type { ToolContext, ToolProvider } from "../tools.js";
 import type { RunEvidence } from "../evidence.js";
+import type { RunFrameHub } from "../frames.js";
 
 export interface BrowserToolProviderOptions {
   /** Run headless (default true; server deployments have no display). */
@@ -50,6 +51,10 @@ class BrowserSession {
   private browser?: Browser;
   private context?: BrowserContext;
   private page?: Page;
+  private cdp?: CDPSession;
+  private readonly screencastListener = (event: { data: string; sessionId: number }): void => {
+    void this.ackAndPublish(event);
+  };
   private closing = false;
   private artifactsRegistered = false;
   /** Single-flight init: concurrent tool calls must not double-launch chromium. */
@@ -62,6 +67,7 @@ class BrowserSession {
     private readonly options: Required<typeof DEFAULTS>,
     private readonly allowedOrigins: Set<string>,
     private readonly evidence: RunEvidence,
+    private readonly frames?: RunFrameHub,
   ) {}
 
   async getPage(): Promise<Page> {
@@ -88,6 +94,15 @@ class BrowserSession {
       this.browser = browser;
       this.context = context;
       this.page = page;
+      // Live view (T21): best-effort — a screencast failure must never fail
+      // the tool call that triggered the launch.
+      if (this.frames) {
+        try {
+          await this.startScreencast(context, page);
+        } catch (err) {
+          console.error("[hpath-server] live view screencast unavailable:", err);
+        }
+      }
       return page;
     } catch (err) {
       // Allow a later retry and release any partially created resources.
@@ -124,8 +139,67 @@ class BrowserSession {
     return resolved;
   }
 
+  /**
+   * Live view (T21): stream the page over CDP screencast into the run's frame
+   * hub. Frames are jpeg (q60, capped at 800x600, every 2nd frame — the hub
+   * throttles further). CDP flow control is honored: every received frame is
+   * acknowledged before it is published, so chromium keeps producing frames.
+   */
+  private async startScreencast(context: BrowserContext, page: Page): Promise<void> {
+    const hub = this.frames;
+    if (!hub) return;
+    const cdp = await context.newCDPSession(page);
+    this.cdp = cdp;
+    cdp.on("Page.screencastFrame", this.screencastListener);
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 60,
+      maxWidth: 800,
+      maxHeight: 600,
+      everyNthFrame: 2,
+    });
+    // A freshly subscribed observer gets an immediate snapshot so the live
+    // view shows the current page without waiting for the next repaint.
+    hub.onSubscribe = () => {
+      void this.captureSnapshot();
+    };
+  }
+
+  private async ackAndPublish(event: { data: string; sessionId: number }): Promise<void> {
+    const cdp = this.cdp;
+    const hub = this.frames;
+    if (!cdp || !hub) return;
+    try {
+      await cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+    } catch {
+      // The page may be navigating or closing; this frame is dropped.
+    }
+    hub.publish(Buffer.from(event.data, "base64"));
+  }
+
+  private async captureSnapshot(): Promise<void> {
+    const cdp = this.cdp;
+    const hub = this.frames;
+    if (!cdp || !hub) return;
+    try {
+      const { data } = await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 60 });
+      hub.publish(Buffer.from(data, "base64"));
+    } catch {
+      // Best-effort: the observer simply waits for the next screencast frame.
+    }
+  }
+
   async close(): Promise<void> {
     this.closing = true;
+    // Live view first: detach the screencast so no frame events fire while
+    // the context tears down.
+    try {
+      this.cdp?.removeListener("Page.screencastFrame", this.screencastListener);
+      await this.cdp?.send("Page.stopScreencast");
+    } catch {
+      // The screencast may never have started, or the session is gone.
+    }
+    this.cdp = undefined;
     // Wait for an in-flight init so its browser/context are captured below.
     try {
       await this.init;
@@ -203,7 +277,7 @@ function strArgs(args: unknown): Record<string, unknown> {
 export function createBrowserTools(context: ToolContext, options: BrowserToolProviderOptions = {}): AgentTool[] {
   const resolved = { ...DEFAULTS, ...options } as Required<typeof DEFAULTS>;
   const allowedOrigins = new Set([new URL(context.env.baseUrl).origin, ...(options.allowedOrigins ?? [])]);
-  const session = new BrowserSession(context.env.baseUrl, resolved, allowedOrigins, context.evidence);
+  const session = new BrowserSession(context.env.baseUrl, resolved, allowedOrigins, context.evidence, context.frames);
   context.evidence.registerCleanup(() => session.close());
   // Closing the context interrupts in-flight Playwright operations, so the
   // wall-clock hard limit stays hard even mid-navigation.

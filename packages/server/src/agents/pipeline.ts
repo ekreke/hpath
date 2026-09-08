@@ -32,6 +32,7 @@ import { createCatalogModelResolver, createDefaultModels } from "./model.js";
 import { assertSchema } from "./schema.js";
 import { renderTemplate } from "./template.js";
 import { AgentRegistry } from "./registry.js";
+import type { RunFrameHub } from "./frames.js";
 import type { RunController } from "./run-control.js";
 import { RunControlRegistry } from "./run-control.js";
 import type { ToolProviderRegistry } from "./tools.js";
@@ -53,6 +54,12 @@ export interface RunAgentInput {
   runId?: string;
   /** Optional sink; defaults to an in-memory sink scoped to this run. */
   sink?: AgentEventSink;
+  /**
+   * Optional live-view frame hub (T21): handed to providers through
+   * ToolContext.frames. The caller owns its lifecycle (close on settle);
+   * the pipeline only forwards it.
+   */
+  frames?: RunFrameHub;
 }
 
 export interface AgentKernelOptions {
@@ -267,6 +274,7 @@ export class AgentKernel {
       verdict: channel,
       evidence,
       signal: runAbort.signal,
+      frames: options.frames,
     };
     const tools: AgentTool[] = [];
     for (const binding of definition.toolBindings) {

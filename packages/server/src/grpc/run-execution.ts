@@ -48,10 +48,13 @@ import {
   type RunCaseRequest,
   type RunControlRequest,
   type RunDetail,
+  type RunFrame,
   type Verdict,
+  type WatchRunRequest,
 } from "@hpath/contract";
 import { CompositeEventSink, InMemoryEventSink } from "../agents/events.js";
 import type { AgentEventSink } from "../agents/events.js";
+import { RunFrameHubRegistry } from "../agents/frames.js";
 import { EXECUTE_AGENT_ID } from "../agents/execute-agent.js";
 import type { AgentKernel } from "../agents/pipeline.js";
 import { InvalidTransitionError } from "../db/errors.js";
@@ -152,6 +155,9 @@ export interface RunExecutionDeps {
   kernel: AgentKernel;
   artifactStore: ArtifactStore;
   artifactIndex: ArtifactIndex;
+  /** Live-view frame hubs of in-flight runs (T21): RunCase creates the hub
+   * for its run, WatchRun consumes from it. */
+  frameHubs: RunFrameHubRegistry;
 }
 
 /**
@@ -408,6 +414,9 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
         };
         deps.db.runs.create(run);
 
+        // Live view (T21): the hub dies with the run — closed and unregistered
+        // in the finally below, so WatchRun streams end once the run settles.
+        const frameHub = deps.frameHubs.create(run.id);
         const bridge = new RunEventBridge(deps, run, call);
         const drainPromise = bridge.drain();
         let result: AgentRunResult;
@@ -418,9 +427,12 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
             input: buildRunInput(kase),
             env: buildEnvBinding(env),
             sink: bridge.createSink(),
+            frames: frameHub,
           });
         } finally {
           bridge.settle();
+          frameHub.close();
+          deps.frameHubs.remove(run.id);
         }
         await drainPromise;
 
@@ -542,5 +554,61 @@ export function createRunControlHandler(deps: RunExecutionDeps, action: "pause" 
     } catch (err) {
       callback(toGrpcError(err));
     }
+  };
+}
+
+/**
+ * Live view (T21): stream the run's ephemeral browser frames. Frames flow
+ * through the RunFrameHub the RunCase handler created; the stream ends when
+ * the hub closes (run settled). Subscribing mid-run is supported and multiple
+ * observers are allowed — each gets its own subscription (latest-wins
+ * backpressure per subscriber). A run that exists but has no active hub
+ * (settled, or executed by a server without execution deps) ends the stream
+ * immediately; only a run row that does not exist at all is NOT_FOUND.
+ */
+export function createWatchRunHandler(deps: RunExecutionDeps) {
+  return (call: ServerWritableStream<WatchRunRequest, RunFrame>): void => {
+    void (async () => {
+      try {
+        const runId = call.request.runId;
+        if (!runId) {
+          throw grpcError(status.INVALID_ARGUMENT, "run_id is required");
+        }
+        try {
+          deps.db.runs.getRequired(runId);
+        } catch {
+          throw grpcError(status.NOT_FOUND, `run not found: ${runId}`);
+        }
+        const hub = deps.frameHubs.get(runId);
+        if (!hub) {
+          if (!call.cancelled) call.end();
+          return;
+        }
+        const subscription = hub.subscribe();
+        try {
+          for (;;) {
+            const frame = await subscription.next();
+            if (!frame || call.cancelled) break;
+            try {
+              call.write({
+                runId: hub.runId,
+                seq: frame.seq,
+                mime: frame.mime,
+                data: Buffer.from(frame.data),
+                timestampMs: frame.timestampMs,
+              });
+            } catch {
+              // The client stream is broken; stop consuming frames.
+              break;
+            }
+          }
+        } finally {
+          subscription.unsubscribe();
+        }
+        if (!call.cancelled) call.end();
+      } catch (err) {
+        call.emit("error", toGrpcError(err));
+      }
+    })();
   };
 }

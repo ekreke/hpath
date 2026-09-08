@@ -14,7 +14,7 @@ pub mod grpc;
 use dto::{
     ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, ChatMessageDto, ChatSessionDto,
     EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto, RunEventDto,
-    RunResultDto, SettingsDto, VerdictDto,
+    RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -552,9 +552,36 @@ async fn run_case(
     Ok(result)
 }
 
+/// Live browser view (T21): forwards each ephemeral screencast frame of an
+/// in-flight run to the webview through the `onFrame` channel. The command
+/// resolves when the run settles (the server ends the frame stream); a run
+/// without an active frame hub simply ends immediately.
+#[tauri::command]
+async fn watch_run(
+    state: State<'_, AppState>,
+    run_id: String,
+    on_frame: tauri::ipc::Channel<RunFrameDto>,
+) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut stream = client
+        .watch_run(Request::new(hpath::WatchRunRequest { run_id }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+
+    while let Some(frame) = stream.message().await.map_err(|e| e.to_string())? {
+        let _ = on_frame.send(RunFrameDto::from(&frame));
+    }
+
+    Ok(())
+}
+
 /// Runtime control of an in-flight run (T14): PauseRun / ResumeRun / CancelRun
 /// target the run id directly (the server keeps executing a run even if the
-/// RunCase client disconnects) and return the refreshed Run row.
+/// RunCase client that started it disconnects) and return the refreshed Run row.
 #[tauri::command]
 async fn control_run(
     state: State<'_, AppState>,
@@ -814,6 +841,7 @@ pub fn run() {
             parse_prd,
             run_case,
             control_run,
+            watch_run,
             download_artifact,
             get_run,
             save_artifact,

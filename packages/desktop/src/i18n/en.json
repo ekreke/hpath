@@ -230,7 +230,11 @@
     "empty": "Waiting for events…",
     "loadingShot": "loading screenshot…",
     "toolFailed": "failed",
-    "showJson": "request / response"
+    "showJson": "request / response",
+    "liveTitle": "Live browser",
+    "liveWaiting": "Waiting for the browser…",
+    "liveEnded": "No live frames for this run",
+    "liveFrame": "frame {{n}}"
   },
   "envs": {
     "title": "Environments",

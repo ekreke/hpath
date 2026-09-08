@@ -17,6 +17,7 @@ import {
   invokeDownloadArtifact,
   invokeSaveArtifact,
   invokeShowTrace,
+  invokeWatchRun,
   type ArtifactProgress,
   type RunEvent,
   type RunResult,
@@ -193,6 +194,84 @@ function Screenshot({
       />
       <figcaption className="dim" style={{ fontSize: 12 }}>{caption}</figcaption>
     </figure>
+  );
+}
+
+// Live browser view (T21): the run's ephemeral CDP screencast streamed over
+// the `watch_run` IPC while the run executes — the newest frame wins, so the
+// pane always shows the page as the agent currently sees it. Frames are live
+// only: replay uses the recorded webm/screenshots instead. Subscription starts
+// as soon as the run id is known (first event of the stream) and ends by
+// itself when the run settles.
+function LiveView({ runId, active }: { runId: string | undefined; active: boolean }) {
+  const { t } = useTranslation();
+  const [frame, setFrame] = useState<{ src: string; seq: number } | null>(null);
+  const [ended, setEnded] = useState(false);
+  const generation = useRef(0);
+
+  useEffect(() => {
+    setFrame(null);
+    setEnded(false);
+    if (!active || !runId) return;
+    const gen = ++generation.current;
+    let cancelled = false;
+    invokeWatchRun(runId, (f) => {
+      if (cancelled || gen !== generation.current) return;
+      setFrame({ src: `data:${f.mime};base64,${f.data}`, seq: f.seq });
+    })
+      .catch(() => {
+        // Server unreachable / stream error: the pane just stays empty.
+      })
+      .finally(() => {
+        if (!cancelled && gen === generation.current) setEnded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, runId]);
+
+  if (!active) return null;
+  return (
+    <div className="panelbox" style={{ marginBottom: 12 }}>
+      <div className="panelh">
+        <span>
+          {t('runPanel.liveTitle')}
+          {frame && <span className="badge" style={{ marginLeft: 8, color: '#e11d48' }}>● LIVE</span>}
+        </span>
+        <span className="mono dim">
+          {frame
+            ? t('runPanel.liveFrame', { n: frame.seq })
+            : ended
+              ? ''
+              : t('runPanel.liveWaiting')}
+        </span>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 12,
+          minHeight: 120,
+        }}
+      >
+        {frame ? (
+          <img
+            src={frame.src}
+            alt="live view"
+            style={{
+              maxWidth: '100%',
+              maxHeight: 340,
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: '#000',
+            }}
+          />
+        ) : (
+          <span className="dim">{ended ? t('runPanel.liveEnded') : t('runPanel.liveWaiting')}</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -796,6 +875,8 @@ function RunPanel({
             </>
           )}
       </div>
+
+      {!replay && <LiveView runId={controlRunId} active={running} />}
 
       {replay && video && <SessionVideo artifact={video} />}
 

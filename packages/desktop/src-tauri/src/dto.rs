@@ -6,6 +6,8 @@ use serde::Serialize;
 
 use crate::hpath as pb;
 
+use base64::Engine as _;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatorDto {
@@ -509,6 +511,30 @@ pub struct RunEventDto {
     pub error_message: Option<String>,
     pub status: Option<i32>,
     pub reason: Option<String>,
+}
+
+/// One ephemeral live-view frame (T21): forwarded to the webview through the
+/// `watch_run` channel while the run is in flight; never persisted.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFrameDto {
+    pub run_id: String,
+    pub seq: i64,
+    pub mime: String,
+    pub data: String, // base64-encoded frame body (jpeg)
+    pub timestamp_ms: i64,
+}
+
+impl From<&pb::RunFrame> for RunFrameDto {
+    fn from(f: &pb::RunFrame) -> Self {
+        RunFrameDto {
+            run_id: f.run_id.clone(),
+            seq: f.seq,
+            mime: f.mime.clone(),
+            data: base64::engine::general_purpose::STANDARD.encode(&f.data),
+            timestamp_ms: f.timestamp_ms,
+        }
+    }
 }
 
 impl From<&pb::Event> for RunEventDto {

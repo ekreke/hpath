@@ -40,6 +40,7 @@ Three blocks:
 ### 4. Live Run Panel
 - Opened on run trigger (or from Run History for a finished run, in replay mode).
 - Streaming event feed: agent thinking, tool calls, screenshots inline (thumbnails, click to enlarge), request/response records.
+- Live browser view (T21): while a run executes, the panel shows the page as the agent sees it — the server drives a CDP screencast (jpeg frames, throttled + latest-wins backpressure) and the desktop subscribes via `watch_run` as soon as the run id is known. Frames are ephemeral (never persisted); a run that never touches the browser shows "no live frames".
 - Hard-limit status bar: steps used / max, tokens used / budget, elapsed / timeout.
 - Runtime control: Pause (⏸) / Resume (▶) / Stop (■) buttons while a run is live. The live status pill follows the stream's `run_status` events (RUNNING ⇄ PAUSED → terminal); the elapsed clock skips paused spans.
 
@@ -64,6 +65,7 @@ Per project: list envs, create/edit (name, web URL, gRPC address, variables, cre
 | list_cases / get_case / review_case | ListCases / GetCase / ReviewCase |
 | run_case (events stream) | RunCase |
 | control_run (pause/resume/cancel) | PauseRun / ResumeRun / CancelRun |
+| watch_run (frame channel) | WatchRun |
 | list_runs / get_run | ListRuns / GetRun |
 | download_artifact (progress events) | DownloadArtifact |
 | get_settings / update_settings | GetSettings / UpdateSettings |

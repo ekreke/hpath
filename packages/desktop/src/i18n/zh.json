@@ -230,7 +230,11 @@
     "empty": "等待事件…",
     "loadingShot": "截图加载中…",
     "toolFailed": "失败",
-    "showJson": "请求 / 响应"
+    "showJson": "请求 / 响应",
+    "liveTitle": "实时浏览器",
+    "liveWaiting": "等待浏览器启动…",
+    "liveEnded": "本次运行没有实时画面",
+    "liveFrame": "第 {{n}} 帧"
   },
   "envs": {
     "title": "环境",

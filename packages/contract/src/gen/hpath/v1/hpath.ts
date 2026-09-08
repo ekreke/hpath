@@ -685,6 +685,28 @@ export interface Event {
   runStatus?: RunStatusChanged | undefined;
 }
 
+/**
+ * Ephemeral live-view frame streamed by WatchRun (T21). Frames are never
+ * persisted as run evidence: the events table and GetRun replay stay
+ * frame-free. Only the newest frame matters to observers; intermediate
+ * frames may be dropped under backpressure.
+ */
+export interface RunFrame {
+  runId: string;
+  seq: number;
+  /** always "image/jpeg" */
+  mime: string;
+  /** encoded frame body */
+  data: Buffer;
+  /** unix millis (server clock) */
+  timestampMs: number;
+}
+
+/** Request a live frame stream for one run. */
+export interface WatchRunRequest {
+  runId: string;
+}
+
 /** Binary evidence stored in SeaweedFS (real impl) or memory (mock). */
 export interface Artifact {
   id: string;
@@ -3935,6 +3957,220 @@ export const Event: MessageFns<Event> = {
     message.runStatus = (object.runStatus !== undefined && object.runStatus !== null)
       ? RunStatusChanged.fromPartial(object.runStatus)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseRunFrame(): RunFrame {
+  return { runId: "", seq: 0, mime: "", data: Buffer.alloc(0), timestampMs: 0 };
+}
+
+export const RunFrame: MessageFns<RunFrame> = {
+  encode(message: RunFrame, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.runId !== "") {
+      writer.uint32(10).string(message.runId);
+    }
+    if (message.seq !== 0) {
+      writer.uint32(16).int64(message.seq);
+    }
+    if (message.mime !== "") {
+      writer.uint32(26).string(message.mime);
+    }
+    if (message.data.length !== 0) {
+      writer.uint32(34).bytes(message.data);
+    }
+    if (message.timestampMs !== 0) {
+      writer.uint32(40).int64(message.timestampMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RunFrame {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseRunFrame();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.runId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.seq = longToNumber(reader.int64());
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.mime = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.data = Buffer.from(reader.bytes());
+            continue;
+          }
+          case 5: {
+            if (tag !== 40) {
+              break;
+            }
+
+            message.timestampMs = longToNumber(reader.int64());
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): RunFrame {
+    return {
+      runId: isSet(object.runId)
+        ? globalThis.String(object.runId)
+        : isSet(object.run_id)
+        ? globalThis.String(object.run_id)
+        : "",
+      seq: isSet(object.seq) ? globalThis.Number(object.seq) : 0,
+      mime: isSet(object.mime) ? globalThis.String(object.mime) : "",
+      data: isSet(object.data) ? Buffer.from(bytesFromBase64(object.data)) : Buffer.alloc(0),
+      timestampMs: isSet(object.timestampMs)
+        ? globalThis.Number(object.timestampMs)
+        : isSet(object.timestamp_ms)
+        ? globalThis.Number(object.timestamp_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: RunFrame): unknown {
+    const obj: any = {};
+    if (message.runId !== "") {
+      obj.runId = message.runId;
+    }
+    if (message.seq !== 0) {
+      obj.seq = Math.round(message.seq);
+    }
+    if (message.mime !== "") {
+      obj.mime = message.mime;
+    }
+    if (message.data.length !== 0) {
+      obj.data = base64FromBytes(message.data);
+    }
+    if (message.timestampMs !== 0) {
+      obj.timestampMs = Math.round(message.timestampMs);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RunFrame>, I>>(base?: I): RunFrame {
+    return RunFrame.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RunFrame>, I>>(object: I): RunFrame {
+    const message = createBaseRunFrame();
+    message.runId = object.runId ?? "";
+    message.seq = object.seq ?? 0;
+    message.mime = object.mime ?? "";
+    message.data = object.data ?? Buffer.alloc(0);
+    message.timestampMs = object.timestampMs ?? 0;
+    return message;
+  },
+};
+
+function createBaseWatchRunRequest(): WatchRunRequest {
+  return { runId: "" };
+}
+
+export const WatchRunRequest: MessageFns<WatchRunRequest> = {
+  encode(message: WatchRunRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.runId !== "") {
+      writer.uint32(10).string(message.runId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): WatchRunRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseWatchRunRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.runId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): WatchRunRequest {
+    return {
+      runId: isSet(object.runId)
+        ? globalThis.String(object.runId)
+        : isSet(object.run_id)
+        ? globalThis.String(object.run_id)
+        : "",
+    };
+  },
+
+  toJSON(message: WatchRunRequest): unknown {
+    const obj: any = {};
+    if (message.runId !== "") {
+      obj.runId = message.runId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<WatchRunRequest>, I>>(base?: I): WatchRunRequest {
+    return WatchRunRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<WatchRunRequest>, I>>(object: I): WatchRunRequest {
+    const message = createBaseWatchRunRequest();
+    message.runId = object.runId ?? "";
     return message;
   },
 };
@@ -8239,6 +8475,22 @@ export const HpathService = {
     responseSerialize: (value: Run): Buffer => Buffer.from(Run.encode(value).finish()),
     responseDeserialize: (value: Buffer): Run => Run.decode(value),
   },
+  /**
+   * Live browser screencast for an in-flight run (T21). Frames are ephemeral
+   * (never persisted); the stream ends when the run settles. Unknown run ids
+   * fail with NOT_FOUND; a run without an active frame hub (settled, or
+   * executed by a server without execution deps) ends the stream immediately.
+   * Subscribing mid-run is supported; multiple observers are allowed.
+   */
+  watchRun: {
+    path: "/hpath.v1.Hpath/WatchRun" as const,
+    requestStream: false as const,
+    responseStream: true as const,
+    requestSerialize: (value: WatchRunRequest): Buffer => Buffer.from(WatchRunRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): WatchRunRequest => WatchRunRequest.decode(value),
+    responseSerialize: (value: RunFrame): Buffer => Buffer.from(RunFrame.encode(value).finish()),
+    responseDeserialize: (value: Buffer): RunFrame => RunFrame.decode(value),
+  },
   listRuns: {
     path: "/hpath.v1.Hpath/ListRuns" as const,
     requestStream: false as const,
@@ -8421,6 +8673,14 @@ export interface HpathServer extends UntypedServiceImplementation {
   pauseRun: handleUnaryCall<RunControlRequest, Run>;
   resumeRun: handleUnaryCall<RunControlRequest, Run>;
   cancelRun: handleUnaryCall<RunControlRequest, Run>;
+  /**
+   * Live browser screencast for an in-flight run (T21). Frames are ephemeral
+   * (never persisted); the stream ends when the run settles. Unknown run ids
+   * fail with NOT_FOUND; a run without an active frame hub (settled, or
+   * executed by a server without execution deps) ends the stream immediately.
+   * Subscribing mid-run is supported; multiple observers are allowed.
+   */
+  watchRun: handleServerStreamingCall<WatchRunRequest, RunFrame>;
   listRuns: handleUnaryCall<ListRunsRequest, ListRunsResponse>;
   getRun: handleUnaryCall<GetRunRequest, RunDetail>;
   /**

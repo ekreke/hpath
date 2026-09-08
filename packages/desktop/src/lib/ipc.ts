@@ -301,6 +301,29 @@ export function invokeRunCase(
   return invoke<RunResult>('run_case', { projectId, envId, caseId });
 }
 
+// One ephemeral live-view frame (T21): base64 jpeg body streamed by the
+// server's CDP screencast (mock: synthetic placeholder frames). Never
+// persisted — replay uses the recorded video/screenshots instead.
+export type RunFrame = {
+  runId: string;
+  seq: number;
+  mime: string;
+  data: string;
+  timestampMs: number;
+};
+
+// Live browser view (T21): subscribe to an in-flight run's screencast frames.
+// Resolves when the run settles (the server ends the stream); a run without
+// an active frame hub ends immediately.
+export function invokeWatchRun(
+  runId: string,
+  onFrame: (frame: RunFrame) => void,
+): Promise<void> {
+  const channel = new Channel<RunFrame>();
+  channel.onmessage = onFrame;
+  return invoke<void>('watch_run', { runId, onFrame: channel });
+}
+
 // Runtime control of an in-flight run (pause / resume / cancel). Targets the
 // run id directly: the server keeps executing a run even when the client that
 // started it disconnects, so a control call rides its own invoke.

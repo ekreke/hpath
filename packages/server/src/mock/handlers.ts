@@ -50,6 +50,8 @@ import type {
   UpsertEnvRequest,
   ReviewCaseRequest,
   RunCaseRequest,
+  RunFrame,
+  WatchRunRequest,
   Env,
 } from "@hpath/contract";
 import {
@@ -110,6 +112,21 @@ function clearProjectDefault(store: MockStore, projectId: string, keepId?: strin
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+function isTerminalRunStatus(value: RunStatus): boolean {
+  return (
+    value === RunStatus.RUN_STATUS_PASSED ||
+    value === RunStatus.RUN_STATUS_FAILED ||
+    value === RunStatus.RUN_STATUS_CANCELLED
+  );
+}
+
+/** Placeholder live-view frame (T21): a tiny valid jpeg so the desktop live
+ * pane has real image bytes to render; the UI overlays the frame counter. */
+const MOCK_LIVE_FRAME_JPEG =
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof"
+  + "Hh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB"
+  + "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==";
 
 // Title-keyword convention for live mock runs (T12): seeded probe cases opt
 // into scripted outcomes by title so every panel path is demoable — "limit"
@@ -647,6 +664,43 @@ export function createMockHandlers(store: MockStore): HpathServer {
       callback: sendUnaryData<Run>,
     ) => {
       mockRunControl(store, runControllers, call, callback, "cancel");
+    },
+
+    // Live view (T21): synthetic frames on the same 400ms cadence as the
+    // scripted run, until the run reaches a terminal status. Frames are
+    // ephemeral — nothing is written to the store.
+    watchRun: (call: ServerWritableStream<WatchRunRequest, RunFrame>) => {
+      void (async () => {
+        try {
+          const runId = call.request.runId;
+          if (!runId) {
+            throw grpcError(status.INVALID_ARGUMENT, "run_id is required");
+          }
+          if (!store.runs.get(runId)) {
+            throw grpcError(status.NOT_FOUND, `run not found: ${runId}`);
+          }
+          let seq = 1;
+          for (;;) {
+            const current = store.runs.get(runId);
+            if (!current || isTerminalRunStatus(current.status) || call.cancelled) break;
+            // A paused run freezes the page (no repaints -> no frames in the
+            // real CDP path), so the synthetic stream freezes with it.
+            if (current.status !== RunStatus.RUN_STATUS_PAUSED) {
+              call.write({
+                runId,
+                seq: seq++,
+                mime: "image/jpeg",
+                data: Buffer.from(MOCK_LIVE_FRAME_JPEG, "base64"),
+                timestampMs: Date.now(),
+              });
+            }
+            await sleep(400);
+          }
+          if (!call.cancelled) call.end();
+        } catch (err) {
+          call.emit("error", err as ServiceError);
+        }
+      })();
     },
 
     listRuns: (
