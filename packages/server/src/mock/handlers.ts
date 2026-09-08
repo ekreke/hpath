@@ -11,6 +11,8 @@ import type {
 } from "@grpc/grpc-js";
 import type {
   AppSettings,
+  Asset,
+  AssetFile,
   Case,
   BytesChunk,
   ChatMessage,
@@ -25,8 +27,10 @@ import type {
   CreateChatSessionRequest,
   DeleteChatSessionRequest,
   DeleteCaseRequest,
+  GetAssetRequest,
   GetCaseRequest,
   GetRunRequest,
+  ListAssetsRequest,
   ListCasesRequest,
   ListCasesResponse,
   ListChatMessagesRequest,
@@ -38,6 +42,7 @@ import type {
   ListRunsRequest,
   ListRunsResponse,
   CreateProjectRequest,
+  DeleteAssetRequest,
   DeleteEnvRequest,
   DeleteProjectRequest,
   DownloadArtifactRequest,
@@ -47,6 +52,7 @@ import type {
   RunDetail,
   UpdateCaseRequest,
   UpdateProjectRequest,
+  UploadAssetRequest,
   UpsertEnvRequest,
   ReviewCaseRequest,
   RunCaseRequest,
@@ -56,6 +62,7 @@ import type {
 } from "@hpath/contract";
 import {
   ArtifactKind,
+  AssetType,
   CaseStatus,
   ChatRole,
   CreatorType,
@@ -68,6 +75,7 @@ import {
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 import { simulateRun, type RunController, type RunOutcome } from "./run-script.js";
+import { ProtoBundleError, parseProtoBundle } from "../assets/proto-doc.js";
 import type { Run } from "@hpath/contract";
 
 function grpcError(code: status, message: string): ServiceError {
@@ -261,8 +269,8 @@ export function createMockHandlers(store: MockStore): HpathServer {
         for (const [id, run] of [...store.runs.entries()]) {
           if (run.projectId === projectId) store.runs.delete(id);
         }
-        for (const [id, prd] of [...store.prds.entries()]) {
-          if (prd.projectId === projectId) store.prds.delete(id);
+        for (const [id, asset] of [...store.assets.entries()]) {
+          if (asset.projectId === projectId) store.assets.delete(id);
         }
         store.projects.delete(projectId);
         callback(null, Empty.create());
@@ -375,7 +383,19 @@ export function createMockHandlers(store: MockStore): HpathServer {
             createdAt: nowIso(),
             contentRef: "",
           };
-          store.prds.set(prd.id, prd);
+          // The asset library (T22) is the single storage shape; the stream
+          // keeps carrying the Prd message (contract parity).
+          store.assets.set(prd.id, {
+            id: prd.id,
+            projectId: prd.projectId,
+            type: AssetType.ASSET_TYPE_PRD,
+            filename: prd.filename,
+            sizeBytes: prd.sizeBytes,
+            createdAt: prd.createdAt,
+            contentRef: "",
+            apiDoc: "",
+            fileCount: 1,
+          });
           call.write({ prdRegistered: { prd } });
           await sleep(150);
           call.write({ thinking: { text: `Reading ${req.filename} and identifying testable behaviors.` } });
@@ -414,6 +434,107 @@ export function createMockHandlers(store: MockStore): HpathServer {
           call.emit("error", err as ServiceError);
         }
       })();
+    },
+
+    // ------------------------------------------------------------------
+    // Asset library (T22): proto uploads parsed with the same deterministic
+    // parser the real mode uses; PRD uploads ride ParsePRD (rejected here).
+    // ------------------------------------------------------------------
+    uploadAsset: (
+      call: ServerUnaryCall<UploadAssetRequest, Asset>,
+      callback: sendUnaryData<Asset>,
+    ) => {
+      try {
+        const req = call.request;
+        requireProject(store, req.projectId);
+        if (req.type === AssetType.ASSET_TYPE_UNSPECIFIED) {
+          throw grpcError(status.INVALID_ARGUMENT, "asset type is required (prd | proto)");
+        }
+        if (req.type === AssetType.ASSET_TYPE_PRD) {
+          throw grpcError(status.INVALID_ARGUMENT, "PRD uploads go through ParsePRD (analyze flow)");
+        }
+        const files: AssetFile[] = req.files ?? [];
+        if (files.length === 0) {
+          throw grpcError(status.INVALID_ARGUMENT, "at least one .proto file is required");
+        }
+        let bundle;
+        try {
+          bundle = parseProtoBundle(
+            files.map((file) => ({ filename: file.filename, content: Buffer.from(file.content) })),
+            req.entryFilename || undefined,
+          );
+        } catch (err) {
+          if (err instanceof ProtoBundleError) {
+            throw grpcError(status.INVALID_ARGUMENT, err.message);
+          }
+          throw err;
+        }
+        const totalBytes = files.reduce((sum, file) => sum + file.content.byteLength, 0);
+        const asset: Asset = {
+          id: randomUUID(),
+          projectId: req.projectId,
+          type: AssetType.ASSET_TYPE_PROTO,
+          filename: bundle.entryFilename,
+          sizeBytes: totalBytes,
+          createdAt: nowIso(),
+          contentRef: "",
+          apiDoc: bundle.apiDoc,
+          fileCount: bundle.fileCount,
+        };
+        store.assets.set(asset.id, asset);
+        callback(null, asset);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    listAssets: (
+      call: ServerUnaryCall<ListAssetsRequest, { assets: Asset[] }>,
+      callback: sendUnaryData<{ assets: Asset[] }>,
+    ) => {
+      try {
+        requireProject(store, call.request.projectId);
+        const typeFilter = call.request.type;
+        const assets = [...store.assets.values()].filter(
+          (asset) =>
+            asset.projectId === call.request.projectId &&
+            (typeFilter === AssetType.ASSET_TYPE_UNSPECIFIED || asset.type === typeFilter),
+        );
+        callback(null, { assets });
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    getAsset: (
+      call: ServerUnaryCall<GetAssetRequest, Asset>,
+      callback: sendUnaryData<Asset>,
+    ) => {
+      try {
+        const asset = store.assets.get(call.request.assetId);
+        if (!asset) {
+          throw grpcError(status.NOT_FOUND, `asset not found: ${call.request.assetId}`);
+        }
+        callback(null, asset);
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    deleteAsset: (
+      call: ServerUnaryCall<DeleteAssetRequest, { [key: string]: never }>,
+      callback: sendUnaryData<Empty>,
+    ) => {
+      try {
+        const { assetId } = call.request;
+        if (!store.assets.has(assetId)) {
+          throw grpcError(status.NOT_FOUND, `asset not found: ${assetId}`);
+        }
+        store.assets.delete(assetId);
+        callback(null, Empty.create());
+      } catch (err) {
+        callback(err as ServiceError);
+      }
     },
 
     // ------------------------------------------------------------------

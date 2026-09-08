@@ -75,6 +75,7 @@ const DEMO_ENV: EnvBinding = {
 const SEED_CASE = {
   caseId: "seed-dev-balance-alignment",
   goal: "Log in to the dev demo-app and verify the seeded balance agrees across UI, HTTP and gRPC.",
+  apiSurface: "demo.v1.BalanceService/GetBalance(demo.v1.GetBalanceRequest) -> demo.v1.GetBalanceResponse",
   alignments: [
     { rule: `The dashboard balance card shows the seeded dev balance (${DEMO_SEED} CNY).` },
     { rule: "GET /api/balance and demo.v1.BalanceService/GetBalance serve the same value as the dashboard." },
@@ -235,11 +236,11 @@ test("execute-agent is a registered AgentDefinition with the T7b tool surface", 
 
   const definition = agents.require(EXECUTE_AGENT_ID);
   assert.equal(definition.id, "execute-agent");
-  assert.deepEqual(definition.toolBindings, ["browser", "http", "grpc"]);
+  assert.deepEqual(definition.toolBindings, ["browser", "http", "grpc", "api-docs"]);
   assert.equal(definition.model, EXECUTE_AGENT_DEFAULT_MODEL);
   assert.deepEqual(definition.hardLimits, EXECUTE_AGENT_DEFAULT_LIMITS);
   // The verdict channel is pipeline machinery, always present.
-  for (const providerId of ["browser", "http", "grpc", "evidence"]) {
+  for (const providerId of ["browser", "http", "grpc", "evidence", "api-docs"]) {
     assert.ok(toolProviders.require(providerId), `provider ${providerId} registered`);
   }
   // System prompt is a strict template over env + input.

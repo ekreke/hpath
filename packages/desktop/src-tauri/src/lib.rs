@@ -12,9 +12,9 @@ pub mod hpath {
 pub mod grpc;
 
 use dto::{
-    ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, ChatMessageDto, ChatSessionDto,
-    EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto, RunEventDto,
-    RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
+    ArtifactDto, ArtifactProgressDto, AssetDto, CaseDto, ChatEventDto, ChatMessageDto,
+    ChatSessionDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto,
+    RunEventDto, RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -500,6 +500,101 @@ async fn parse_prd(
     Ok(result)
 }
 
+/// Asset library (T22): upload a typed asset. PROTO uploads are parsed
+/// server-side into the project's API surface; PRD uploads ride `parse_prd`.
+#[tauri::command]
+async fn upload_asset(
+    state: State<'_, AppState>,
+    project_id: String,
+    asset_type: i32,
+    files: Vec<dto::AssetFileInput>,
+    entry_filename: String,
+) -> Result<AssetDto, String> {
+    let mut pb_files = Vec::with_capacity(files.len());
+    for file in files {
+        let content = base64::engine::general_purpose::STANDARD
+            .decode(&file.content_base64)
+            .map_err(|e| format!("invalid base64 content for {}: {e}", file.filename))?;
+        pb_files.push(hpath::AssetFile {
+            filename: file.filename,
+            content,
+        });
+    }
+
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .upload_asset(Request::new(hpath::UploadAssetRequest {
+            project_id,
+            r#type: asset_type,
+            files: pb_files,
+            entry_filename,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(AssetDto::from(&response.into_inner()))
+}
+
+/// Asset library (T22): list a project's assets (UNSPECIFIED type = all).
+#[tauri::command]
+async fn list_assets(
+    state: State<'_, AppState>,
+    project_id: String,
+    asset_type: i32,
+) -> Result<Vec<AssetDto>, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .list_assets(Request::new(hpath::ListAssetsRequest {
+            project_id,
+            r#type: asset_type,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(response
+        .into_inner()
+        .assets
+        .iter()
+        .map(AssetDto::from)
+        .collect())
+}
+
+/// Asset library (T22): one asset including its parsed api_doc.
+#[tauri::command]
+async fn get_asset(state: State<'_, AppState>, asset_id: String) -> Result<AssetDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get_asset(Request::new(hpath::GetAssetRequest { asset_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(AssetDto::from(&response.into_inner()))
+}
+
+/// Asset library (T22): delete an asset (server purges stored bytes best-effort).
+#[tauri::command]
+async fn delete_asset(state: State<'_, AppState>, asset_id: String) -> Result<(), String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    client
+        .delete_asset(Request::new(hpath::DeleteAssetRequest { asset_id }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Run trigger (T12): forwards every stream event to the webview on the
 /// `run-event` channel while reducing the stream to the final outcome, which
 /// is returned when the command resolves (invoke end = run end).
@@ -839,6 +934,10 @@ pub fn run() {
             review_case,
             list_runs,
             parse_prd,
+            upload_asset,
+            list_assets,
+            get_asset,
+            delete_asset,
             run_case,
             control_run,
             watch_run,

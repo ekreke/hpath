@@ -42,7 +42,8 @@ export const EXECUTE_AGENT_OUTPUT_SCHEMA: JsonSchemaValue = {
   additionalProperties: false,
 };
 
-/** Input schema: the (seed) case definition handed to the agent. */
+/** Input schema: the (seed) case definition handed to the agent. apiSurface
+ * carries the project's registered API surface (T22, possibly "none"). */
 export const EXECUTE_AGENT_INPUT_SCHEMA: JsonSchemaValue = {
   type: "object",
   required: ["caseId", "goal", "alignments"],
@@ -50,6 +51,7 @@ export const EXECUTE_AGENT_INPUT_SCHEMA: JsonSchemaValue = {
     caseId: { type: "string" },
     goal: { type: "string", description: "What this case verifies, in one sentence" },
     prdExcerpt: { type: "string", description: "Optional relevant PRD section" },
+    apiSurface: { type: "string", description: "Registered API surface of the project (T22)" },
     alignments: {
       type: "array",
       minItems: 1,
@@ -86,6 +88,10 @@ System under test: environment "{{env.name}}" at {{env.baseUrl}}.
 Environment configuration (credentials, endpoints, seeded values — the current environment only): {{env.variables}}
 Full case definition (alignment rules to verify): {{input}}
 
+Registered API surface of this project (from its uploaded proto definitions):
+{{input.apiSurface}}
+These are the ONLY gRPC methods that exist: grpc_call rejects anything else before it is sent. Use list_apis / describe_api when you need a method's exact request/response schema. A case that needs no backend check simply makes no gRPC calls — the API surface is a map, not a checklist.
+
 You are fully autonomous: the case states WHAT to verify; YOU decide how — which pages to open, which buttons to click, which APIs to call.
 
 Procedure:
@@ -112,7 +118,7 @@ export function createExecuteAgentDefinition(options: ExecuteAgentOptions = {}):
     id: EXECUTE_AGENT_ID,
     role: "autonomous case executor",
     systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
-    toolBindings: ["browser", "http", "grpc"],
+    toolBindings: ["browser", "http", "grpc", "api-docs"],
     model: options.model ?? EXECUTE_AGENT_DEFAULT_MODEL,
     hardLimits: { ...EXECUTE_AGENT_DEFAULT_LIMITS, ...options.hardLimits },
     inputSchema: EXECUTE_AGENT_INPUT_SCHEMA,

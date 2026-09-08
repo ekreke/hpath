@@ -60,6 +60,12 @@ import type { ArtifactIndex } from "../artifacts/artifact-index.js";
 import { grpcError, toGrpcError } from "./errors.js";
 import { createParsePrdHandler } from "./prd-analysis.js";
 import {
+  createDeleteAssetHandler,
+  createGetAssetHandler,
+  createListAssetsHandler,
+  createUploadAssetHandler,
+} from "./assets.js";
+import {
   createDownloadArtifactHandler,
   createGetRunHandler,
   createRunCaseHandler,
@@ -82,7 +88,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/WatchRun/GetRun/DownloadArtifact/ParsePRD/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/WatchRun/GetRun/DownloadArtifact/ParsePRD/UploadAsset/ListAssets/GetAsset/DeleteAsset/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -175,6 +181,10 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         downloadArtifact: createDownloadArtifactHandler(runDeps),
         parsePrd: createParsePrdHandler(runDeps),
         watchRun: createWatchRunHandler(runDeps),
+        uploadAsset: createUploadAssetHandler(runDeps),
+        listAssets: createListAssetsHandler(runDeps),
+        getAsset: createGetAssetHandler(runDeps),
+        deleteAsset: createDeleteAssetHandler(runDeps),
       }
       : {}),
 

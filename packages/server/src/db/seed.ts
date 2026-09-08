@@ -10,20 +10,22 @@
 // seeded — their bytes live in the artifact store, which lands with T6/T8.
 
 import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import type { Case, Env, Event, Prd, Project, Run, Verdict } from "@hpath/contract";
+import type { Asset, Case, Env, Event, Project, Run, Verdict } from "@hpath/contract";
 import {
+  AssetType,
   CaseStatus,
   CreatorType,
-  PrdFormat,
   RunStatus,
   RunTrigger,
   VerdictStatus,
 } from "@hpath/contract";
 import type { HpathDb } from "./index.js";
+import type { AssetInsert } from "./repositories/assets.js";
 import { withTransaction } from "./database.js";
+import { parseProtoBundle } from "../assets/proto-doc.js";
 
 /** Everything the seed created, so tests and callers can reference the ids. */
 export interface SeedResult {
@@ -37,17 +39,17 @@ export interface SeedResult {
     drift: Case;
   };
   runs: { passed: Run; failed: Run };
-  prds: Prd[];
+  assets: Asset[];
 }
 
 // ---------------------------------------------------------------------------
 // Fixture PRDs (fixtures/prds/, one per PRD format)
 // ---------------------------------------------------------------------------
 
-const PRD_FIXTURES: ReadonlyArray<{ filename: string; format: PrdFormat }> = [
-  { filename: "payment.md", format: PrdFormat.PRD_FORMAT_MD },
-  { filename: "payment.docx", format: PrdFormat.PRD_FORMAT_DOCX },
-  { filename: "orders.pdf", format: PrdFormat.PRD_FORMAT_PDF },
+const PRD_FIXTURES: ReadonlyArray<{ filename: string }> = [
+  { filename: "payment.md" },
+  { filename: "payment.docx" },
+  { filename: "orders.pdf" },
 ];
 
 /** Directory of this module: <server>/src or <server>/dist depending on build. */
@@ -75,21 +77,40 @@ export function prdFixturesDir(): string {
   return resolve("fixtures", "prds");
 }
 
-function seedPrds(db: HpathDb, projectId: string, clock: SeedClock): Prd[] {
-  const dir = prdFixturesDir();
-  const prds: Prd[] = [];
+/** Locate the demo-app proto the seed turns into a proto asset (T22). */
+export function demoAppProtoPath(): string {
+  let dir = MODULE_DIR;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = join(dir, "fixtures", "demo-app", "proto", "balance.proto");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return resolve("fixtures", "demo-app", "proto", "balance.proto");
+}
+
+function seedAssets(db: HpathDb, projectId: string, clock: SeedClock): Asset[] {
+  const assets: Asset[] = [];
   let index = 0;
+
+  // PRD fixtures (fixtures/prds/, one per PRD format).
+  const prdDir = prdFixturesDir();
   for (const fixture of PRD_FIXTURES) {
-    const path = join(dir, fixture.filename);
+    const path = join(prdDir, fixture.filename);
     if (!existsSync(path)) {
       console.warn(`[hpath-server] seed: fixture PRD missing, skipping: ${path}`);
       continue;
     }
-    const prd: Prd = {
+    const record: AssetInsert = {
       id: randomUUID(),
       projectId,
+      type: AssetType.ASSET_TYPE_PRD,
       filename: fixture.filename,
-      format: fixture.format,
       sizeBytes: statSync(path).size,
       // Staggered by 1ms so listByProject (ORDER BY created_at, id) is
       // deterministic despite random ids.
@@ -97,12 +118,42 @@ function seedPrds(db: HpathDb, projectId: string, clock: SeedClock): Prd[] {
       // Storage keys land with the artifact store (T6); for the bundled
       // fixtures the repo-relative path is a stable, human-readable ref.
       contentRef: `fixtures/prds/${fixture.filename}`,
+      apiDoc: "",
+      fileCount: 0,
+      storedFiles: [],
     };
-    db.prds.insert(prd);
-    prds.push(prd);
+    assets.push(db.assets.insert(record));
     index += 1;
   }
-  return prds;
+
+  // Demo proto asset (T22): the demo-app balance service becomes the
+  // project's API surface, so real-mode runs show the injected prompt
+  // surface and grpc_call hard validation out of the box.
+  const protoPath = demoAppProtoPath();
+  if (existsSync(protoPath)) {
+    try {
+      const content = readFileSync(protoPath);
+      const bundle = parseProtoBundle([{ filename: "balance.proto", content }], "balance.proto");
+      assets.push(
+        db.assets.insert({
+          id: randomUUID(),
+          projectId,
+          type: AssetType.ASSET_TYPE_PROTO,
+          filename: "balance.proto",
+          sizeBytes: bundle.totalBytes,
+          createdAt: clock.at(index),
+          contentRef: `fixtures/demo-app/proto/balance.proto`,
+          apiDoc: bundle.apiDoc,
+          methodsJson: JSON.stringify(bundle.methods),
+          fileCount: 0,
+          storedFiles: [{ filename: "balance.proto", key: "fixtures/demo-app/proto/balance.proto" }],
+        }),
+      );
+    } catch (err) {
+      console.warn(`[hpath-server] seed: proto asset skipped (parse failed): ${(err as Error).message}`);
+    }
+  }
+  return assets;
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +541,7 @@ export function seedDatabase(db: HpathDb): SeedResult | undefined {
     const envs = seedEnvs(db, project);
     const cases = seedCases(db, project, clock);
     const runs = seedRuns(db, project, envs, cases, base);
-    const prds = seedPrds(db, project.id, clock);
-    return { project, envs, cases, runs, prds };
+    const assets = seedAssets(db, project.id, clock);
+    return { project, envs, cases, runs, assets };
   });
 }

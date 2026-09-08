@@ -18,7 +18,7 @@ AgentRegistry (agent-level extension entry)
   1.1+: diagnose-agent, optimize-agent, config/MCP-injected custom agents
 
 ToolProviderRegistry (tool-level extension entry)
-  1.0 built-ins: browser, http, grpc, evidence
+  1.0 built-ins: browser, http, grpc, evidence, prd-analysis, api-docs
   1.1+ reserved: mcp/<external-server>, skills/<name>
 ```
 
@@ -47,6 +47,16 @@ The server kernel only knows `AgentDefinition`. Adding an agent = registering a 
 | http | http_request |
 | grpc | grpc_call |
 | evidence (kernel) | record_evidence, finish_verdict |
+| api-docs | list_apis, describe_api (T22; no tools without a project API surface) |
+
+**Project API surface (T22):** proto assets uploaded through the asset
+library are parsed server-side into a method allowlist + markdown API doc.
+The compact method list is injected into the execute-agent system prompt
+(`{{input.apiSurface}}`), the api-docs provider exposes on-demand schema
+lookup, and `grpc_call` hard-validates every call against the allowlist
+before any network I/O — methods outside the surface are rejected with the
+defined methods listed. HTTP stays origin-fenced with the doc as soft
+guidance only.
 
 ## Isolation Rules
 

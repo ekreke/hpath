@@ -9,9 +9,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Env } from "@hpath/contract";
 import {
+  AssetType,
   CaseStatus,
   CreatorType,
-  PrdFormat,
   RunStatus,
   RunTrigger,
   VerdictStatus,
@@ -91,18 +91,23 @@ describe("seedDatabase", () => {
       const verdictEvent = events.find((event) => event.verdict);
       assert.equal(verdictEvent?.verdict?.status, VerdictStatus.VERDICT_STATUS_PASSED);
 
-      // PRDs: the three bundled fixtures (md/docx/pdf), sizes from disk.
-      const prds = db.prds.listByProject(seed.project.id);
-      assert.deepEqual(
-        prds.map((prd) => prd.format),
-        [PrdFormat.PRD_FORMAT_MD, PrdFormat.PRD_FORMAT_DOCX, PrdFormat.PRD_FORMAT_PDF],
-      );
+      // PRD assets: the three bundled fixtures (md/docx/pdf), sizes from disk.
+      const prds = db.assets.listByProject(seed.project.id, AssetType.ASSET_TYPE_PRD);
+      assert.equal(prds.length, 3);
       for (const prd of prds) {
         const file = join(prdFixturesDir(), prd.filename);
         assert.ok(existsSync(file), `fixture exists: ${prd.filename}`);
         assert.equal(prd.sizeBytes, statSync(file).size);
         assert.ok(prd.contentRef.startsWith("fixtures/prds/"));
       }
+
+      // Proto asset (T22): the demo balance service parsed into a surface.
+      const protos = db.assets.listByProject(seed.project.id, AssetType.ASSET_TYPE_PROTO);
+      assert.equal(protos.length, 1);
+      assert.equal(protos[0]!.filename, "balance.proto");
+      assert.ok(protos[0]!.apiDoc.includes("demo.v1.BalanceService/GetBalance"));
+      const full = db.assets.getFull(protos[0]!.id);
+      assert.ok(full?.methodsJson?.includes("GetBalance"));
     } finally {
       db.close();
     }
@@ -118,7 +123,7 @@ describe("seedDatabase", () => {
       assert.equal(db.projects.list().length, 1);
       assert.equal(db.cases.listByProject(first!.project.id).length, 5);
       assert.equal(db.runs.list({ projectId: first!.project.id }).length, 2);
-      assert.equal(db.prds.listByProject(first!.project.id).length, 3);
+      assert.equal(db.assets.listByProject(first!.project.id).length, 4);
     } finally {
       db.close();
     }
@@ -171,7 +176,7 @@ describe("seedDatabase", () => {
       assert.equal(db.projects.list().length, 1);
       assert.equal(db.cases.listByProject(seed!.project.id).length, 5);
       assert.equal(db.runs.list({ projectId: seed!.project.id }).length, 2);
-      assert.equal(db.prds.listByProject(seed!.project.id).length, 3);
+      assert.equal(db.assets.listByProject(seed!.project.id).length, 4);
     } finally {
       db.close();
     }

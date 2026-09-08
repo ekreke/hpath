@@ -6,14 +6,17 @@
 // convention in handlers.ts (outcomeForTitle).
 
 import { randomUUID } from "node:crypto";
-import type { Case, Env, Project } from "@hpath/contract";
-import { CaseStatus, CreatorType, RunTrigger } from "@hpath/contract";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import type { Asset, Case, Env, Project } from "@hpath/contract";
+import { AssetType, CaseStatus, CreatorType, RunTrigger } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
 import { simulateRun } from "./run-script.js";
+import { parseProtoBundle } from "../assets/proto-doc.js";
 
-export function seedMockStore(store: MockStore): void {
-  const project: Project = {
+export function seedMockStore(store: MockStore): void {  const project: Project = {
     id: randomUUID(),
     name: "demo-bank",
     repoUrl: "https://github.com/example/demo-bank",
@@ -170,6 +173,8 @@ export function seedMockStore(store: MockStore): void {
   store.cases.set(driftCase.id, driftCase);
   store.cases.set(ordersDraft.id, ordersDraft);
 
+  seedMockAssets(store, project.id);
+
   // Seed history: one passed run on dev, one failed run on staging.
   void simulateRun({
     store,
@@ -189,4 +194,50 @@ export function seedMockStore(store: MockStore): void {
     outcome: "fail",
     delayMs: 0,
   });
+}
+
+/**
+ * Seed the demo project's proto asset (T22): the demo-app balance service
+ * parsed into a real API surface so the asset list and (real-mode) agent
+ * wiring are demonstrable immediately. Skipped silently when the fixture is
+ * missing or unparseable — the mock seed must never fail boot.
+ */
+function seedMockAssets(store: MockStore, projectId: string): void {
+  const dir = mockModuleDir();
+  const protoPath = join(dir, "fixtures", "demo-app", "proto", "balance.proto");
+  if (!existsSync(protoPath)) {
+    return;
+  }
+  try {
+    const content = readFileSync(protoPath);
+    const bundle = parseProtoBundle([{ filename: "balance.proto", content }], "balance.proto");
+    const asset: Asset = {
+      id: randomUUID(),
+      projectId,
+      type: AssetType.ASSET_TYPE_PROTO,
+      filename: "balance.proto",
+      sizeBytes: bundle.totalBytes,
+      createdAt: nowIso(),
+      contentRef: "",
+      apiDoc: bundle.apiDoc,
+      fileCount: bundle.fileCount,
+    };
+    store.assets.set(asset.id, asset);
+  } catch {
+    // Skipped: mock seed robustness beats demo completeness.
+  }
+}
+
+/** Directory of this module's package root (walks up to fixtures/). */
+function mockModuleDir(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (existsSync(join(dir, "fixtures"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve("fixtures", "..");
 }

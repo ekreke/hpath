@@ -256,7 +256,7 @@ describe("real parsePrd handler — validation", () => {
       handler(stream.call);
       await waitFor(() => stream.errors.length > 0, "the size-cap error");
       assert.equal(stream.errors[0].code, status.INVALID_ARGUMENT);
-      assert.equal([...db.prds.listByProject(project.id)].length, 0, "no PRD row for rejected input");
+      assert.equal(db.assets.listByProject(project.id).length, 0, "no PRD row for rejected input");
     } finally {
       cleanup();
       db.close();
@@ -478,7 +478,7 @@ describe("real parsePrd handler — failure settle", () => {
       assert.equal(stream.errors.length, 0, "failure is a stream event, not a gRPC error");
 
       // The PRD row is still registered (the upload itself succeeded)…
-      assert.equal(db.prds.listByProject(project.id).length, 1);
+      assert.equal(db.assets.listByProject(project.id).length, 1);
       // …but the last event is the structured error and no case exists.
       const last = stream.events[stream.events.length - 1];
       assert.equal(last.error!.kind, "limit:max_steps");

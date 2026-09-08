@@ -43,6 +43,7 @@ import type {
   EnvBinding,
   HardLimits,
   ModelResolver,
+  ProjectApiSurface,
   Verdict,
 } from "./types.js";
 
@@ -50,6 +51,12 @@ export interface RunAgentInput {
   agentId: string;
   input: unknown;
   env: EnvBinding;
+  /**
+   * Project API surface (T22): the project's parsed proto assets. Forwarded
+   * to providers through ToolContext.projectApi (api-docs tools + grpc_call
+   * hard validation + per-run proto descriptor paths).
+   */
+  projectApi?: ProjectApiSurface;
   /** Optional externally assigned run id (defaults to a fresh UUID). */
   runId?: string;
   /** Optional sink; defaults to an in-memory sink scoped to this run. */
@@ -270,6 +277,7 @@ export class AgentKernel {
       agentId: definition.id,
       env: options.env,
       input: options.input,
+      projectApi: options.projectApi,
       events: sink,
       verdict: channel,
       evidence,

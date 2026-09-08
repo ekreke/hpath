@@ -5,12 +5,16 @@
 //
 // Proto resolution is configuration, not guessing: the provider is constructed
 // with the proto files the deployment knows about (e.g. fixtures/demo-app), and
-// calls resolve against exactly those definitions.
+// calls resolve against exactly those definitions. Since T22, a project's
+// uploaded proto assets are materialized per run and take precedence; when the
+// project has an API surface, calls to methods outside it are rejected before
+// any network I/O (hard validation — the model cannot hit undefined APIs).
 
 import * as grpc from "@grpc/grpc-js";
 import protoLoader from "@grpc/proto-loader";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
+import { methodKey } from "../../assets/proto-doc.js";
 import type { ToolContext, ToolProvider } from "../tools.js";
 
 export interface GrpcToolProviderOptions {
@@ -79,6 +83,16 @@ function resolveService(grpcObject: Record<string, unknown>, serviceFullName: st
 
 export function createGrpcCallTool(context: ToolContext, options: GrpcToolProviderOptions = {}): AgentTool {
   const protoPaths = options.protoPaths ?? [];
+  // Project API surface (T22): the project's uploaded proto assets are
+  // materialized to a per-run temp dir by the run handler and ride the
+  // context; they take precedence over the deployment-level proto paths.
+  const projectProtoPaths = context.projectApi?.protoPaths ?? [];
+  const effectiveProtoPaths = [...projectProtoPaths, ...protoPaths];
+  // Hard validation (T22): when the project has a registered API surface,
+  // only methods on it may be called — before any network I/O happens.
+  const allowedMethods = context.projectApi
+    ? new Set(context.projectApi.methods.map((method) => methodKey(method)))
+    : undefined;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxTimeoutMs = Math.max(options.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS, timeoutMs);
   // One client per (target, service): a later call to a different target or
@@ -93,13 +107,18 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
         // Swallowed: disposal must never mask the run outcome.
       }
     }
+    // Per-run project protos live in a temp dir that dies with the run;
+    // drop their loader cache entries so paths cannot accumulate across runs.
+    for (const path of projectProtoPaths) {
+      packageDefinitionCache.delete(path);
+    }
   });
 
   const ensureClient = (target: string, serviceFullName: string, serviceCtor: ServiceClientCtor): grpc.Client => {
     const key = `${target}|${serviceFullName}`;
     const cached = clients.get(key);
     if (cached) return cached;
-    if (protoPaths.length === 0) {
+    if (effectiveProtoPaths.length === 0) {
       throw new Error("grpc_call has no proto files configured for this deployment");
     }
     // The proto-loader service constructor doubles as the client constructor.
@@ -114,7 +133,9 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
     description:
       "Invoke a unary gRPC method, e.g. method \"demo.v1.BalanceService/GetBalance\". "
         + "The call goes to the current environment's gRPC target by default. "
-        + "Methods resolve against the proto files registered for this deployment.",
+        + "Methods resolve against the proto files registered for this deployment "
+        + "and the project's API surface: when the project registers proto assets, "
+        + "only methods defined there are callable.",
     parameters: Type.Object({
       method: Type.String({ description: "Fully-qualified \"package.Service/Method\"" }),
       request: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Request message fields" })),
@@ -147,9 +168,23 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
       }
 
       const [serviceFullName, rpcName] = method.split("/");
+
+      // Hard validation (T22): a project with a registered API surface
+      // constrains grpc_call to exactly those methods. Rejection happens
+      // before any descriptor lookup or network I/O, with the allowlist in
+      // the error so the model can self-correct to a defined method.
+      if (allowedMethods && !allowedMethods.has(method)) {
+        throw new Error(
+          `gRPC method "${method}" is not defined in this project's registered API surface `
+            + "and was rejected without being called. Defined methods:\n"
+            + [...allowedMethods].map((key) => `- ${key}`).join("\n")
+            + "\nUse describe_api for message schemas.",
+        );
+      }
+
       let serviceCtor: ServiceClientCtor | undefined;
       let grpcObject: Record<string, unknown> = {};
-      for (const protoPath of protoPaths) {
+      for (const protoPath of effectiveProtoPaths) {
         const loaded = loadPackageDefinition(protoPath, options.includeDirs);
         grpcObject = grpc.loadPackageDefinition(loaded) as Record<string, unknown>;
         serviceCtor = resolveService(grpcObject, serviceFullName);
@@ -157,7 +192,7 @@ export function createGrpcCallTool(context: ToolContext, options: GrpcToolProvid
       }
       if (!serviceCtor) {
         throw new Error(
-          `service "${serviceFullName}" not found in the registered protos (${protoPaths.join(", ") || "none"})`,
+          `service "${serviceFullName}" not found in the registered protos (${effectiveProtoPaths.join(", ") || "none"})`,
         );
       }
 

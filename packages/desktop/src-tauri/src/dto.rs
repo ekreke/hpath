@@ -328,6 +328,47 @@ impl From<&pb::Prd> for PrdDto {
     }
 }
 
+/// A project asset (T22 asset library): PRD document or parsed proto bundle
+/// (`api_doc` carries the markdown API surface of proto assets).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDto {
+    pub id: String,
+    pub project_id: String,
+    pub r#type: i32,
+    pub filename: String,
+    pub size_bytes: i32,
+    pub created_at: String,
+    pub content_ref: String,
+    pub api_doc: String,
+    pub file_count: i32,
+}
+
+impl From<&pb::Asset> for AssetDto {
+    fn from(a: &pb::Asset) -> Self {
+        AssetDto {
+            id: a.id.clone(),
+            project_id: a.project_id.clone(),
+            r#type: a.r#type,
+            filename: a.filename.clone(),
+            size_bytes: a.size_bytes,
+            created_at: a.created_at.clone(),
+            content_ref: a.content_ref.clone(),
+            api_doc: a.api_doc.clone(),
+            file_count: a.file_count,
+        }
+    }
+}
+
+/// One file of an UploadAsset request sent from the UI (deserialize-only;
+/// content travels base64-encoded across the IPC boundary).
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetFileInput {
+    pub filename: String,
+    pub content_base64: String,
+}
+
 /// Tagged ParseEvent for the webview: `kind` selects which optional fields
 /// carry data (mirrors the proto oneof).
 #[derive(Debug, Serialize)]

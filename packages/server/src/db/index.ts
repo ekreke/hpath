@@ -19,7 +19,7 @@ export { CaseRepository, repairZeroAlignmentCases } from "./repositories/cases.j
 export { RunRepository, type RunFilter, type RunFinishPatch } from "./repositories/runs.js";
 export { EventRepository } from "./repositories/events.js";
 export { ArtifactRepository } from "./repositories/artifacts.js";
-export { PrdRepository } from "./repositories/prds.js";
+export { AssetRepository, parseStoredFiles, type AssetInsert, type AssetRowType, type ProtoSurface, type StoredFileRef } from "./repositories/assets.js";
 export {
   ChatSessionRepository,
   ChatMessageRepository,
@@ -34,7 +34,7 @@ import { CaseRepository } from "./repositories/cases.js";
 import { RunRepository } from "./repositories/runs.js";
 import { EventRepository } from "./repositories/events.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
-import { PrdRepository } from "./repositories/prds.js";
+import { AssetRepository } from "./repositories/assets.js";
 import { ChatSessionRepository, ChatMessageRepository } from "./repositories/chat.js";
 
 /**
@@ -48,7 +48,7 @@ export class HpathDb {
   readonly runs: RunRepository;
   readonly events: EventRepository;
   readonly artifacts: ArtifactRepository;
-  readonly prds: PrdRepository;
+  readonly assets: AssetRepository;
   readonly chatSessions: ChatSessionRepository;
   readonly chatMessages: ChatMessageRepository;
 
@@ -59,7 +59,7 @@ export class HpathDb {
     this.runs = new RunRepository(database);
     this.events = new EventRepository(database);
     this.artifacts = new ArtifactRepository(database);
-    this.prds = new PrdRepository(database);
+    this.assets = new AssetRepository(database);
     this.chatSessions = new ChatSessionRepository(database);
     this.chatMessages = new ChatMessageRepository(database);
   }

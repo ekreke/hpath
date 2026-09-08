@@ -1,5 +1,5 @@
 // Project repository (T5): CRUD over the projects table. DeleteProject
-// cascades: the projects graph (envs / cases / runs / prds) is RESTRICT by
+// cascades: the projects graph (envs / cases / runs / assets) is RESTRICT by
 // design, so removeCascade deletes children in dependency order inside one
 // transaction and reports the artifact-store keys to purge after the commit.
 
@@ -28,7 +28,7 @@ export interface CascadeDeleteResult {
   /** Artifact-store keys whose bytes should be purged after the commit. */
   artifactKeys: string[];
   /** Rows removed per child table (for logging / tests). */
-  counts: { runs: number; cases: number; envs: number; prds: number };
+  counts: { runs: number; cases: number; envs: number; assets: number };
 }
 
 export class ProjectRepository {
@@ -88,7 +88,7 @@ export class ProjectRepository {
   /**
    * Delete a project and everything under it in one transaction: runs (their
    * events + artifact records cascade), cases (alignments + changelog
-   * cascade), envs, prds, finally the project itself. Returns the artifact
+   * cascade), envs, assets, finally the project itself. Returns the artifact
    * store keys whose bytes the caller should purge best-effort after the
    * commit — the store sits outside the database, so bytes cannot be part of
    * the transaction.
@@ -103,11 +103,29 @@ export class ProjectRepository {
         )
         .all(id);
       const artifactKeys = artifactRows.map((row) => (row as { key: string }).key);
-      const prdRows = this.db
-        .prepare("SELECT content_ref FROM prds WHERE project_id = ? AND content_ref != ''")
+      // Assets store a manifest of every file the upload wrote (JSON array of
+      // {filename, key}); the legacy content_ref stays the fallback.
+      const assetRows = this.db
+        .prepare("SELECT content_ref, content_refs_json FROM assets WHERE project_id = ?")
         .all(id);
-      for (const row of prdRows) {
-        artifactKeys.push((row as { content_ref: string }).content_ref);
+      for (const row of assetRows) {
+        const typed = row as { content_ref: string; content_refs_json: string };
+        if (typed.content_refs_json) {
+          try {
+            const parsed: unknown = JSON.parse(typed.content_refs_json);
+            if (Array.isArray(parsed)) {
+              for (const entry of parsed) {
+                const key = (entry as { key?: unknown }).key;
+                if (typeof key === "string" && key !== "") artifactKeys.push(key);
+              }
+            }
+          } catch {
+            // Falls through to the content_ref fallback below.
+          }
+        }
+        if (typed.content_ref) {
+          artifactKeys.push(typed.content_ref);
+        }
       }
 
       const deleteByProject = (table: string): number => {
@@ -119,7 +137,7 @@ export class ProjectRepository {
         runs: deleteByProject("runs"),
         cases: deleteByProject("cases"),
         envs: deleteByProject("envs"),
-        prds: deleteByProject("prds"),
+        assets: deleteByProject("assets"),
       };
       const info = this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
       if (Number(info.changes) === 0) {

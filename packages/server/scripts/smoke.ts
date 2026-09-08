@@ -3,6 +3,7 @@
 
 import {
   ArtifactKind,
+  AssetType,
   CaseStatus,
   CreatorType,
   PrdFormat,
@@ -12,6 +13,7 @@ import {
   VerdictStatus,
 } from "@hpath/contract";
 import type {
+  Asset,
   Case,
   Event,
   ListCasesResponse,
@@ -177,6 +179,50 @@ async function main(): Promise<void> {
   )!;
   const blocked = await unaryError<{ caseId: string }>("deleteCase", { caseId: loginCase.id });
   assert(blocked.code === status.ALREADY_EXISTS, "deleteCase refuses cases referenced by runs");
+
+  // 12. Asset library (T22): seeded proto asset + upload/get/delete round-trip
+  const seededAssets = await unary<{ projectId: string; type: number }, { assets: Asset[] }>("listAssets", {
+    projectId: project.id,
+    type: 0,
+  });
+  assert(
+    seededAssets.assets.some((asset) => asset.type === AssetType.ASSET_TYPE_PROTO),
+    "seed carries a proto asset",
+  );
+  const standaloneProto = Buffer.from(
+    'syntax = "proto3";\npackage smoke.v1;\nmessage Ping { string msg = 1; }\nmessage Pong { string msg = 1; }\n'
+      + 'service PingService {\n  // Echo.\n  rpc Ping(Ping) returns (Pong);\n}\n',
+    "utf8",
+  );
+  const uploaded = await unary<
+    { projectId: string; type: number; files: { filename: string; content: Uint8Array }[]; entryFilename: string },
+    Asset
+  >("uploadAsset", {
+    projectId: project.id,
+    type: AssetType.ASSET_TYPE_PROTO,
+    files: [{ filename: "ping.proto", content: standaloneProto }],
+    entryFilename: "",
+  });
+  assert(uploaded.type === AssetType.ASSET_TYPE_PROTO, "uploadAsset returns the proto asset");
+  assert(
+    uploaded.apiDoc.includes("smoke.v1.PingService/Ping"),
+    "uploadAsset parsed the API doc",
+  );
+  const gotAsset = await unary<{ assetId: string }, Asset>("getAsset", { assetId: uploaded.id });
+  assert(gotAsset.apiDoc === uploaded.apiDoc, "getAsset returns the stored api doc");
+  const prdRejected = await unaryError<{
+    projectId: string; type: number; files: { filename: string; content: Uint8Array }[]; entryFilename: string;
+  }>("uploadAsset", {
+    projectId: project.id,
+    type: AssetType.ASSET_TYPE_PRD,
+    files: [{ filename: "x.md", content: Buffer.from("prd", "utf8") }],
+    entryFilename: "",
+  });
+  assert(prdRejected.code === status.INVALID_ARGUMENT, "uploadAsset rejects PRD (rides ParsePRD)");
+  await unary<{ assetId: string }, Record<string, never>>("deleteAsset", { assetId: uploaded.id });
+  const assetGone = await unaryError<{ assetId: string }>("getAsset", { assetId: uploaded.id });
+  assert(assetGone.code === status.NOT_FOUND, "deleteAsset removed the asset");
+  console.log("ok: asset upload/get/delete round-trip (seeded proto asset present)");
 
   console.log("\nSMOKE PASS: all checks green");
   process.exit(0);

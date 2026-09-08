@@ -159,7 +159,7 @@ export function toFriendlyError(err: unknown, ctx?: { command?: string; projectI
   if (/^project not found:/i.test(flat)) {
     return tagged('项目不存在或已删除，请重新选择', ERR_PROJECT_NOT_FOUND, { [ERR_RESOURCE_NOT_FOUND]: true });
   }
-  if (/^(run|case|env|artifact|project|prd|chat)\s+not found:/i.test(flat)) {
+  if (/^(run|case|env|artifact|asset|project|prd|chat)\s+not found:/i.test(flat)) {
     return tagged('资源不存在或已删除', ERR_RESOURCE_NOT_FOUND);
   }
   if (/not wired in real mode yet/i.test(flat) || /UNIMPLEMENTED/i.test(flat)) {
@@ -291,6 +291,48 @@ export function invokeParsePrd(
     format,
     contentBase64,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Asset library (T22): typed project assets. PRD uploads ride ParsePRD; proto
+// uploads are parsed server-side into the project's API surface (api_doc).
+// ---------------------------------------------------------------------------
+
+export type Asset = {
+  id: string;
+  projectId: string;
+  type: number; // AssetType: 1 PRD / 2 PROTO
+  filename: string;
+  sizeBytes: number;
+  createdAt: string;
+  contentRef: string;
+  apiDoc: string;
+  fileCount: number;
+};
+
+export const ASSET_TYPE = { PRD: 1, PROTO: 2 } as const;
+
+export type AssetFileInput = { filename: string; contentBase64: string };
+
+export function invokeUploadAsset(
+  projectId: string,
+  assetType: number,
+  files: AssetFileInput[],
+  entryFilename: string,
+): Promise<Asset> {
+  return invoke<Asset>('upload_asset', { projectId, assetType, files, entryFilename });
+}
+
+export function invokeListAssets(projectId: string, assetType = 0): Promise<Asset[]> {
+  return invoke<Asset[]>('list_assets', { projectId, assetType });
+}
+
+export function invokeGetAsset(assetId: string): Promise<Asset> {
+  return invoke<Asset>('get_asset', { assetId });
+}
+
+export function invokeDeleteAsset(assetId: string): Promise<void> {
+  return invoke<void>('delete_asset', { assetId });
 }
 
 export function invokeRunCase(

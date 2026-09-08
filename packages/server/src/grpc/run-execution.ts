@@ -33,6 +33,7 @@ import type {
 } from "@grpc/grpc-js";
 import {
   ArtifactKind,
+  AssetType,
   CaseStatus,
   RunStatus,
   RunTrigger,
@@ -63,9 +64,13 @@ import type {
   AgentRunEventPayload,
   AgentRunResult,
   EnvBinding,
+  ProjectApiSurface,
   Verdict as KernelVerdict,
 } from "../agents/types.js";
+import type { ApiMethodDoc } from "../assets/proto-doc.js";
+import { materializeProtoFiles, summarizeMethods } from "../assets/proto-doc.js";
 import { storeArtifact } from "../artifacts/artifact-index.js";
+import { readAll } from "../artifacts/stream.js";
 import type { ArtifactIndex } from "../artifacts/artifact-index.js";
 import type { ArtifactStore } from "../artifacts/store.js";
 import type { HpathDb } from "../db/index.js";
@@ -130,14 +135,85 @@ export function buildEnvBinding(env: Env): EnvBinding {
 }
 
 /** Persisted Case -> execute-agent input (its inputSchema: caseId, goal,
- * one {rule} entry per alignment). The agent decides the how; the case only
- * states what to verify. */
-export function buildRunInput(kase: Case): Record<string, unknown> {
+ * one {rule} entry per alignment) plus the project's registered API surface
+ * (T22: the prompt's global-readable interface map; "none" when the project
+ * has no proto assets). The agent decides the how; the case only states what
+ * to verify. */
+export function buildRunInput(kase: Case, apiSurface: string): Record<string, unknown> {
   return {
     caseId: kase.id,
     goal: kase.goal,
+    apiSurface,
     alignments: kase.alignments.map((alignment) => ({ rule: alignment.rule })),
   };
+}
+
+const NO_API_SURFACE = "None registered for this project: no proto assets uploaded. "
+  + "http_request stays available; gRPC endpoints may not exist.";
+
+function decodeMethodsJson(raw: string | undefined): ApiMethodDoc[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is ApiMethodDoc =>
+      typeof entry === "object" && entry !== null
+      && typeof (entry as { service?: unknown }).service === "string"
+      && typeof (entry as { method?: unknown }).method === "string");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Assemble the project's API surface (T22) for one run: union of the method
+ * manifests and markdown docs of the project's proto assets, with the raw
+ * proto bytes materialized into a per-run temp directory so grpc_call's
+ * descriptor loading resolves the project's services. Failures degrade to
+ * undefined (current behavior: deployment protos only, no hard validation) —
+ * an unreadable asset must never fail a run.
+ */
+export async function buildProjectApiSurface(
+  db: HpathDb,
+  artifactStore: ArtifactStore,
+  projectId: string,
+): Promise<ProjectApiSurface | undefined> {
+  try {
+    const protoAssets = db.assets.listByProject(projectId, AssetType.ASSET_TYPE_PROTO);
+    if (protoAssets.length === 0) return undefined;
+    const methods: ApiMethodDoc[] = [];
+    const docs: string[] = [];
+    const files: { filename: string; content: Buffer }[] = [];
+    for (const asset of protoAssets) {
+      const full = db.assets.getFull(asset.id);
+      if (!full) continue;
+      methods.push(...decodeMethodsJson(full.methodsJson));
+      if (full.apiDoc) docs.push(full.apiDoc);
+      for (const ref of full.storedFiles) {
+        // Seed fixtures reference repo-relative pseudo keys that never hit the
+        // store; getObject fails and the file is skipped with a warning.
+        try {
+          const object = await artifactStore.getObject(ref.key);
+          const body = await readAll(object.stream);
+          files.push({ filename: ref.filename, content: body });
+        } catch (err) {
+          console.warn(`[hpath-server] project proto "${ref.filename}" unreadable (${ref.key}): ${(err as Error).message}`);
+        }
+      }
+    }
+    if (methods.length === 0 && files.length === 0) return undefined;
+    const materialized = files.length > 0 ? materializeProtoFiles(files) : undefined;
+    return {
+      summary: methods.length > 0 ? summarizeMethods(methods) : NO_API_SURFACE,
+      apiDoc: docs.join("\n\n"),
+      methods,
+      protoPaths: materialized?.paths ?? [],
+      protoDir: materialized?.dir,
+    };
+  } catch (err) {
+    console.warn("[hpath-server] project API surface unavailable:", (err as Error).message);
+    return undefined;
+  }
 }
 
 function sanitizeName(raw: string): string {
@@ -419,13 +495,17 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
         const frameHub = deps.frameHubs.create(run.id);
         const bridge = new RunEventBridge(deps, run, call);
         const drainPromise = bridge.drain();
+        // Project API surface (T22): proto assets parsed + materialized for
+        // this run; the temp dir dies with the run (finally below).
+        const projectApi = await buildProjectApiSurface(deps.db, deps.artifactStore, run.projectId);
         let result: AgentRunResult;
         try {
           result = await deps.kernel.run({
             agentId: EXECUTE_AGENT_ID,
             runId: run.id,
-            input: buildRunInput(kase),
+            input: buildRunInput(kase, projectApi?.summary ?? NO_API_SURFACE),
             env: buildEnvBinding(env),
+            projectApi,
             sink: bridge.createSink(),
             frames: frameHub,
           });
@@ -433,6 +513,13 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
           bridge.settle();
           frameHub.close();
           deps.frameHubs.remove(run.id);
+          if (projectApi?.protoDir) {
+            try {
+              rmSync(projectApi.protoDir, { recursive: true, force: true });
+            } catch {
+              // A leftover temp dir is a cosmetic leak, not a run failure.
+            }
+          }
         }
         await drainPromise;
 

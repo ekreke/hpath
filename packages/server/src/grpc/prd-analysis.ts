@@ -31,6 +31,7 @@ import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
 import type { ServerWritableStream } from "@grpc/grpc-js";
 import {
+  AssetType,
   PrdFormat,
   RunStatus,
   type Case,
@@ -38,6 +39,7 @@ import {
   type ParsePRDRequest,
   type Prd,
 } from "@hpath/contract";
+import type { StoredFileRef } from "../db/repositories/assets.js";
 import { ANALYZE_AGENT_ID } from "../agents/analyze-agent.js";
 import { MAX_PRD_BYTES, prdFormatFromFilename, type PrdFormat as IngestFormat } from "../agents/prd.js";
 import type { AgentRunEvent, EnvBinding } from "../agents/types.js";
@@ -113,27 +115,44 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
           );
         }
 
-        // --- persist the PRD (bytes -> store, metadata -> SQLite) ----
-        const prd: Prd = {
-          id: randomUUID(),
-          projectId: req.projectId,
-          filename: req.filename,
-          format: protoFormat(format),
-          sizeBytes: req.content.byteLength,
-          createdAt: new Date().toISOString(),
-          contentRef: "",
-        };
+        // --- persist the asset (bytes -> store, metadata -> SQLite) ----
+        // Since T22 the asset library is the single storage table (type prd);
+        // the stream still carries the Prd message shape (contract parity).
+        const now = new Date().toISOString();
+        let contentRef = "";
+        const storedFiles: StoredFileRef[] = [];
         const body = Buffer.from(req.content);
         try {
           const key = prdKey(req.projectId, req.filename);
           await deps.artifactStore.putObject(key, body);
-          prd.contentRef = key;
+          contentRef = key;
+          storedFiles.push({ filename: req.filename, key });
         } catch (err) {
           // Best-effort upload: the analysis still proceeds, only the raw
           // bytes lose their storage reference.
           console.error("[hpath-server] PRD upload failed, content_ref left empty:", err);
         }
-        deps.db.prds.insert(prd);
+        deps.db.assets.insert({
+          id: randomUUID(),
+          projectId: req.projectId,
+          type: AssetType.ASSET_TYPE_PRD,
+          filename: req.filename,
+          sizeBytes: body.byteLength,
+          createdAt: now,
+          contentRef,
+          apiDoc: "",
+          fileCount: 0,
+          storedFiles,
+        });
+        const prd: Prd = {
+          id: "", // stamped below after the insert (the repository owns the row)
+          projectId: req.projectId,
+          filename: req.filename,
+          format: protoFormat(format),
+          sizeBytes: body.byteLength,
+          createdAt: now,
+          contentRef,
+        };
         if (!call.cancelled) {
           call.write({ prdRegistered: { prd } });
         }

@@ -3,7 +3,7 @@
 // agents via AgentDefinition.toolBindings.
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { EnvBinding, Verdict } from "./types.js";
+import type { EnvBinding, ProjectApiSurface, Verdict } from "./types.js";
 import type { AgentEventSink } from "./events.js";
 import type { RunFrameHub } from "./frames.js";
 import type { VerdictChannel } from "./verdict.js";
@@ -17,6 +17,13 @@ export interface ToolContext {
   env: EnvBinding;
   /** Validated run input. */
   input: unknown;
+  /**
+   * Project API surface (T22): the project's proto assets parsed into a
+   * method allowlist + docs. Present only when the project has proto assets;
+   * the api-docs provider materializes no tools without it and the grpc
+   * provider's hard validation is inactive without it.
+   */
+  projectApi?: ProjectApiSurface;
   /** Event pipe for tool-side recording (screenshots, request records, ...). */
   events: AgentEventSink;
   /**

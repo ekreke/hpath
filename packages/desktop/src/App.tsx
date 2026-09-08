@@ -7,7 +7,7 @@ import CasesView from './views/CasesView';
 import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
 import HistoryView from './views/HistoryView';
-import PrdView from './views/PrdView';
+import AssetView from './views/AssetView';
 import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
 import {
@@ -283,7 +283,7 @@ function App() {
                     />
                   )}
                   {projectTab === 'prd' && (
-                    <PrdView
+                    <AssetView
                       projectId={selectedProjectId}
                       onDraftsCreated={refreshEnvs}
                       onToast={onToast}

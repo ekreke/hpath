@@ -226,6 +226,40 @@ export const MIGRATIONS: readonly Migration[] = [
       SET agent_timeout_min = CAST(CEIL(agent_timeout_min / 60000.0) AS INTEGER);
     `,
   },
+  {
+    name: "0007_assets",
+    sql: `
+      -- T22 asset library: PRD documents and proto bundles (parsed into the
+      -- project's API surface) share one table. type is 'prd' | 'proto';
+      -- api_doc holds the rendered markdown API surface of a proto bundle
+      -- (empty for PRDs); methods_json its structured method list. content_ref
+      -- carries the entry file's storage key; content_refs_json the full
+      -- manifest of the upload's stored files (JSON array of
+      -- {filename, key}, used by the run path to materialize the protos).
+      CREATE TABLE assets (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id),
+        type              TEXT NOT NULL,
+        filename          TEXT NOT NULL,
+        size_bytes        INTEGER NOT NULL DEFAULT 0,
+        created_at        TEXT NOT NULL,
+        content_ref       TEXT NOT NULL DEFAULT '',
+        content_refs_json TEXT NOT NULL DEFAULT '',
+        api_doc           TEXT NOT NULL DEFAULT '',
+        methods_json      TEXT NOT NULL DEFAULT ''
+      );
+
+      -- Migrate the write-only PRD rows; api_doc/methods stay empty (PRDs
+      -- have no API surface). The old prds table is then dropped: its only
+      -- writer (ParsePRD) now inserts here.
+      INSERT INTO assets (id, project_id, type, filename, size_bytes, created_at, content_ref)
+        SELECT id, project_id, 'prd', filename, size_bytes, created_at, content_ref FROM prds;
+      DROP TABLE prds;
+
+      CREATE INDEX idx_assets_project ON assets(project_id);
+      CREATE INDEX idx_assets_project_type ON assets(project_id, type);
+    `,
+  },
 ];
 
 function nowIso(): string {

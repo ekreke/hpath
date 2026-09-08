@@ -6,9 +6,9 @@ import { describe, it } from "node:test";
 import type { Event } from "@hpath/contract";
 import {
   ArtifactKind,
+  AssetType,
   CaseStatus,
   CreatorType,
-  PrdFormat,
   ReviewAction,
   RunStatus,
   RunTrigger,
@@ -114,14 +114,17 @@ describe("ProjectRepository", () => {
         sha256: "cafebabe",
         createdAt: new Date().toISOString(),
       });
-      db.prds.insert({
+      db.assets.insert({
         id: "prd-1",
         projectId: project.id,
+        type: AssetType.ASSET_TYPE_PRD,
         filename: "payment.md",
-        format: PrdFormat.PRD_FORMAT_MD,
         sizeBytes: 100,
         createdAt: new Date().toISOString(),
         contentRef: "prds/payment.md",
+        apiDoc: "",
+        fileCount: 0,
+        storedFiles: [],
       });
       // A sibling project must survive the cascade untouched.
       const sibling = makeProject();
@@ -135,12 +138,12 @@ describe("ProjectRepository", () => {
 
       assert.ok(result.artifactKeys.includes(artifactKey));
       assert.ok(result.artifactKeys.includes("prds/payment.md"));
-      assert.deepEqual(result.counts, { runs: 1, cases: 1, envs: 1, prds: 1 });
+      assert.deepEqual(result.counts, { runs: 1, cases: 1, envs: 1, assets: 1 });
       assert.equal(db.projects.get(project.id), undefined);
       assert.equal(db.envs.get(env.id), undefined);
       assert.equal(db.cases.get(kase.id), undefined);
       assert.equal(db.runs.get(run.id), undefined);
-      assert.equal(db.prds.get("prd-1"), undefined);
+      assert.equal(db.assets.get("prd-1"), undefined);
       // Cascade rows hang off the run and must be gone too.
       assert.equal(db.artifacts.get("art-1"), undefined);
       assert.ok(db.projects.exists(sibling.id));
@@ -849,8 +852,8 @@ describe("ArtifactRepository", () => {
   });
 });
 
-describe("PrdRepository", () => {
-  it("round-trips a PRD and lists per project", () => {
+describe("AssetRepository", () => {
+  it("round-trips a PRD asset and lists per project", () => {
     const db = HpathDb.inMemory();
     try {
       const p1 = makeProject();
@@ -860,19 +863,95 @@ describe("PrdRepository", () => {
       const prd = {
         id: "prd-1",
         projectId: p1.id,
+        type: AssetType.ASSET_TYPE_PRD,
         filename: "payment.md",
-        format: PrdFormat.PRD_FORMAT_MD,
         sizeBytes: 2048,
         createdAt: "2026-01-01T00:00:00.000Z",
         contentRef: "artifacts/p/prds/payment.md",
+        apiDoc: "",
+        fileCount: 0,
+        storedFiles: [{ filename: "payment.md", key: "artifacts/p/prds/payment.md" }],
       };
-      db.prds.insert(prd);
-      db.prds.insert({ ...prd, id: "prd-2", projectId: p2.id });
+      db.assets.insert(prd);
+      db.assets.insert({ ...prd, id: "prd-2", projectId: p2.id });
 
-      assert.deepEqual(db.prds.getRequired("prd-1"), prd);
-      assert.deepEqual(db.prds.listByProject(p1.id), [prd]);
-      assert.deepEqual(db.prds.listByProject(p2.id).map((p) => p.id), ["prd-2"]);
-      assert.throws(() => db.prds.getRequired("missing"), NotFoundError);
+      assert.equal(db.assets.getRequired("prd-1").filename, prd.filename);
+      assert.equal(db.assets.listByProject(p1.id).length, 1);
+      assert.deepEqual(db.assets.listByProject(p2.id).map((p) => p.id), ["prd-2"]);
+      assert.throws(() => db.assets.getRequired("missing"), NotFoundError);
+
+      // Manifest round-trip + delete returns the stored-file refs for purge.
+      const full = db.assets.getFull("prd-1");
+      assert.deepEqual(full?.storedFiles, prd.storedFiles);
+      assert.deepEqual(db.assets.remove("prd-1"), prd.storedFiles);
+      assert.equal(db.assets.get("prd-1"), undefined);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("round-trips a proto asset with its parsed API surface", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      const methods = [
+        {
+          service: "demo.v1.BalanceService",
+          method: "GetBalance",
+          request: "demo.v1.GetBalanceRequest",
+          response: "demo.v1.GetBalanceResponse",
+          comment: "Get the balance.",
+          doc: "### demo.v1.BalanceService/GetBalance",
+        },
+      ];
+      const proto = {
+        id: "proto-1",
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PROTO,
+        filename: "balance.proto",
+        sizeBytes: 500,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        contentRef: "artifacts/p/-/asset/proto-1/balance.proto",
+        apiDoc: "# API surface",
+        fileCount: 0,
+        methodsJson: JSON.stringify(methods),
+        storedFiles: [{ filename: "balance.proto", key: "artifacts/p/-/asset/proto-1/balance.proto" }],
+      };
+      db.assets.insert(proto);
+
+      // Type filter: only the proto asset matches.
+      assert.deepEqual(db.assets.listByProject(project.id, AssetType.ASSET_TYPE_PROTO).map((a) => a.id), ["proto-1"]);
+      assert.deepEqual(db.assets.listByProject(project.id, AssetType.ASSET_TYPE_PRD).map((a) => a.id), []);
+
+      const full = db.assets.getFull("proto-1");
+      assert.equal(full?.apiDoc, "# API surface");
+      assert.equal(full?.methodsJson, proto.methodsJson);
+      assert.equal(db.assets.get("proto-1")?.fileCount, 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects assets for unknown projects with ForeignKeyError", () => {
+    const db = HpathDb.inMemory();
+    try {
+      assert.throws(
+        () =>
+          db.assets.insert({
+            id: "asset-x",
+            projectId: "no-such-project",
+            type: AssetType.ASSET_TYPE_PRD,
+            filename: "payment.md",
+            sizeBytes: 1,
+            createdAt: new Date().toISOString(),
+            contentRef: "",
+            apiDoc: "",
+            fileCount: 0,
+            storedFiles: [],
+          }),
+        ForeignKeyError,
+      );
     } finally {
       db.close();
     }

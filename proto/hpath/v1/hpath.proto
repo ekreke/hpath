@@ -77,6 +77,15 @@ enum PrdFormat {
   PRD_FORMAT_PDF = 3;
 }
 
+// Kind of a project asset (T22 asset library). PRD assets ride the ParsePRD
+// analyze flow; proto assets are parsed into the project's API surface that
+// its agents can read and that hard-validates grpc_call.
+enum AssetType {
+  ASSET_TYPE_UNSPECIFIED = 0;
+  ASSET_TYPE_PRD = 1;
+  ASSET_TYPE_PROTO = 2;
+}
+
 // Kind of binary evidence attached to a run.
 enum ArtifactKind {
   ARTIFACT_KIND_UNSPECIFIED = 0;
@@ -318,6 +327,58 @@ message Prd {
   int32 size_bytes = 5;
   string created_at = 6;  // ISO-8601
   string content_ref = 7; // storage key, empty when content stays in memory (mock)
+}
+
+// A project asset (T22 asset library). One asset = one upload: a PRD document
+// (single file) or a proto bundle (one or more .proto files parsed into the
+// project's API surface).
+message Asset {
+  string id = 1;
+  string project_id = 2;
+  AssetType type = 3;
+  string filename = 4;    // display name: the PRD file or the proto entry file
+  int32 size_bytes = 5;   // total bytes of all files in the upload
+  string created_at = 6;  // ISO-8601
+  string content_ref = 7; // storage key prefix of the stored bytes ("" in mock)
+  // API surface of a proto asset: pre-rendered markdown document
+  // (services / methods / message fields), empty for PRD assets.
+  string api_doc = 8;
+  int32 file_count = 9; // number of files in the upload (1 for PRDs)
+}
+
+// One file of an UploadAsset request.
+message AssetFile {
+  string filename = 1; // base name only (e.g. "balance.proto"), no directories
+  bytes content = 2;
+}
+
+message UploadAssetRequest {
+  string project_id = 1;
+  AssetType type = 2; // ASSET_TYPE_PRD or ASSET_TYPE_PROTO
+  // PRD: exactly one file. PROTO: one or more files (the bundle, imports
+  // resolved among them).
+  repeated AssetFile files = 3;
+  // Proto bundles only: the entry file's filename. Optional — when omitted the
+  // server infers it as the file no other uploaded file imports; an ambiguous
+  // bundle fails with INVALID_ARGUMENT unless this field names the entry.
+  string entry_filename = 4;
+}
+
+message GetAssetRequest {
+  string asset_id = 1;
+}
+
+message DeleteAssetRequest {
+  string asset_id = 1;
+}
+
+message ListAssetsRequest {
+  string project_id = 1;
+  AssetType type = 2; // UNSPECIFIED = all types
+}
+
+message ListAssetsResponse {
+  repeated Asset assets = 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +664,21 @@ service Hpath {
   // Upload a PRD and run the analyze agent. Streams progress; the created
   // pending drafts become visible via ListCases.
   rpc ParsePRD(ParsePRDRequest) returns (stream ParseEvent);
+
+  // Upload a project asset (T22 asset library). PRD uploads ride ParsePRD
+  // (INVALID_ARGUMENT here); PROTO uploads are parsed server-side into the
+  // project's API surface (Asset.api_doc) that its agents read globally and
+  // that hard-validates grpc_call. Parse failures fail with INVALID_ARGUMENT
+  // carrying the offending file and line. Unknown project: NOT_FOUND.
+  rpc UploadAsset(UploadAssetRequest) returns (Asset);
+  // Assets of a project, oldest first; UNSPECIFIED type lists all.
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse);
+  // One asset including its parsed api_doc (empty for PRDs). Unknown id:
+  // NOT_FOUND.
+  rpc GetAsset(GetAssetRequest) returns (Asset);
+  // Deletes an asset and best-effort purges its stored bytes (no refcount:
+  // cases reference PRDs by traceability string only).
+  rpc DeleteAsset(DeleteAssetRequest) returns (Empty);
 
   rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
   rpc GetCase(GetCaseRequest) returns (Case);

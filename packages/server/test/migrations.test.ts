@@ -17,7 +17,7 @@ const EXPECTED_TABLES = [
   "runs",
   "events",
   "artifacts",
-  "prds",
+  "assets",
   "chat_sessions",
   "chat_messages",
 ];

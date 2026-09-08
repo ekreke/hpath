@@ -3,13 +3,13 @@
 
 import type {
   Artifact,
+  Asset,
   Case,
   ChatMessage,
   ChatSession,
   Env,
   Event,
   Project,
-  Prd,
   Run,
 } from "@hpath/contract";
 
@@ -24,7 +24,8 @@ export interface MockStore {
   artifacts: Map<string, Artifact>;
   /** artifact id -> bytes */
   artifactData: Map<string, Uint8Array>;
-  prds: Map<string, Prd>;
+  /** Uploaded assets (T22 asset library): PRDs and proto bundles. */
+  assets: Map<string, Asset>;
   /** Chat conversations; mock mirrors the real mode's SQLite persistence in memory. */
   chatSessions: Map<string, ChatSession>;
   chatMessages: Map<string, ChatMessage>;
@@ -41,7 +42,7 @@ export function createMockStore(): MockStore {
     events: new Map(),
     artifacts: new Map(),
     artifactData: new Map(),
-    prds: new Map(),
+    assets: new Map(),
     chatSessions: new Map(),
     chatMessages: new Map(),
     settings: { providerConfigJson: JSON.stringify(SEED_PROVIDER_JSON, null, 2), defaultModel: "glm-5.3-flash" },

@@ -7,6 +7,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { RunStatus } from "@hpath/contract";
 import type { PendingRunArtifact } from "./evidence.js";
+import type { ApiMethodDoc } from "../assets/proto-doc.js";
 
 /** Wall-clock and budget caps for a single agent run, enforced by the kernel. */
 export interface HardLimits {
@@ -49,6 +50,26 @@ export interface AgentDefinition {
    * this schema before the run may succeed.
    */
   outputSchema: JsonSchemaValue;
+}
+
+/**
+ * The project's registered API surface (T22): proto assets parsed into a
+ * method allowlist plus documentation. Flows into runs through
+ * RunAgentInput.projectApi -> ToolContext.projectApi so providers (the
+ * api-docs reader, the grpc_call hard validation, the per-run proto
+ * descriptor paths) see exactly this project's definitions.
+ */
+export interface ProjectApiSurface {
+  /** Compact one-line-per-method list for the system prompt (truncation applied). */
+  summary: string;
+  /** Full markdown API document (GetAsset parity, empty when unavailable). */
+  apiDoc: string;
+  /** Parsed methods — the grpc_call hard-validation allowlist. */
+  methods: ApiMethodDoc[];
+  /** Per-run materialized proto file paths (grpc_call descriptor loading). */
+  protoPaths: string[];
+  /** Temp dir holding protoPaths; the caller removes it after the run. */
+  protoDir?: string;
 }
 
 /** Plain JSON Schema value (subset supported by ./schema.ts). */

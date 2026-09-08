@@ -3,7 +3,7 @@
 // stub kernel (scripted events, no LLM/browser) and a local artifact store.
 
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import { status } from "@grpc/grpc-js";
 import type { ServerWritableStream } from "@grpc/grpc-js";
 import {
   ArtifactKind,
+  AssetType,
   CaseStatus,
   CreatorType,
   RunStatus,
@@ -29,6 +30,7 @@ import type {
   AgentRunEventPayload,
   AgentRunResult,
 } from "../src/agents/types.js";
+import { parseProtoBundle } from "../src/assets/proto-doc.js";
 import { LocalArtifactStore } from "../src/artifacts/store.js";
 import { readAll } from "../src/artifacts/store.js";
 import { ArtifactIndex } from "../src/artifacts/artifact-index.js";
@@ -36,6 +38,7 @@ import { HpathDb } from "../src/db/index.js";
 import { RunFrameHubRegistry } from "../src/agents/frames.js";
 import {
   buildEnvBinding,
+  buildProjectApiSurface,
   buildRunInput,
   createDownloadArtifactHandler,
   createGetRunHandler,
@@ -134,26 +137,30 @@ describe("buildEnvBinding / buildRunInput", () => {
     assert.equal(noLimits.agentLimits, undefined);
   });
 
-  it("builds the execute-agent input from the case definition", () => {
-    const input = buildRunInput({
-      id: "c1",
-      projectId: "p1",
-      title: "Login",
-      goal: "Login works end to end",
-      alignments: [
-        { apiPath: "/api/balance", uiAnchor: "card", rule: "balance equals the seeded value" },
-      ],
-      creator: { type: CreatorType.CREATOR_TYPE_AGENT, name: "test", runRef: "" },
-      status: CaseStatus.CASE_STATUS_APPROVED,
-      sourcePrdRef: "",
-      version: 1,
-      changelog: [],
-      createdAt: "",
-      updatedAt: "",
-    });
+  it("builds the execute-agent input from the case definition + API surface", () => {
+    const input = buildRunInput(
+      {
+        id: "c1",
+        projectId: "p1",
+        title: "Login",
+        goal: "Login works end to end",
+        alignments: [
+          { apiPath: "/api/balance", uiAnchor: "card", rule: "balance equals the seeded value" },
+        ],
+        creator: { type: CreatorType.CREATOR_TYPE_AGENT, name: "test", runRef: "" },
+        status: CaseStatus.CASE_STATUS_APPROVED,
+        sourcePrdRef: "",
+        version: 1,
+        changelog: [],
+        createdAt: "",
+        updatedAt: "",
+      },
+      "demo.v1.BalanceService/GetBalance(demo.v1.GetBalanceRequest) -> demo.v1.GetBalanceResponse",
+    );
     assert.deepEqual(input, {
       caseId: "c1",
       goal: "Login works end to end",
+      apiSurface: "demo.v1.BalanceService/GetBalance(demo.v1.GetBalanceRequest) -> demo.v1.GetBalanceResponse",
       alignments: [{ rule: "balance equals the seeded value" }],
     });
   });
@@ -282,6 +289,191 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// buildProjectApiSurface (T22)
+// ---------------------------------------------------------------------------
+
+const T22_BALANCE_PROTO = `syntax = "proto3";
+package demo.v1;
+service BalanceService {
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
+message GetBalanceRequest { string account_id = 1; }
+message GetBalanceResponse { string balance = 1; }
+`;
+
+describe("buildProjectApiSurface", () => {
+  it("returns undefined for a project without proto assets", async () => {
+    const db = HpathDb.inMemory();
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const { project } = seedWorld(db);
+      assert.equal(await buildProjectApiSurface(deps.db, deps.artifactStore, project.id), undefined);
+    } finally {
+      db.close();
+      cleanup();
+    }
+  });
+
+  it("unions method manifests and materializes stored proto bytes for the run", async () => {
+    const db = HpathDb.inMemory();
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const { project } = seedWorld(db);
+      const bundle = parseProtoBundle([{ filename: "balance.proto", content: T22_BALANCE_PROTO }]);
+      db.assets.insert({
+        id: randomUUID(),
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PROTO,
+        filename: "balance.proto",
+        sizeBytes: T22_BALANCE_PROTO.length,
+        createdAt: new Date().toISOString(),
+        contentRef: "",
+        apiDoc: bundle.apiDoc,
+        methodsJson: JSON.stringify(bundle.methods),
+        fileCount: 0,
+        storedFiles: [],
+      });
+      // A second asset whose methods ride the union; its bytes point at an
+      // unreadable store key and must degrade to a warning, not a failure.
+      db.assets.insert({
+        id: randomUUID(),
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PROTO,
+        filename: "extra.proto",
+        sizeBytes: 1,
+        createdAt: new Date().toISOString(),
+        contentRef: "",
+        apiDoc: "",
+        methodsJson: JSON.stringify([
+          { service: "x.v1.Extra", method: "Do", request: "x.v1.R", response: "x.v1.P", comment: "", doc: "" },
+        ]),
+        fileCount: 0,
+        storedFiles: [{ filename: "extra.proto", key: "artifacts/nowhere/extra.proto" }],
+      });
+
+      const surface = await buildProjectApiSurface(deps.db, deps.artifactStore, project.id);
+      assert.ok(surface, "surface present");
+      assert.equal(surface!.methods.length, 2, "union of both manifests");
+      assert.ok(surface!.summary.includes("demo.v1.BalanceService/GetBalance"));
+      assert.ok(surface!.summary.includes("x.v1.Extra/Do"));
+      // No readable bytes -> no materialization, no throw.
+      assert.deepEqual(surface!.protoPaths, []);
+    } finally {
+      db.close();
+      cleanup();
+    }
+  });
+
+  it("materializes stored proto bytes into a temp dir for grpc_call", async () => {
+    const db = HpathDb.inMemory();
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const { project } = seedWorld(db);
+      const bundle = parseProtoBundle([{ filename: "balance.proto", content: T22_BALANCE_PROTO }]);
+      const key = `artifacts/${project.id}/-/asset/a1/balance.proto`;
+      await deps.artifactStore.putObject(key, Buffer.from(T22_BALANCE_PROTO, "utf8"));
+      db.assets.insert({
+        id: randomUUID(),
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PROTO,
+        filename: "balance.proto",
+        sizeBytes: T22_BALANCE_PROTO.length,
+        createdAt: new Date().toISOString(),
+        contentRef: key,
+        apiDoc: bundle.apiDoc,
+        methodsJson: JSON.stringify(bundle.methods),
+        fileCount: 0,
+        storedFiles: [{ filename: "balance.proto", key }],
+      });
+
+      const surface = await buildProjectApiSurface(deps.db, deps.artifactStore, project.id);
+      assert.ok(surface);
+      assert.equal(surface!.protoPaths.length, 1);
+      assert.ok(existsSync(surface!.protoPaths[0]!), "proto bytes on disk");
+      if (surface!.protoDir) rmSync(surface!.protoDir, { recursive: true, force: true });
+    } finally {
+      db.close();
+      cleanup();
+    }
+  });
+
+  it("runCase handler injects apiSurface + projectApi into the kernel run", async () => {
+    const db = HpathDb.inMemory();
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const { project, env, kase } = seedWorld(db);
+      const bundle = parseProtoBundle([{ filename: "balance.proto", content: T22_BALANCE_PROTO }]);
+      const key = `artifacts/${project.id}/-/asset/a1/balance.proto`;
+      await deps.artifactStore.putObject(key, Buffer.from(T22_BALANCE_PROTO, "utf8"));
+      db.assets.insert({
+        id: randomUUID(),
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PROTO,
+        filename: "balance.proto",
+        sizeBytes: T22_BALANCE_PROTO.length,
+        createdAt: new Date().toISOString(),
+        contentRef: key,
+        apiDoc: bundle.apiDoc,
+        methodsJson: JSON.stringify(bundle.methods),
+        fileCount: 0,
+        storedFiles: [{ filename: "balance.proto", key }],
+      });
+
+      let captured: { input?: unknown; projectApi?: unknown } = {};
+      let protoPathDuringRun = "";
+      const capturingKernel = {
+        run: async (runOptions: { runId: string; input: unknown; projectApi?: unknown; sink?: AgentEventSink }) => {
+          captured = { input: runOptions.input, projectApi: runOptions.projectApi };
+          // The surface is still materialized while the run executes.
+          const api = runOptions.projectApi as { protoPaths: string[] } | undefined;
+          protoPathDuringRun = api?.protoPaths[0] ?? "";
+          assert.ok(existsSync(protoPathDuringRun), "proto bytes on disk during the run");
+          const sink: AgentEventSink = runOptions.sink ?? new InMemoryEventSink({ runId: runOptions.runId });
+          sink.append({
+            kind: "verdict",
+            verdict: { status: "pass", summary: "ok", alignments: [{ rule: "r", api: "a", ui: "u", match: true }] },
+          });
+          return {
+            runId: runOptions.runId,
+            agentId: "execute-agent",
+            status: RunStatus.RUN_STATUS_PASSED,
+            verdict: { status: "pass", summary: "ok", alignments: [{ rule: "r", api: "a", ui: "u", match: true }] },
+            failReason: "",
+            tokenCost: 1,
+            startedAt: "2026-01-01T00:00:00.000Z",
+            finishedAt: "2026-01-01T00:00:01.000Z",
+            durationMs: 1000,
+            events: sink.events(),
+            pendingArtifacts: [],
+          };
+        },
+      } as unknown as AgentKernel;
+
+      const handler = createRunCaseHandler({ ...deps, kernel: capturingKernel });
+      const stream = fakeStream({
+        projectId: project.id,
+        envId: env.id,
+        caseId: kase.id,
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the stream to end");
+
+      const input = captured.input as { apiSurface?: string };
+      assert.ok(input.apiSurface?.includes("demo.v1.BalanceService/GetBalance"), "apiSurface in run input");
+      const api = captured.projectApi as { methods: { service: string }[]; protoPaths: string[]; protoDir?: string };
+      assert.equal(api.methods.length, 1);
+      assert.ok(protoPathDuringRun.length > 0, "proto path captured during the run");
+      assert.equal(existsSync(protoPathDuringRun), false, "materialized dir removed after the run settled");
+      assert.ok(api.protoDir);
+    } finally {
+      db.close();
+      cleanup();
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // runCase handler

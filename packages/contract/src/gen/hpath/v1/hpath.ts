@@ -269,6 +269,50 @@ export function prdFormatToJSON(object: PrdFormat): string {
   }
 }
 
+/**
+ * Kind of a project asset (T22 asset library). PRD assets ride the ParsePRD
+ * analyze flow; proto assets are parsed into the project's API surface that
+ * its agents can read and that hard-validates grpc_call.
+ */
+export enum AssetType {
+  ASSET_TYPE_UNSPECIFIED = 0,
+  ASSET_TYPE_PRD = 1,
+  ASSET_TYPE_PROTO = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function assetTypeFromJSON(object: any): AssetType {
+  switch (object) {
+    case 0:
+    case "ASSET_TYPE_UNSPECIFIED":
+      return AssetType.ASSET_TYPE_UNSPECIFIED;
+    case 1:
+    case "ASSET_TYPE_PRD":
+      return AssetType.ASSET_TYPE_PRD;
+    case 2:
+    case "ASSET_TYPE_PROTO":
+      return AssetType.ASSET_TYPE_PROTO;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return AssetType.UNRECOGNIZED;
+  }
+}
+
+export function assetTypeToJSON(object: AssetType): string {
+  switch (object) {
+    case AssetType.ASSET_TYPE_UNSPECIFIED:
+      return "ASSET_TYPE_UNSPECIFIED";
+    case AssetType.ASSET_TYPE_PRD:
+      return "ASSET_TYPE_PRD";
+    case AssetType.ASSET_TYPE_PROTO:
+      return "ASSET_TYPE_PROTO";
+    case AssetType.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /** Kind of binary evidence attached to a run. */
 export enum ArtifactKind {
   ARTIFACT_KIND_UNSPECIFIED = 0,
@@ -732,6 +776,74 @@ export interface Prd {
   createdAt: string;
   /** storage key, empty when content stays in memory (mock) */
   contentRef: string;
+}
+
+/**
+ * A project asset (T22 asset library). One asset = one upload: a PRD document
+ * (single file) or a proto bundle (one or more .proto files parsed into the
+ * project's API surface).
+ */
+export interface Asset {
+  id: string;
+  projectId: string;
+  type: AssetType;
+  /** display name: the PRD file or the proto entry file */
+  filename: string;
+  /** total bytes of all files in the upload */
+  sizeBytes: number;
+  /** ISO-8601 */
+  createdAt: string;
+  /** storage key prefix of the stored bytes ("" in mock) */
+  contentRef: string;
+  /**
+   * API surface of a proto asset: pre-rendered markdown document
+   * (services / methods / message fields), empty for PRD assets.
+   */
+  apiDoc: string;
+  /** number of files in the upload (1 for PRDs) */
+  fileCount: number;
+}
+
+/** One file of an UploadAsset request. */
+export interface AssetFile {
+  /** base name only (e.g. "balance.proto"), no directories */
+  filename: string;
+  content: Buffer;
+}
+
+export interface UploadAssetRequest {
+  projectId: string;
+  /** ASSET_TYPE_PRD or ASSET_TYPE_PROTO */
+  type: AssetType;
+  /**
+   * PRD: exactly one file. PROTO: one or more files (the bundle, imports
+   * resolved among them).
+   */
+  files: AssetFile[];
+  /**
+   * Proto bundles only: the entry file's filename. Optional — when omitted the
+   * server infers it as the file no other uploaded file imports; an ambiguous
+   * bundle fails with INVALID_ARGUMENT unless this field names the entry.
+   */
+  entryFilename: string;
+}
+
+export interface GetAssetRequest {
+  assetId: string;
+}
+
+export interface DeleteAssetRequest {
+  assetId: string;
+}
+
+export interface ListAssetsRequest {
+  projectId: string;
+  /** UNSPECIFIED = all types */
+  type: AssetType;
+}
+
+export interface ListAssetsResponse {
+  assets: Asset[];
 }
 
 export interface ListProjectsResponse {
@@ -4529,6 +4641,749 @@ export const Prd: MessageFns<Prd> = {
     message.sizeBytes = object.sizeBytes ?? 0;
     message.createdAt = object.createdAt ?? "";
     message.contentRef = object.contentRef ?? "";
+    return message;
+  },
+};
+
+function createBaseAsset(): Asset {
+  return {
+    id: "",
+    projectId: "",
+    type: 0,
+    filename: "",
+    sizeBytes: 0,
+    createdAt: "",
+    contentRef: "",
+    apiDoc: "",
+    fileCount: 0,
+  };
+}
+
+export const Asset: MessageFns<Asset> = {
+  encode(message: Asset, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.projectId !== "") {
+      writer.uint32(18).string(message.projectId);
+    }
+    if (message.type !== 0) {
+      writer.uint32(24).int32(message.type);
+    }
+    if (message.filename !== "") {
+      writer.uint32(34).string(message.filename);
+    }
+    if (message.sizeBytes !== 0) {
+      writer.uint32(40).int32(message.sizeBytes);
+    }
+    if (message.createdAt !== "") {
+      writer.uint32(50).string(message.createdAt);
+    }
+    if (message.contentRef !== "") {
+      writer.uint32(58).string(message.contentRef);
+    }
+    if (message.apiDoc !== "") {
+      writer.uint32(66).string(message.apiDoc);
+    }
+    if (message.fileCount !== 0) {
+      writer.uint32(72).int32(message.fileCount);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Asset {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAsset();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.id = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.type = reader.int32() as any;
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.filename = reader.string();
+            continue;
+          }
+          case 5: {
+            if (tag !== 40) {
+              break;
+            }
+
+            message.sizeBytes = reader.int32();
+            continue;
+          }
+          case 6: {
+            if (tag !== 50) {
+              break;
+            }
+
+            message.createdAt = reader.string();
+            continue;
+          }
+          case 7: {
+            if (tag !== 58) {
+              break;
+            }
+
+            message.contentRef = reader.string();
+            continue;
+          }
+          case 8: {
+            if (tag !== 66) {
+              break;
+            }
+
+            message.apiDoc = reader.string();
+            continue;
+          }
+          case 9: {
+            if (tag !== 72) {
+              break;
+            }
+
+            message.fileCount = reader.int32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): Asset {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      type: isSet(object.type) ? assetTypeFromJSON(object.type) : 0,
+      filename: isSet(object.filename) ? globalThis.String(object.filename) : "",
+      sizeBytes: isSet(object.sizeBytes)
+        ? globalThis.Number(object.sizeBytes)
+        : isSet(object.size_bytes)
+        ? globalThis.Number(object.size_bytes)
+        : 0,
+      createdAt: isSet(object.createdAt)
+        ? globalThis.String(object.createdAt)
+        : isSet(object.created_at)
+        ? globalThis.String(object.created_at)
+        : "",
+      contentRef: isSet(object.contentRef)
+        ? globalThis.String(object.contentRef)
+        : isSet(object.content_ref)
+        ? globalThis.String(object.content_ref)
+        : "",
+      apiDoc: isSet(object.apiDoc)
+        ? globalThis.String(object.apiDoc)
+        : isSet(object.api_doc)
+        ? globalThis.String(object.api_doc)
+        : "",
+      fileCount: isSet(object.fileCount)
+        ? globalThis.Number(object.fileCount)
+        : isSet(object.file_count)
+        ? globalThis.Number(object.file_count)
+        : 0,
+    };
+  },
+
+  toJSON(message: Asset): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.type !== 0) {
+      obj.type = assetTypeToJSON(message.type);
+    }
+    if (message.filename !== "") {
+      obj.filename = message.filename;
+    }
+    if (message.sizeBytes !== 0) {
+      obj.sizeBytes = Math.round(message.sizeBytes);
+    }
+    if (message.createdAt !== "") {
+      obj.createdAt = message.createdAt;
+    }
+    if (message.contentRef !== "") {
+      obj.contentRef = message.contentRef;
+    }
+    if (message.apiDoc !== "") {
+      obj.apiDoc = message.apiDoc;
+    }
+    if (message.fileCount !== 0) {
+      obj.fileCount = Math.round(message.fileCount);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Asset>, I>>(base?: I): Asset {
+    return Asset.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Asset>, I>>(object: I): Asset {
+    const message = createBaseAsset();
+    message.id = object.id ?? "";
+    message.projectId = object.projectId ?? "";
+    message.type = object.type ?? 0;
+    message.filename = object.filename ?? "";
+    message.sizeBytes = object.sizeBytes ?? 0;
+    message.createdAt = object.createdAt ?? "";
+    message.contentRef = object.contentRef ?? "";
+    message.apiDoc = object.apiDoc ?? "";
+    message.fileCount = object.fileCount ?? 0;
+    return message;
+  },
+};
+
+function createBaseAssetFile(): AssetFile {
+  return { filename: "", content: Buffer.alloc(0) };
+}
+
+export const AssetFile: MessageFns<AssetFile> = {
+  encode(message: AssetFile, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.filename !== "") {
+      writer.uint32(10).string(message.filename);
+    }
+    if (message.content.length !== 0) {
+      writer.uint32(18).bytes(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AssetFile {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAssetFile();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.filename = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.content = Buffer.from(reader.bytes());
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): AssetFile {
+    return {
+      filename: isSet(object.filename) ? globalThis.String(object.filename) : "",
+      content: isSet(object.content) ? Buffer.from(bytesFromBase64(object.content)) : Buffer.alloc(0),
+    };
+  },
+
+  toJSON(message: AssetFile): unknown {
+    const obj: any = {};
+    if (message.filename !== "") {
+      obj.filename = message.filename;
+    }
+    if (message.content.length !== 0) {
+      obj.content = base64FromBytes(message.content);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AssetFile>, I>>(base?: I): AssetFile {
+    return AssetFile.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AssetFile>, I>>(object: I): AssetFile {
+    const message = createBaseAssetFile();
+    message.filename = object.filename ?? "";
+    message.content = object.content ?? Buffer.alloc(0);
+    return message;
+  },
+};
+
+function createBaseUploadAssetRequest(): UploadAssetRequest {
+  return { projectId: "", type: 0, files: [], entryFilename: "" };
+}
+
+export const UploadAssetRequest: MessageFns<UploadAssetRequest> = {
+  encode(message: UploadAssetRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    if (message.type !== 0) {
+      writer.uint32(16).int32(message.type);
+    }
+    for (const v of message.files) {
+      AssetFile.encode(v!, writer.uint32(26).fork()).join();
+    }
+    if (message.entryFilename !== "") {
+      writer.uint32(34).string(message.entryFilename);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UploadAssetRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseUploadAssetRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.type = reader.int32() as any;
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.files.push(AssetFile.decode(reader, reader.uint32()));
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.entryFilename = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): UploadAssetRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      type: isSet(object.type) ? assetTypeFromJSON(object.type) : 0,
+      files: globalThis.Array.isArray(object?.files) ? object.files.map((e: any) => AssetFile.fromJSON(e)) : [],
+      entryFilename: isSet(object.entryFilename)
+        ? globalThis.String(object.entryFilename)
+        : isSet(object.entry_filename)
+        ? globalThis.String(object.entry_filename)
+        : "",
+    };
+  },
+
+  toJSON(message: UploadAssetRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.type !== 0) {
+      obj.type = assetTypeToJSON(message.type);
+    }
+    if (message.files?.length) {
+      obj.files = message.files.map((e) => AssetFile.toJSON(e));
+    }
+    if (message.entryFilename !== "") {
+      obj.entryFilename = message.entryFilename;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<UploadAssetRequest>, I>>(base?: I): UploadAssetRequest {
+    return UploadAssetRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UploadAssetRequest>, I>>(object: I): UploadAssetRequest {
+    const message = createBaseUploadAssetRequest();
+    message.projectId = object.projectId ?? "";
+    message.type = object.type ?? 0;
+    message.files = object.files?.map((e) => AssetFile.fromPartial(e)) || [];
+    message.entryFilename = object.entryFilename ?? "";
+    return message;
+  },
+};
+
+function createBaseGetAssetRequest(): GetAssetRequest {
+  return { assetId: "" };
+}
+
+export const GetAssetRequest: MessageFns<GetAssetRequest> = {
+  encode(message: GetAssetRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.assetId !== "") {
+      writer.uint32(10).string(message.assetId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetAssetRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseGetAssetRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.assetId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): GetAssetRequest {
+    return {
+      assetId: isSet(object.assetId)
+        ? globalThis.String(object.assetId)
+        : isSet(object.asset_id)
+        ? globalThis.String(object.asset_id)
+        : "",
+    };
+  },
+
+  toJSON(message: GetAssetRequest): unknown {
+    const obj: any = {};
+    if (message.assetId !== "") {
+      obj.assetId = message.assetId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetAssetRequest>, I>>(base?: I): GetAssetRequest {
+    return GetAssetRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetAssetRequest>, I>>(object: I): GetAssetRequest {
+    const message = createBaseGetAssetRequest();
+    message.assetId = object.assetId ?? "";
+    return message;
+  },
+};
+
+function createBaseDeleteAssetRequest(): DeleteAssetRequest {
+  return { assetId: "" };
+}
+
+export const DeleteAssetRequest: MessageFns<DeleteAssetRequest> = {
+  encode(message: DeleteAssetRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.assetId !== "") {
+      writer.uint32(10).string(message.assetId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DeleteAssetRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseDeleteAssetRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.assetId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): DeleteAssetRequest {
+    return {
+      assetId: isSet(object.assetId)
+        ? globalThis.String(object.assetId)
+        : isSet(object.asset_id)
+        ? globalThis.String(object.asset_id)
+        : "",
+    };
+  },
+
+  toJSON(message: DeleteAssetRequest): unknown {
+    const obj: any = {};
+    if (message.assetId !== "") {
+      obj.assetId = message.assetId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeleteAssetRequest>, I>>(base?: I): DeleteAssetRequest {
+    return DeleteAssetRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeleteAssetRequest>, I>>(object: I): DeleteAssetRequest {
+    const message = createBaseDeleteAssetRequest();
+    message.assetId = object.assetId ?? "";
+    return message;
+  },
+};
+
+function createBaseListAssetsRequest(): ListAssetsRequest {
+  return { projectId: "", type: 0 };
+}
+
+export const ListAssetsRequest: MessageFns<ListAssetsRequest> = {
+  encode(message: ListAssetsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    if (message.type !== 0) {
+      writer.uint32(16).int32(message.type);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListAssetsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListAssetsRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.type = reader.int32() as any;
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListAssetsRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      type: isSet(object.type) ? assetTypeFromJSON(object.type) : 0,
+    };
+  },
+
+  toJSON(message: ListAssetsRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.type !== 0) {
+      obj.type = assetTypeToJSON(message.type);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListAssetsRequest>, I>>(base?: I): ListAssetsRequest {
+    return ListAssetsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListAssetsRequest>, I>>(object: I): ListAssetsRequest {
+    const message = createBaseListAssetsRequest();
+    message.projectId = object.projectId ?? "";
+    message.type = object.type ?? 0;
+    return message;
+  },
+};
+
+function createBaseListAssetsResponse(): ListAssetsResponse {
+  return { assets: [] };
+}
+
+export const ListAssetsResponse: MessageFns<ListAssetsResponse> = {
+  encode(message: ListAssetsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.assets) {
+      Asset.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListAssetsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseListAssetsResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.assets.push(Asset.decode(reader, reader.uint32()));
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ListAssetsResponse {
+    return { assets: globalThis.Array.isArray(object?.assets) ? object.assets.map((e: any) => Asset.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: ListAssetsResponse): unknown {
+    const obj: any = {};
+    if (message.assets?.length) {
+      obj.assets = message.assets.map((e) => Asset.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListAssetsResponse>, I>>(base?: I): ListAssetsResponse {
+    return ListAssetsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListAssetsResponse>, I>>(object: I): ListAssetsResponse {
+    const message = createBaseListAssetsResponse();
+    message.assets = object.assets?.map((e) => Asset.fromPartial(e)) || [];
     return message;
   },
 };
@@ -8356,6 +9211,58 @@ export const HpathService = {
     responseSerialize: (value: ParseEvent): Buffer => Buffer.from(ParseEvent.encode(value).finish()),
     responseDeserialize: (value: Buffer): ParseEvent => ParseEvent.decode(value),
   },
+  /**
+   * Upload a project asset (T22 asset library). PRD uploads ride ParsePRD
+   * (INVALID_ARGUMENT here); PROTO uploads are parsed server-side into the
+   * project's API surface (Asset.api_doc) that its agents read globally and
+   * that hard-validates grpc_call. Parse failures fail with INVALID_ARGUMENT
+   * carrying the offending file and line. Unknown project: NOT_FOUND.
+   */
+  uploadAsset: {
+    path: "/hpath.v1.Hpath/UploadAsset" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: UploadAssetRequest): Buffer => Buffer.from(UploadAssetRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): UploadAssetRequest => UploadAssetRequest.decode(value),
+    responseSerialize: (value: Asset): Buffer => Buffer.from(Asset.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Asset => Asset.decode(value),
+  },
+  /** Assets of a project, oldest first; UNSPECIFIED type lists all. */
+  listAssets: {
+    path: "/hpath.v1.Hpath/ListAssets" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListAssetsRequest): Buffer => Buffer.from(ListAssetsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListAssetsRequest => ListAssetsRequest.decode(value),
+    responseSerialize: (value: ListAssetsResponse): Buffer => Buffer.from(ListAssetsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListAssetsResponse => ListAssetsResponse.decode(value),
+  },
+  /**
+   * One asset including its parsed api_doc (empty for PRDs). Unknown id:
+   * NOT_FOUND.
+   */
+  getAsset: {
+    path: "/hpath.v1.Hpath/GetAsset" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetAssetRequest): Buffer => Buffer.from(GetAssetRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetAssetRequest => GetAssetRequest.decode(value),
+    responseSerialize: (value: Asset): Buffer => Buffer.from(Asset.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Asset => Asset.decode(value),
+  },
+  /**
+   * Deletes an asset and best-effort purges its stored bytes (no refcount:
+   * cases reference PRDs by traceability string only).
+   */
+  deleteAsset: {
+    path: "/hpath.v1.Hpath/DeleteAsset" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: DeleteAssetRequest): Buffer => Buffer.from(DeleteAssetRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): DeleteAssetRequest => DeleteAssetRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
   listCases: {
     path: "/hpath.v1.Hpath/ListCases" as const,
     requestStream: false as const,
@@ -8634,6 +9541,26 @@ export interface HpathServer extends UntypedServiceImplementation {
    * pending drafts become visible via ListCases.
    */
   parsePrd: handleServerStreamingCall<ParsePRDRequest, ParseEvent>;
+  /**
+   * Upload a project asset (T22 asset library). PRD uploads ride ParsePRD
+   * (INVALID_ARGUMENT here); PROTO uploads are parsed server-side into the
+   * project's API surface (Asset.api_doc) that its agents read globally and
+   * that hard-validates grpc_call. Parse failures fail with INVALID_ARGUMENT
+   * carrying the offending file and line. Unknown project: NOT_FOUND.
+   */
+  uploadAsset: handleUnaryCall<UploadAssetRequest, Asset>;
+  /** Assets of a project, oldest first; UNSPECIFIED type lists all. */
+  listAssets: handleUnaryCall<ListAssetsRequest, ListAssetsResponse>;
+  /**
+   * One asset including its parsed api_doc (empty for PRDs). Unknown id:
+   * NOT_FOUND.
+   */
+  getAsset: handleUnaryCall<GetAssetRequest, Asset>;
+  /**
+   * Deletes an asset and best-effort purges its stored bytes (no refcount:
+   * cases reference PRDs by traceability string only).
+   */
+  deleteAsset: handleUnaryCall<DeleteAssetRequest, Empty>;
   listCases: handleUnaryCall<ListCasesRequest, ListCasesResponse>;
   getCase: handleUnaryCall<GetCaseRequest, Case>;
   /**
