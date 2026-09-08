@@ -1,9 +1,7 @@
 // End-to-end smoke client for the mock server.
 // Usage: pnpm --filter @hpath/server smoke   (server must be running on 50051)
 
-import { credentials, makeClientConstructor, status } from "@grpc/grpc-js";
 import {
-  HpathService,
   ArtifactKind,
   CaseStatus,
   CreatorType,
@@ -16,7 +14,6 @@ import {
 import type {
   Case,
   Event,
-  HpathServer,
   ListCasesResponse,
   ListEnvsResponse,
   ListProjectsResponse,
@@ -28,55 +25,7 @@ import type {
   UpsertEnvRequest,
   Env,
 } from "@hpath/contract";
-
-type HpathClient = makeClientConstructor.ClientConstructor<HpathServer>;
-
-const address = process.env.HPATH_ADDR ?? "127.0.0.1:50051";
-const client = new (makeClientConstructor(HpathService as never, "HpathService") as unknown as {
-  new (address: string, credentials: never): HpathClient;
-})(address, credentials.createInsecure()) as HpathClient;
-
-function unary<Req, Res>(method: keyof HpathServer, request: Req): Promise<Res> {
-  return new Promise((resolve, reject) => {
-    (client as unknown as Record<string, (req: Req, cb: (err: unknown, res: Res) => void) => void>)[
-      method as string
-    ](request, (err: unknown, res: Res) => {
-      if (err) reject(err);
-      else resolve(res);
-    });
-  });
-}
-
-function stream<Req, Res>(method: keyof HpathServer, request: Req): Promise<Res[]> {
-  return new Promise((resolve, reject) => {
-    const chunks: Res[] = [];
-    const call = (
-      client as unknown as Record<string, (req: Req) => { on(ev: string, cb: (x?: unknown) => void): void }>
-    )[method as string](request);
-    call.on("data", (chunk: Res) => chunks.push(chunk));
-    call.on("end", () => resolve(chunks));
-    call.on("error", (err: unknown) => reject(err));
-  });
-}
-
-function unaryError<Req>(method: keyof HpathServer, request: Req): Promise<{ code: number; details: string }> {
-  return new Promise((resolve, reject) => {
-    (client as unknown as Record<string, (req: Req, cb: (err: unknown, res: unknown) => void) => void>)[
-      method as string
-    ](request, (err: unknown) => {
-      if (err) resolve(err as { code: number; details: string });
-      else reject(new Error(`expected ${String(method)} to fail`));
-    });
-  });
-}
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) {
-    console.error(`SMOKE FAIL: ${message}`);
-    process.exit(1);
-  }
-  console.log(`ok: ${message}`);
-}
+import { assert, status, stream, unary, unaryError } from "./client.js";
 
 async function main(): Promise<void> {
   // 1. Projects
@@ -97,7 +46,7 @@ async function main(): Promise<void> {
   });
   assert(cases.cases.length >= 3, `at least three cases (${cases.cases.length})`);
   const pendingDraft = cases.cases.find((kase: Case) => kase.status === CaseStatus.CASE_STATUS_PENDING)!;
-  assert(pendingDraft.creator.type === CreatorType.CREATOR_TYPE_AGENT, "pending draft created by agent");
+  assert(pendingDraft.creator!.type === CreatorType.CREATOR_TYPE_AGENT, "pending draft created by agent");
 
   // 4. ParsePRD streams progress and creates a pending draft
   const md = "# PRD\n\nUsers see their balance after login.\n";
@@ -136,7 +85,7 @@ async function main(): Promise<void> {
   });
   assert(manual.status === CaseStatus.CASE_STATUS_PENDING, "createCase lands in PENDING");
   assert(
-    manual.creator.type === CreatorType.CREATOR_TYPE_HUMAN && manual.sourcePrdRef === "",
+    manual.creator!.type === CreatorType.CREATOR_TYPE_HUMAN && manual.sourcePrdRef === "",
     "createCase has a human creator and no PRD ref",
   );
   const updatedManual = await unary<
@@ -146,7 +95,9 @@ async function main(): Promise<void> {
     caseId: manual.id,
     title: "smoke manual case (rev)",
     goal: "Revised goal.",
-    alignments: [],
+    // T19 guard: an unapproved case must keep at least one alignment with a
+    // non-empty rule (the run path would reject it otherwise).
+    alignments: [{ apiPath: "/api/balance", uiAnchor: "Balance card", rule: "Revised alignment rule." }],
   });
   assert(
     updatedManual.version === 2 && updatedManual.title === "smoke manual case (rev)",
@@ -167,6 +118,7 @@ async function main(): Promise<void> {
       grpcAddress: "localhost:9093",
       vars: {},
       credentials: {},
+      isDefault: false,
     },
   });
   assert(createdEnv.name === "qa", "upsertEnv created env qa");
@@ -195,7 +147,7 @@ async function main(): Promise<void> {
   const detail = await unary<{ runId: string }, RunDetail>("getRun", { runId });
   assert(detail.events.length === events.length, "getRun events match streamed events");
   assert(detail.artifacts.length >= 4, `run has ${detail.artifacts.length} artifacts`);
-  assert(detail.run.tokenCost > 0, "token cost recorded");
+  assert(detail.run!.tokenCost > 0, "token cost recorded");
 
   // 9. DownloadArtifact streams bytes
   const video = detail.artifacts.find((artifact) => artifact.kind === ArtifactKind.ARTIFACT_KIND_VIDEO)!;

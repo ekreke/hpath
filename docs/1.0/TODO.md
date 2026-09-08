@@ -1,9 +1,17 @@
 # TODO — Current Iteration
 
-Iteration target: **T9 analyze-agent — real-mode ParsePRD wiring** (done; grpcurl smoke passed)
+Iteration target: **T15 E2E demo script + README** (done; `make demo` green end to end)
 
 ## Working notes
 
+- T15 demo + README + smoke repair (2026-09-08; SPEC checkbox ticked):
+  - Smoke fix (pre-existing failure): `scripts/smoke.ts` `updateCase` sent `alignments: []`, rejected by the T19 `assertAlignments` guard ("at least one alignment is required"). The script now sends a valid alignment on update; `make test` (build + mock + unit + smoke) is green again.
+  - `scripts/client.ts`: shared gRPC client helpers (unary / stream / unaryError / assert) extracted so smoke and demo don't drift; HPATH_ADDR override (default 127.0.0.1:50051) preserved.
+  - `scripts/demo.ts` — the guided user story against the compose stack's mock server (deterministic): parse `fixtures/prds/payment.md` (prdRegistered + thinking/progress + 1 pending agent draft) -> ReviewCase approve (version 2 + changelog) -> RunCase on dev (PASSED, 20 events) and on staging -> the drift case (FAILED verdict with `match=false` three-way evidence) -> run control (PauseRun freezes the stream, ResumeRun completes PASSED, CancelRun settles CANCELLED, control on a settled run FAILED_PRECONDITION) -> GetRun replay (transcript matches stream, >= 4 artifacts, video bytes == sizeBytes) -> ListRuns filters (all / by env / by status). Ends with a pointer to the desktop app + `make down`.
+  - Makefile `demo` target: stop stray local server -> `make up` (compose build) -> grpcurl health wait -> contract build -> `pnpm --filter @hpath/server demo`; leaves the stack running for the desktop and prints the hint. `package.json` gains the `demo` script.
+  - Root `README.md` (new, English): pitch (three-way alignment + two agents), repo layout, quickstart (guided demo / desktop dist+dev / local mock / real mode with OPENAI_API_KEY), docs pointers, env-var table (HPATH_*, S3/SeaweedFS, OPENAI_API_KEY).
+  - Clean-checkout verification: `make install && make demo` is the whole path (compose builds the server image from source; no local build, no model key). Verified locally — all 9 demo steps green, stack left up.
+  - Iteration note: the T15 pause/cancel step deliberately exercises the T20 run-control machinery end to end (SPEC T15 predates T20; the step is additive).
 - Real-mode ParsePRD wiring (2026-09-08, T9 final piece; SPEC checkbox ticked):
   - `grpc/prd-analysis.ts`: `createParsePrdHandler` — validation (project NOT_FOUND, empty content / missing filename / >20 MB INVALID_ARGUMENT, format from the proto enum or inferred from the filename), PRD bytes to the artifact store under `artifacts/{project}/-/prd/{uuid}-{name}` (content_ref, best-effort upload; NOT in the run-scoped artifacts index), `db.prds.insert`, `prd_registered` event, then the registered analyze-agent through the shared kernel with a synthetic env binding (no env-bound tools; definition default limits) and the project's existing case list as `existingCases`.
   - Event mapping: kernel `agent_text`/`agent_thinking` -> proto `thinking`; tool starts/finishes -> synthetic `progress` (10/30/40/60/70/90, mock parity); `error` -> `error`; drafts surface once at the end. Analysis events are not persisted to the events table (run-scoped FK; analyze runs have no runs row), matching the mock.

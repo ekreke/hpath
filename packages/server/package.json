@@ -10,6 +10,7 @@
     "start": "node dist/index.js",
     "start:mock": "node dist/index.js --mock",
     "smoke": "tsx scripts/smoke.ts",
+    "demo": "tsx scripts/demo.ts",
     "test": "tsc -p tsconfig.test.json && tsx --test \"test/**/*.test.ts\""
   },
   "dependencies": {

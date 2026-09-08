@@ -8,7 +8,7 @@ COMPOSE_FILE ?= docker/compose.yaml
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke test test-unit restart stop clean verify up down logs docker-clean cloc
+.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop clean verify up down logs docker-clean cloc
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -58,6 +58,19 @@ run: ## Start real-mode server (bg, SQLite + LLM chat) + Tauri desktop dev (Ctrl
 
 smoke: ## Run the smoke client against a running server (default $(PORT))
 	pnpm --filter @hpath/server smoke
+
+demo: ## Guided E2E demo: start the compose stack (mock), then run scripts/demo.ts
+	@$(MAKE) stop
+	@$(MAKE) up
+	@ok=0; for i in $$(seq 1 30); do \
+	  grpcurl -plaintext 127.0.0.1:$(PORT) list hpath.v1.Hpath > /dev/null 2>&1 && { ok=1; break; }; \
+	  sleep 1; \
+	done; \
+	[ $$ok -eq 1 ] || { echo "compose server failed to become healthy, logs:"; $(MAKE) logs; exit 1; }
+	@pnpm --filter @hpath/contract build
+	@pnpm --filter @hpath/server demo; status=$$?; \
+	if [ $$status -eq 0 ]; then echo "\nstack left running (demo-app dev/staging + server). Reconnect the desktop app or stop with: make down"; fi; \
+	exit $$status
 
 test: build mock ## Full local verification: build, start mock, unit tests + smoke, stop
 	@$(MAKE) test-unit || { $(MAKE) stop; exit 1; }
