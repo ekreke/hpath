@@ -301,6 +301,16 @@ export function invokeRunCase(
   return invoke<RunResult>('run_case', { projectId, envId, caseId });
 }
 
+// Runtime control of an in-flight run (pause / resume / cancel). Targets the
+// run id directly: the server keeps executing a run even when the client that
+// started it disconnects, so a control call rides its own invoke.
+export function invokeControlRun(
+  action: 'pause' | 'resume' | 'cancel',
+  runId: string,
+): Promise<Run> {
+  return invoke<Run>('control_run', { action, runId });
+}
+
 // Base64-encoded artifact bytes (screenshots in the run panel; video / trace
 // in the replay view). A channel always carries the download so callers can
 // optionally surface a progress tick per received chunk — the session video

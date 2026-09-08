@@ -37,6 +37,21 @@ enum CaseStatus {
 }
 
 // Lifecycle status of a run.
+//
+// Legal transitions (the run state machine, enforced server-side):
+//
+//   PENDING --> RUNNING <--> PAUSED
+//                |  \           |
+//                |   \          |
+//                v    v         v
+//             PASSED FAILED  CANCELLED
+//
+//   PENDING:  the run row exists, the agent has not started yet.
+//   RUNNING:  the agent is executing (entering and leaving PAUSED).
+//   PAUSED:   execution is suspended at a turn boundary (resumable).
+//   PASSED / FAILED / CANCELLED: terminal.
+//
+// CANCELLED may be requested from PENDING, RUNNING or PAUSED.
 enum RunStatus {
   RUN_STATUS_UNSPECIFIED = 0;
   RUN_STATUS_PENDING = 1;
@@ -44,6 +59,7 @@ enum RunStatus {
   RUN_STATUS_PASSED = 3;
   RUN_STATUS_FAILED = 4;
   RUN_STATUS_CANCELLED = 5;
+  RUN_STATUS_PAUSED = 6;
 }
 
 // What triggered a run.
@@ -109,11 +125,11 @@ message Project {
 
 // Per-env overrides for the agent kernel's hard limits. A value of 0 means
 // "not set" — the run falls back to the executing AgentDefinition's default
-// (e.g. execute-agent: 32 steps / 400k tokens / 300s).
+// (e.g. execute-agent: 32 steps / 400k tokens / 5 min).
 message AgentLimits {
-  int32 max_steps = 1;     // maximum LLM turns per run
-  int32 token_budget = 2;  // cumulative input+output token cap
-  int32 timeout_ms = 3;    // wall-clock cap for the whole run
+  int32 max_steps = 1;    // maximum LLM turns per run
+  int32 token_budget = 2; // cumulative input+output token cap
+  int32 timeout_min = 3;  // wall-clock cap for the whole run, in minutes
 }
 
 // A named target of a project (dev / staging / ...).
@@ -131,6 +147,14 @@ message Env {
   bool is_default = 8;
   // Optional agent hard-limit overrides; 0 values fall back to agent defaults.
   AgentLimits agent_limits = 9;
+}
+
+// Run lifecycle control. The server enforces the state machine:
+// PauseRun RUNNING -> PAUSED, ResumeRun PAUSED -> RUNNING, CancelRun
+// PENDING/RUNNING/PAUSED -> CANCELLED (terminal). Invalid transitions fail
+// with FAILED_PRECONDITION, unknown run ids with NOT_FOUND.
+message RunControlRequest {
+  string run_id = 1;
 }
 
 // One three-way alignment declaration of a case.
@@ -586,6 +610,13 @@ service Hpath {
   // Execute an approved case against an env. Streams run events in order.
   // Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.
   rpc RunCase(RunCaseRequest) returns (stream Event);
+
+  // Runtime control of an in-flight run (see the RunStatus state machine).
+  // The run keeps executing server-side even if the RunCase client that
+  // started it disconnects, so control RPCs target the run id directly.
+  rpc PauseRun(RunControlRequest) returns (Run);
+  rpc ResumeRun(RunControlRequest) returns (Run);
+  rpc CancelRun(RunControlRequest) returns (Run);
 
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
   rpc GetRun(GetRunRequest) returns (RunDetail);

@@ -3,18 +3,23 @@
 //
 // One handler = one run:
 //   1. validate project/env/case ownership + APPROVED status (mock parity),
-//   2. persist the run as RUNNING, then execute the case through the kernel
-//      (`execute-agent`) while streaming events: every kernel event is mapped
-//      to its proto Event branch, appended to the `events` table, and written
-//      to the client in order. Screenshot bytes are uploaded to the artifact
-//      store first and stream as `screenshot { artifact_id, caption }`.
+//   2. persist the run as PENDING (the pre-execution state of the run state
+//      machine), then execute the case through the kernel (`execute-agent`)
+//      while streaming events: every kernel event is mapped to its proto
+//      Event branch, appended to the `events` table, and written to the
+//      client in order. Non-terminal run_status transitions (RUNNING/PAUSED)
+//      are persisted as the kernel reports them. Screenshot bytes are
+//      uploaded to the artifact store first and stream as
+//      `screenshot { artifact_id, caption }`.
 //   3. after the run settles, binary by-products (Playwright video/trace)
 //      upload to the artifact store and the run finishes with its verdict,
 //      token cost, duration and fail reason (limit breaches keep evidence).
 //
 // Client disconnects do not abort the run: the kernel keeps executing and
 // persisting evidence (the definition's wall-clock limit bounds it); the
-// stream simply stops writing.
+// stream simply stops writing. Runtime control of an in-flight run is a
+// separate channel: PauseRun/ResumeRun/CancelRun target the run id through
+// the kernel's runControl registry (see createRunControlHandler).
 
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
@@ -41,6 +46,7 @@ import {
   type GetRunRequest,
   type Run,
   type RunCaseRequest,
+  type RunControlRequest,
   type RunDetail,
   type Verdict,
 } from "@hpath/contract";
@@ -48,6 +54,7 @@ import { CompositeEventSink, InMemoryEventSink } from "../agents/events.js";
 import type { AgentEventSink } from "../agents/events.js";
 import { EXECUTE_AGENT_ID } from "../agents/execute-agent.js";
 import type { AgentKernel } from "../agents/pipeline.js";
+import { InvalidTransitionError } from "../db/errors.js";
 import type {
   AgentRunEvent,
   AgentRunEventPayload,
@@ -95,17 +102,19 @@ export function mapKernelVerdict(kernel: KernelVerdict): Verdict {
  * variable, vars + credentials are exposed to the system prompt as-is
  * (plaintext in the 1.0 spike), and positive agent-limit overrides ride along
  * (0 = "not set" — the kernel falls back to the agent definition's defaults).
+ * The timeout override is authored in minutes (contract) and converted to the
+ * kernel's internal milliseconds here — the single unit boundary.
  * Mirrors the shape tests use (DEMO_ENV). */
 export function buildEnvBinding(env: Env): EnvBinding {
   const variables: Record<string, string> = { ...env.vars, ...env.credentials };
   if (env.grpcAddress) {
     variables.grpc_target = env.grpcAddress;
   }
-  const { maxSteps, tokenBudget, timeoutMs } = env.agentLimits ?? {};
+  const { maxSteps, tokenBudget, timeoutMin } = env.agentLimits ?? {};
   const agentLimits: EnvBinding["agentLimits"] = {
     ...(maxSteps ? { maxSteps } : {}),
     ...(tokenBudget ? { tokenBudget } : {}),
-    ...(timeoutMs ? { timeoutMs } : {}),
+    ...(timeoutMin ? { timeoutMs: timeoutMin * 60_000 } : {}),
   };
   return {
     projectId: env.projectId,
@@ -249,8 +258,23 @@ class RunEventBridge {
       timestamp: agentEvent.timestamp,
     });
     switch (payload.kind) {
-      case "run_status":
+      case "run_status": {
+        // The run_status stream is the lifecycle source of truth while the
+        // run executes: PENDING -> RUNNING <-> PAUSED -> terminal. Terminal
+        // states are written by the handler's finish() below (with verdict +
+        // timing), so only in-flight transitions are persisted here.
+        if (
+          payload.status === RunStatus.RUN_STATUS_RUNNING ||
+          payload.status === RunStatus.RUN_STATUS_PAUSED
+        ) {
+          try {
+            this.deps.db.runs.updateStatus(this.run.id, payload.status);
+          } catch (err) {
+            console.error("[hpath-server] run status update failed:", err);
+          }
+        }
         return { ...base(), runStatus: { status: payload.status, reason: payload.reason } };
+      }
       case "agent_text":
         return { ...base(), agentText: { text: payload.text } };
       case "agent_thinking":
@@ -371,7 +395,7 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
           projectId: req.projectId,
           envId: req.envId,
           caseId: req.caseId,
-          status: RunStatus.RUN_STATUS_RUNNING,
+          status: RunStatus.RUN_STATUS_PENDING,
           trigger:
             req.trigger === RunTrigger.RUN_TRIGGER_UNSPECIFIED
               ? RunTrigger.RUN_TRIGGER_MANUAL
@@ -478,5 +502,45 @@ export function createDownloadArtifactHandler(deps: RunExecutionDeps) {
         call.emit("error", toGrpcError(err));
       }
     })();
+  };
+}
+
+/**
+ * Runtime control of in-flight runs (PauseRun / ResumeRun / CancelRun).
+ *
+ * The action goes to the kernel's runControl registry, where the pipeline's
+ * per-run controller enforces the state machine (invalid transitions throw
+ * InvalidTransitionError -> FAILED_PRECONDITION). A run without a registry
+ * entry is either unknown or already settled — both report FAILED_PRECONDITION
+ * ("run is not active"); an unknown id is reported NOT_FOUND when the row
+ * doesn't exist at all. The returned Run row reflects the new status.
+ */
+export function createRunControlHandler(deps: RunExecutionDeps, action: "pause" | "resume" | "cancel") {
+  return (
+    call: ServerUnaryCall<RunControlRequest, Run>,
+    callback: sendUnaryData<Run>,
+  ): void => {
+    try {
+      const runId = call.request.runId;
+      if (!runId) {
+        throw grpcError(status.INVALID_ARGUMENT, "run_id is required");
+      }
+      deps.db.runs.getRequired(runId); // NOT_FOUND for unknown ids
+      const controller = deps.kernel.runControl.get(runId);
+      if (!controller) {
+        throw grpcError(status.FAILED_PRECONDITION, `run is not active: ${runId}`);
+      }
+      try {
+        controller[action]();
+      } catch (err) {
+        if (err instanceof InvalidTransitionError) {
+          throw grpcError(status.FAILED_PRECONDITION, err.message);
+        }
+        throw err;
+      }
+      callback(null, deps.db.runs.getRequired(runId));
+    } catch (err) {
+      callback(toGrpcError(err));
+    }
   };
 }

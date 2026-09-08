@@ -177,6 +177,7 @@ function HistoryView({
                 ...[
                   RUN_STATUS.PENDING,
                   RUN_STATUS.RUNNING,
+                  RUN_STATUS.PAUSED,
                   RUN_STATUS.PASSED,
                   RUN_STATUS.FAILED,
                   RUN_STATUS.CANCELLED,

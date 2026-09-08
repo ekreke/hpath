@@ -24,7 +24,7 @@ export const ANALYZE_AGENT_DEFAULT_MODEL = "gpt-4.1-mini";
 export const ANALYZE_AGENT_DEFAULT_LIMITS: HardLimits = {
   maxSteps: 16,
   tokenBudget: 200_000,
-  timeoutMs: 120_000,
+  timeoutMs: 120_000, // 2 min (kernel limits are internal ms; the contract/UI unit is minutes)
 };
 
 /**

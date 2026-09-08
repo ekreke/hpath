@@ -18,6 +18,7 @@ export const RUN_STATUS = {
   PASSED: 3,
   FAILED: 4,
   CANCELLED: 5,
+  PAUSED: 6,
 } as const;
 
 export const VERDICT_STATUS = {
@@ -54,6 +55,7 @@ export function runStatusKey(status: number): string {
   switch (status) {
     case RUN_STATUS.PENDING: return 'status.pendingRun';
     case RUN_STATUS.RUNNING: return 'status.running';
+    case RUN_STATUS.PAUSED: return 'status.paused';
     case RUN_STATUS.PASSED: return 'status.passed';
     case RUN_STATUS.FAILED: return 'status.failed';
     case RUN_STATUS.CANCELLED: return 'status.cancelled';
@@ -62,12 +64,12 @@ export function runStatusKey(status: number): string {
 }
 
 /** Tag variant for run status pills: pass=green, fail=red, run=blue (running),
- *  pending=amber, everything else muted (monochrome). */
+ *  paused=amber, pending=amber, everything else muted (monochrome). */
 export function runTagVariant(status: number): 'pass' | 'fail' | 'run' | 'pending' | 'muted' {
   if (status === RUN_STATUS.PASSED) return 'pass';
   if (status === RUN_STATUS.FAILED) return 'fail';
   if (status === RUN_STATUS.RUNNING) return 'run';
-  if (status === RUN_STATUS.PENDING) return 'pending';
+  if (status === RUN_STATUS.PAUSED || status === RUN_STATUS.PENDING) return 'pending';
   return 'muted';
 }
 

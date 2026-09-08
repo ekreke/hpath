@@ -23,19 +23,19 @@ interface EnvRow {
   is_default: number;
   agent_max_steps: number;
   agent_token_budget: number;
-  agent_timeout_ms: number;
+  agent_timeout_min: number;
 }
 
 // 0 in a column means "not set" — the field is omitted so the agent kernel
 // falls back to the AgentDefinition's defaults.
 function toAgentLimits(row: EnvRow): AgentLimits | undefined {
-  if (!row.agent_max_steps && !row.agent_token_budget && !row.agent_timeout_ms) {
+  if (!row.agent_max_steps && !row.agent_token_budget && !row.agent_timeout_min) {
     return undefined;
   }
   return {
     maxSteps: row.agent_max_steps,
     tokenBudget: row.agent_token_budget,
-    timeoutMs: row.agent_timeout_ms,
+    timeoutMin: row.agent_timeout_min,
   };
 }
 
@@ -71,7 +71,7 @@ export class EnvRepository {
       this.db
         .prepare(
           `INSERT INTO envs (id, project_id, name, web_base_url, grpc_address, vars_json, credentials_json, is_default,
-                             agent_max_steps, agent_token_budget, agent_timeout_ms)
+                             agent_max_steps, agent_token_budget, agent_timeout_min)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
@@ -85,7 +85,7 @@ export class EnvRepository {
           wantsDefault ? 1 : 0,
           env.agentLimits?.maxSteps ?? 0,
           env.agentLimits?.tokenBudget ?? 0,
-          env.agentLimits?.timeoutMs ?? 0,
+          env.agentLimits?.timeoutMin ?? 0,
         );
     } catch (err) {
       throw translateConstraintError(err, `create env "${env.name}"`);
@@ -104,7 +104,7 @@ export class EnvRepository {
         .prepare(
           `UPDATE envs
            SET name = ?, web_base_url = ?, grpc_address = ?, vars_json = ?, credentials_json = ?, is_default = ?,
-               agent_max_steps = ?, agent_token_budget = ?, agent_timeout_ms = ?
+               agent_max_steps = ?, agent_token_budget = ?, agent_timeout_min = ?
            WHERE id = ?`
         )
         .run(
@@ -116,7 +116,7 @@ export class EnvRepository {
           env.isDefault ? 1 : 0,
           env.agentLimits?.maxSteps ?? 0,
           env.agentLimits?.tokenBudget ?? 0,
-          env.agentLimits?.timeoutMs ?? 0,
+          env.agentLimits?.timeoutMin ?? 0,
           env.id,
         );
     } catch (err) {

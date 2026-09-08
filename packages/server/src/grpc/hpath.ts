@@ -3,9 +3,10 @@
 // (ListProjects/ListEnvs/ListCases/GetCase/ListRuns), project create/update/
 // cascade-delete, manual case management (CreateCase/UpdateCase/DeleteCase),
 // the review workflow (ReviewCase), settings, status chat + chat sessions
-// (chat.ts) and the T8 run execution path (RunCase via the AgentKernel,
-// GetRun, DownloadArtifact via the artifact store). Every other method
-// reports UNIMPLEMENTED until its wiring task lands (PRD parse in T9).
+// (chat.ts), the T8 run execution path (RunCase via the AgentKernel, GetRun,
+// DownloadArtifact via the artifact store) and the T9 PRD analysis path
+// (ParsePRD via the analyze-agent). Every other method reports UNIMPLEMENTED
+// until its wiring task lands.
 
 import { randomUUID } from "node:crypto";
 import { status } from "@grpc/grpc-js";
@@ -57,10 +58,12 @@ import type { AgentKernel } from "../agents/pipeline.js";
 import type { ArtifactStore } from "../artifacts/store.js";
 import type { ArtifactIndex } from "../artifacts/artifact-index.js";
 import { grpcError, toGrpcError } from "./errors.js";
+import { createParsePrdHandler } from "./prd-analysis.js";
 import {
   createDownloadArtifactHandler,
   createGetRunHandler,
   createRunCaseHandler,
+  createRunControlHandler,
   type RunExecutionDeps,
 } from "./run-execution.js";
 
@@ -77,7 +80,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet (SPEC T9+); served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/GetRun/DownloadArtifact/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/GetRun/DownloadArtifact/ParsePRD/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -124,6 +127,9 @@ function createUnimplementedHandlers(): HpathServer {
     getCase: unary,
     reviewCase: unary,
     runCase: streaming,
+    pauseRun: unary,
+    resumeRun: unary,
+    cancelRun: unary,
     getRun: unary,
     downloadArtifact: streaming,
     getSettings: unary,
@@ -134,9 +140,10 @@ function createUnimplementedHandlers(): HpathServer {
 
 /**
  * Real-mode handlers: the SQLite read path, CreateProject, settings, status
- * chat + chat sessions, and the T8 run execution path (RunCase through the
- * AgentKernel, GetRun, DownloadArtifact through the artifact store) when
- * execution deps are provided.
+ * chat + chat sessions, the T8 run execution path (RunCase through the
+ * AgentKernel, GetRun, DownloadArtifact through the artifact store) and the
+ * T9 PRD analysis path (ParsePRD through the analyze-agent) when execution
+ * deps are provided.
  */
 function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: RealExecutionDeps): HpathServer {
   const chat = new ChatService(db, settings);
@@ -155,8 +162,12 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
     ...(runDeps
       ? {
         runCase: createRunCaseHandler(runDeps),
+        pauseRun: createRunControlHandler(runDeps, "pause"),
+        resumeRun: createRunControlHandler(runDeps, "resume"),
+        cancelRun: createRunControlHandler(runDeps, "cancel"),
         getRun: createGetRunHandler(runDeps),
         downloadArtifact: createDownloadArtifactHandler(runDeps),
+        parsePrd: createParsePrdHandler(runDeps),
       }
       : {}),
 
@@ -350,10 +361,14 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         }
         // Per-env agent hard-limit overrides: 0 = "use agent defaults", but a
         // negative value is always a client bug — reject it here so bad input
-        // never reaches the repository or the kernel.
+        // never reaches the repository or the kernel. The timeout is authored
+        // in minutes and capped at one day so a typo can't disable the cap.
         const limits = env.agentLimits;
-        if (limits && (limits.maxSteps < 0 || limits.tokenBudget < 0 || limits.timeoutMs < 0)) {
-          throw grpcError(status.INVALID_ARGUMENT, "env agent limits must be >= 0");
+        if (
+          limits &&
+          (limits.maxSteps < 0 || limits.tokenBudget < 0 || limits.timeoutMin < 0 || limits.timeoutMin > 1440)
+        ) {
+          throw grpcError(status.INVALID_ARGUMENT, "env agent limits must be >= 0 (timeout_min <= 1440)");
         }
         if (env.id === "") {
           db.projects.getRequired(env.projectId);

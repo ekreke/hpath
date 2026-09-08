@@ -82,7 +82,8 @@ export type AgentRunFailureReason =
   | "no_verdict"
   | "invalid_verdict"
   | "agent_error"
-  | `limit:${"max_steps" | "token_budget" | "timeout_ms"}`;
+  | "cancelled"
+  | `limit:${"max_steps" | "token_budget" | "timeout"}`;
 
 /** Kernel-level run event payload; persisted/streamed by callers (T8 maps to proto Event). */
 export type AgentRunEventPayload =

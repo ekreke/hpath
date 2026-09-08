@@ -23,7 +23,8 @@ import {
 import type { Case, Env, Event, Project, RunCaseRequest } from "@hpath/contract";
 import { InMemoryEventSink } from "../src/agents/events.js";
 import type { AgentEventSink } from "../src/agents/events.js";
-import type { AgentKernel } from "../src/agents/pipeline.js";
+import { AgentKernel } from "../src/agents/pipeline.js";
+import { InvalidTransitionError } from "../src/db/errors.js";
 import type {
   AgentRunEventPayload,
   AgentRunResult,
@@ -38,6 +39,7 @@ import {
   createDownloadArtifactHandler,
   createGetRunHandler,
   createRunCaseHandler,
+  createRunControlHandler,
   mapKernelVerdict,
   type RunExecutionDeps,
 } from "../src/grpc/run-execution.js";
@@ -113,9 +115,9 @@ describe("buildEnvBinding / buildRunInput", () => {
       vars: {},
       credentials: {},
       isDefault: false,
-      agentLimits: { maxSteps: 4, tokenBudget: 0, timeoutMs: 90_000 },
+      agentLimits: { maxSteps: 4, tokenBudget: 0, timeoutMin: 2 },
     });
-    assert.deepEqual(binding.agentLimits, { maxSteps: 4, timeoutMs: 90_000 });
+    assert.deepEqual(binding.agentLimits, { maxSteps: 4, timeoutMs: 120_000 });
 
     const noLimits = buildEnvBinding({
       id: "e2",
@@ -126,7 +128,7 @@ describe("buildEnvBinding / buildRunInput", () => {
       vars: {},
       credentials: {},
       isDefault: false,
-      agentLimits: { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 },
+      agentLimits: { maxSteps: 0, tokenBudget: 0, timeoutMin: 0 },
     });
     assert.equal(noLimits.agentLimits, undefined);
   });
@@ -454,6 +456,211 @@ describe("real runCase handler", () => {
       assert.equal(runs.length, 1);
       assert.equal(runs[0].status, RunStatus.RUN_STATUS_FAILED);
       assert.equal(runs[0].failReason, "agent_error");
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("creates the run row as PENDING and persists non-terminal status transitions", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    // The stub kernel appends synchronously; capture the row state the moment
+    // the RUNNING transition arrives to prove the row started as PENDING.
+    const statusTimeline: RunStatus[] = [];
+    const originalUpdate = db.runs.updateStatus.bind(db.runs);
+    db.runs.updateStatus = (id: string, next: RunStatus) => {
+      statusTimeline.push(next);
+      return originalUpdate(id, next);
+    };
+    const { deps, cleanup } = makeDeps(
+      db,
+      stubKernel({
+        payloads: [
+          { kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" },
+          { kind: "run_status", status: RunStatus.RUN_STATUS_PAUSED, reason: "" },
+          { kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" },
+          { kind: "run_status", status: RunStatus.RUN_STATUS_PASSED, reason: "" },
+        ],
+      }),
+    );
+    try {
+      const handler = createRunCaseHandler(deps);
+      const stream = fakeStream({
+        projectId: project.id,
+        envId: env.id,
+        caseId: kase.id,
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the stream to end");
+
+      // The kernel reported RUNNING -> PAUSED -> RUNNING; all three were
+      // persisted in flight. The row was created before any of them.
+      assert.deepEqual(statusTimeline, [
+        RunStatus.RUN_STATUS_RUNNING,
+        RunStatus.RUN_STATUS_PAUSED,
+        RunStatus.RUN_STATUS_RUNNING,
+      ]);
+      // The terminal state comes from the kernel result via finish().
+      const run = db.runs.getRequired(stream.events[0].runId);
+      assert.equal(run.status, RunStatus.RUN_STATUS_PASSED);
+      // The PAUSED transition is visible in the streamed events too.
+      const pausedEvent = stream.events.find(
+        (event) => event.runStatus && event.runStatus.status === RunStatus.RUN_STATUS_PAUSED,
+      );
+      assert.ok(pausedEvent, "the PAUSED transition is streamed");
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run control handlers (PauseRun / ResumeRun / CancelRun)
+// ---------------------------------------------------------------------------
+
+describe("real run control handlers", () => {
+  function invokeControl(
+    deps: RunExecutionDeps,
+    action: "pause" | "resume" | "cancel",
+    runId: string,
+  ): Promise<{ code?: number; run?: import("@hpath/contract").Run }> {
+    return new Promise((resolve) => {
+      const handler = createRunControlHandler(deps, action);
+      handler(
+        { request: { runId } } as unknown as import("@grpc/grpc-js").ServerUnaryCall<{ runId: string }, import("@hpath/contract").Run>,
+        (err, response) => {
+          if (err) resolve({ code: (err as { code: number }).code });
+          else resolve({ run: response ?? undefined });
+        },
+      );
+    });
+  }
+
+  it("forwards the action to the kernel controller and returns the refreshed run", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      // Simulate an in-flight run: row exists + a controller is registered.
+      const run = db.runs.create({
+        id: randomUUID(),
+        projectId: project.id,
+        envId: env.id,
+        caseId: kase.id,
+        status: RunStatus.RUN_STATUS_RUNNING,
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        startedAt: new Date().toISOString(),
+        finishedAt: "",
+        durationMs: 0,
+        tokenCost: 0,
+        failReason: "",
+      });
+      deps.kernel = {
+        runControl: {
+          get: (id: string) =>
+            id === run.id
+              ? {
+                  pause: () => db.runs.updateStatus(id, RunStatus.RUN_STATUS_PAUSED),
+                  resume: () => {
+                    throw new InvalidTransitionError("not implemented in this stub");
+                  },
+                  cancel: () => {},
+                }
+              : undefined,
+          register: () => {},
+          unregister: () => {},
+        },
+        run: async () => {
+          throw new Error("unused");
+        },
+      } as unknown as AgentKernel;
+
+      const paused = await invokeControl(deps, "pause", run.id);
+      assert.equal(paused.run?.status, RunStatus.RUN_STATUS_PAUSED);
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("reports NOT_FOUND for an unknown run and FAILED_PRECONDITION for an inactive one", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      // No run is in flight: the registry is empty.
+      Object.defineProperty(deps.kernel, "runControl", {
+        value: { get: () => undefined, register: () => {}, unregister: () => {} },
+      });
+
+      const missing = await invokeControl(deps, "cancel", "no-such-run");
+      assert.equal(missing.code, status.NOT_FOUND);
+
+      // A settled run exists but has no controller: not active.
+      const settled = db.runs.create({
+        id: randomUUID(),
+        projectId: project.id,
+        envId: env.id,
+        caseId: kase.id,
+        status: RunStatus.RUN_STATUS_PASSED,
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 1,
+        tokenCost: 1,
+        failReason: "",
+      });
+      const inactive = await invokeControl(deps, "cancel", settled.id);
+      assert.equal(inactive.code, status.FAILED_PRECONDITION);
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("maps InvalidTransitionError from the controller to FAILED_PRECONDITION", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const run = db.runs.create({
+        id: randomUUID(),
+        projectId: project.id,
+        envId: env.id,
+        caseId: kase.id,
+        status: RunStatus.RUN_STATUS_RUNNING,
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        startedAt: new Date().toISOString(),
+        finishedAt: "",
+        durationMs: 0,
+        tokenCost: 0,
+        failReason: "",
+      });
+      deps.kernel = {
+        runControl: {
+          get: (id: string) =>
+            id === run.id
+              ? {
+                  pause: () => {
+                    throw new InvalidTransitionError(`run ${id} cannot pause from status PAUSED`);
+                  },
+                  resume: () => {},
+                  cancel: () => {},
+                }
+              : undefined,
+          register: () => {},
+          unregister: () => {},
+        },
+        run: async () => {
+          throw new Error("unused");
+        },
+      } as unknown as AgentKernel;
+
+      const result = await invokeControl(deps, "pause", run.id);
+      assert.equal(result.code, status.FAILED_PRECONDITION);
     } finally {
       cleanup();
       db.close();

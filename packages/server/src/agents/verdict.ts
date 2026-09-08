@@ -106,22 +106,27 @@ function unwrapVerdictParams(params: unknown): unknown {
 
 export function createFinishVerdictTool(options: {
   channel: VerdictChannel;
+  evidence: RunEvidence;
   events: AgentEventSink;
 }): AgentTool {
   return {
     name: "finish_verdict",
     label: "Finish with verdict",
     description:
-      "Submit the final structured verdict for this run. Pass the verdict fields "
-        + "as flat named parameters (status, summary, alignments), not as a JSON "
-        + "string or a nested object. The verdict is validated against the agent's "
-        + "output schema; a valid verdict is the only way to finish the run "
-        + "successfully. Call this exactly once.",
+      "Submit the final structured verdict for this run, matching the output shape "
+        + "your instructions announce (strictly validated against the agent's output "
+        + "schema; a valid verdict is the only way to finish the run successfully). "
+        + "For case-execution runs: status (\"pass\"|\"fail\"), summary (string), "
+        + "alignments (array of {rule, api, ui, match}). For PRD-analysis runs: "
+        + "summary (string) plus drafts (the full stamped draft objects returned by "
+        + "write_case_draft; they are filled in for you when omitted). Pass fields as "
+        + "flat named parameters, not as a JSON string or a nested object. "
+        + "Call this exactly once.",
     parameters: FINISH_VERDICT_PARAMS,
     execute: async (_toolCallId, rawParams) => {
       const params = unwrapVerdictParams(rawParams);
       try {
-        const verdict = options.channel.record(params);
+        const verdict = options.channel.record(completeVerdict(params, options.evidence));
         options.events.append({ kind: "verdict", verdict });
         return {
           content: [{ type: "text", text: "verdict recorded; run finished" }],
@@ -136,12 +141,46 @@ export function createFinishVerdictTool(options: {
             ? `object with keys [${Object.keys(params as Record<string, unknown>).join(", ") || "none"}]`
             : typeof params;
         throw new Error(
-          `${(err as Error).message}. Received ${shape}; pass flat named parameters: `
-            + `status ("pass"|"fail"), summary (string), alignments (array of {rule, api, ui, match}).`,
+          `${(err as Error).message}. Received ${shape}; pass the verdict fields as flat `
+            + `named parameters following the output shape announced in your instructions.`,
         );
       }
     },
   };
+}
+
+/**
+ * Complete an analyze-style verdict from run evidence: PRD-analysis runs
+ * record every stamped draft via write_case_draft, and real models often
+ * summarize without echoing the full draft objects back (each draft carries
+ * twelve fields, so the echo is long and error-prone). When the candidate
+ * carries no `drafts` array but the evidence store holds kernel-stamped
+ * drafts (identifiable by their proto Case shape: title + creator + status),
+ * the recorded drafts fill the field in. Evidence from execute-agent runs
+ * (alignment observations) never carries that shape, so execution verdicts
+ * are unaffected.
+ */
+function completeVerdict(params: unknown, evidence: RunEvidence): unknown {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    return params;
+  }
+  const record = params as Record<string, unknown>;
+  if (Array.isArray(record.drafts)) {
+    return record;
+  }
+  const drafts = evidence.entries.filter(
+    (entry) =>
+      typeof entry === "object"
+      && entry !== null
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).title === "string"
+      && typeof (entry as Record<string, unknown>).creator === "object"
+      && typeof (entry as Record<string, unknown>).status === "number",
+  );
+  if (drafts.length === 0) {
+    return record;
+  }
+  return { ...record, drafts };
 }
 
 /**
@@ -190,7 +229,7 @@ export function createEvidenceToolProvider(): ToolProvider {
       "Kernel evidence tools: structured verdict channel (finish_verdict) "
         + "and evidence recording (record_evidence).",
     createTools: (context) => [
-      createFinishVerdictTool({ channel: context.verdict, events: context.events }),
+      createFinishVerdictTool({ channel: context.verdict, evidence: context.evidence, events: context.events }),
       createRecordEvidenceTool({ evidence: context.evidence, events: context.events }),
     ],
   };

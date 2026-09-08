@@ -102,7 +102,24 @@ export function caseStatusToJSON(object: CaseStatus): string {
   }
 }
 
-/** Lifecycle status of a run. */
+/**
+ * Lifecycle status of a run.
+ *
+ * Legal transitions (the run state machine, enforced server-side):
+ *
+ *   PENDING --> RUNNING <--> PAUSED
+ *                |  \           |
+ *                |   \          |
+ *                v    v         v
+ *             PASSED FAILED  CANCELLED
+ *
+ *   PENDING:  the run row exists, the agent has not started yet.
+ *   RUNNING:  the agent is executing (entering and leaving PAUSED).
+ *   PAUSED:   execution is suspended at a turn boundary (resumable).
+ *   PASSED / FAILED / CANCELLED: terminal.
+ *
+ * CANCELLED may be requested from PENDING, RUNNING or PAUSED.
+ */
 export enum RunStatus {
   RUN_STATUS_UNSPECIFIED = 0,
   RUN_STATUS_PENDING = 1,
@@ -110,6 +127,7 @@ export enum RunStatus {
   RUN_STATUS_PASSED = 3,
   RUN_STATUS_FAILED = 4,
   RUN_STATUS_CANCELLED = 5,
+  RUN_STATUS_PAUSED = 6,
   UNRECOGNIZED = -1,
 }
 
@@ -133,6 +151,9 @@ export function runStatusFromJSON(object: any): RunStatus {
     case 5:
     case "RUN_STATUS_CANCELLED":
       return RunStatus.RUN_STATUS_CANCELLED;
+    case 6:
+    case "RUN_STATUS_PAUSED":
+      return RunStatus.RUN_STATUS_PAUSED;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -154,6 +175,8 @@ export function runStatusToJSON(object: RunStatus): string {
       return "RUN_STATUS_FAILED";
     case RunStatus.RUN_STATUS_CANCELLED:
       return "RUN_STATUS_CANCELLED";
+    case RunStatus.RUN_STATUS_PAUSED:
+      return "RUN_STATUS_PAUSED";
     case RunStatus.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -464,15 +487,15 @@ export interface Project {
 /**
  * Per-env overrides for the agent kernel's hard limits. A value of 0 means
  * "not set" — the run falls back to the executing AgentDefinition's default
- * (e.g. execute-agent: 32 steps / 400k tokens / 300s).
+ * (e.g. execute-agent: 32 steps / 400k tokens / 5 min).
  */
 export interface AgentLimits {
   /** maximum LLM turns per run */
   maxSteps: number;
   /** cumulative input+output token cap */
   tokenBudget: number;
-  /** wall-clock cap for the whole run */
-  timeoutMs: number;
+  /** wall-clock cap for the whole run, in minutes */
+  timeoutMin: number;
 }
 
 /** A named target of a project (dev / staging / ...). */
@@ -504,6 +527,16 @@ export interface Env_VarsEntry {
 export interface Env_CredentialsEntry {
   key: string;
   value: string;
+}
+
+/**
+ * Run lifecycle control. The server enforces the state machine:
+ * PauseRun RUNNING -> PAUSED, ResumeRun PAUSED -> RUNNING, CancelRun
+ * PENDING/RUNNING/PAUSED -> CANCELLED (terminal). Invalid transitions fail
+ * with FAILED_PRECONDITION, unknown run ids with NOT_FOUND.
+ */
+export interface RunControlRequest {
+  runId: string;
 }
 
 /** One three-way alignment declaration of a case. */
@@ -1191,7 +1224,7 @@ export const Project: MessageFns<Project> = {
 };
 
 function createBaseAgentLimits(): AgentLimits {
-  return { maxSteps: 0, tokenBudget: 0, timeoutMs: 0 };
+  return { maxSteps: 0, tokenBudget: 0, timeoutMin: 0 };
 }
 
 export const AgentLimits: MessageFns<AgentLimits> = {
@@ -1202,8 +1235,8 @@ export const AgentLimits: MessageFns<AgentLimits> = {
     if (message.tokenBudget !== 0) {
       writer.uint32(16).int32(message.tokenBudget);
     }
-    if (message.timeoutMs !== 0) {
-      writer.uint32(24).int32(message.timeoutMs);
+    if (message.timeoutMin !== 0) {
+      writer.uint32(24).int32(message.timeoutMin);
     }
     return writer;
   },
@@ -1242,7 +1275,7 @@ export const AgentLimits: MessageFns<AgentLimits> = {
               break;
             }
 
-            message.timeoutMs = reader.int32();
+            message.timeoutMin = reader.int32();
             continue;
           }
         }
@@ -1269,10 +1302,10 @@ export const AgentLimits: MessageFns<AgentLimits> = {
         : isSet(object.token_budget)
         ? globalThis.Number(object.token_budget)
         : 0,
-      timeoutMs: isSet(object.timeoutMs)
-        ? globalThis.Number(object.timeoutMs)
-        : isSet(object.timeout_ms)
-        ? globalThis.Number(object.timeout_ms)
+      timeoutMin: isSet(object.timeoutMin)
+        ? globalThis.Number(object.timeoutMin)
+        : isSet(object.timeout_min)
+        ? globalThis.Number(object.timeout_min)
         : 0,
     };
   },
@@ -1285,8 +1318,8 @@ export const AgentLimits: MessageFns<AgentLimits> = {
     if (message.tokenBudget !== 0) {
       obj.tokenBudget = Math.round(message.tokenBudget);
     }
-    if (message.timeoutMs !== 0) {
-      obj.timeoutMs = Math.round(message.timeoutMs);
+    if (message.timeoutMin !== 0) {
+      obj.timeoutMin = Math.round(message.timeoutMin);
     }
     return obj;
   },
@@ -1298,7 +1331,7 @@ export const AgentLimits: MessageFns<AgentLimits> = {
     const message = createBaseAgentLimits();
     message.maxSteps = object.maxSteps ?? 0;
     message.tokenBudget = object.tokenBudget ?? 0;
-    message.timeoutMs = object.timeoutMs ?? 0;
+    message.timeoutMin = object.timeoutMin ?? 0;
     return message;
   },
 };
@@ -1758,6 +1791,79 @@ export const Env_CredentialsEntry: MessageFns<Env_CredentialsEntry> = {
     const message = createBaseEnv_CredentialsEntry();
     message.key = object.key ?? "";
     message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseRunControlRequest(): RunControlRequest {
+  return { runId: "" };
+}
+
+export const RunControlRequest: MessageFns<RunControlRequest> = {
+  encode(message: RunControlRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.runId !== "") {
+      writer.uint32(10).string(message.runId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RunControlRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseRunControlRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.runId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): RunControlRequest {
+    return {
+      runId: isSet(object.runId)
+        ? globalThis.String(object.runId)
+        : isSet(object.run_id)
+        ? globalThis.String(object.run_id)
+        : "",
+    };
+  },
+
+  toJSON(message: RunControlRequest): unknown {
+    const obj: any = {};
+    if (message.runId !== "") {
+      obj.runId = message.runId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RunControlRequest>, I>>(base?: I): RunControlRequest {
+    return RunControlRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RunControlRequest>, I>>(object: I): RunControlRequest {
+    const message = createBaseRunControlRequest();
+    message.runId = object.runId ?? "";
     return message;
   },
 };
@@ -8101,6 +8207,38 @@ export const HpathService = {
     responseSerialize: (value: Event): Buffer => Buffer.from(Event.encode(value).finish()),
     responseDeserialize: (value: Buffer): Event => Event.decode(value),
   },
+  /**
+   * Runtime control of an in-flight run (see the RunStatus state machine).
+   * The run keeps executing server-side even if the RunCase client that
+   * started it disconnects, so control RPCs target the run id directly.
+   */
+  pauseRun: {
+    path: "/hpath.v1.Hpath/PauseRun" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RunControlRequest): Buffer => Buffer.from(RunControlRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RunControlRequest => RunControlRequest.decode(value),
+    responseSerialize: (value: Run): Buffer => Buffer.from(Run.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Run => Run.decode(value),
+  },
+  resumeRun: {
+    path: "/hpath.v1.Hpath/ResumeRun" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RunControlRequest): Buffer => Buffer.from(RunControlRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RunControlRequest => RunControlRequest.decode(value),
+    responseSerialize: (value: Run): Buffer => Buffer.from(Run.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Run => Run.decode(value),
+  },
+  cancelRun: {
+    path: "/hpath.v1.Hpath/CancelRun" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: RunControlRequest): Buffer => Buffer.from(RunControlRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): RunControlRequest => RunControlRequest.decode(value),
+    responseSerialize: (value: Run): Buffer => Buffer.from(Run.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Run => Run.decode(value),
+  },
   listRuns: {
     path: "/hpath.v1.Hpath/ListRuns" as const,
     requestStream: false as const,
@@ -8275,6 +8413,14 @@ export interface HpathServer extends UntypedServiceImplementation {
    * Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.
    */
   runCase: handleServerStreamingCall<RunCaseRequest, Event>;
+  /**
+   * Runtime control of an in-flight run (see the RunStatus state machine).
+   * The run keeps executing server-side even if the RunCase client that
+   * started it disconnects, so control RPCs target the run id directly.
+   */
+  pauseRun: handleUnaryCall<RunControlRequest, Run>;
+  resumeRun: handleUnaryCall<RunControlRequest, Run>;
+  cancelRun: handleUnaryCall<RunControlRequest, Run>;
   listRuns: handleUnaryCall<ListRunsRequest, ListRunsResponse>;
   getRun: handleUnaryCall<GetRunRequest, RunDetail>;
   /**

@@ -56,7 +56,7 @@ function creatorLabel(kase: Case, t: (key: string) => string): string {
 
 function lastRunOf(runs: Run[], caseId: string): Run | undefined {
   return runs
-    .filter((r) => r.caseId === caseId && (r.status === RUN_STATUS.PASSED || r.status === RUN_STATUS.FAILED))
+    .filter((r) => r.caseId === caseId && (r.status === RUN_STATUS.PASSED || r.status === RUN_STATUS.FAILED || r.status === RUN_STATUS.CANCELLED))
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
 }
 
@@ -498,7 +498,10 @@ function CasesView({
                       </thead>
                       <tbody>
                         {detailRuns.map((r) => {
-                          const finished = r.status === RUN_STATUS.PASSED || r.status === RUN_STATUS.FAILED;
+                          const finished =
+                            r.status === RUN_STATUS.PASSED ||
+                            r.status === RUN_STATUS.FAILED ||
+                            r.status === RUN_STATUS.CANCELLED;
                           return (
                             <tr key={r.id}>
                               <td className="dim num">{formatDateTime(r.startedAt)}</td>

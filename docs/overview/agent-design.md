@@ -61,9 +61,25 @@ Configured per AgentDefinition, enforced by the kernel:
 
 - `maxSteps` — stop and fail with evidence preserved.
 - `tokenBudget` — cumulative input+output token cap.
-- `timeoutMs` — wall-clock cap.
+- `timeoutMs` — wall-clock cap (kernel-internal unit: milliseconds; the contract/UI unit for the per-env override is minutes, converted once at the env boundary).
 
 On limit breach: status `failed`, reason `limit:<kind>`, all collected evidence retained.
+
+## Run State Machine (runtime control)
+
+```
+PENDING --> RUNNING <--> PAUSED
+             |  \           |
+             v   v----------+--> CANCELLED
+          PASSED  FAILED
+```
+
+- The run row is created `PENDING` (the gRPC handler), flips to `RUNNING` when the kernel's agent starts, and settles to `PASSED` / `FAILED` / `CANCELLED`.
+- **Pause** (`PauseRun`) suspends the agent at a turn boundary: the pi loop awaits the kernel's turn-end listener, so the loop parks there while the browser session, event sink and transcript stay alive. `ResumeRun` continues the same session.
+- While paused the wall-clock timer is stopped (suspended time is neither charged to the timeout nor to the run's `durationMs`).
+- **Cancel** (`CancelRun`) aborts the agent and the run signal (interrupting in-flight browser/http/grpc work) and settles the run as `CANCELLED` with reason `cancelled`; evidence recorded so far is retained. Allowed from PENDING, RUNNING and PAUSED.
+- Control RPCs reach the run through `AgentKernel.runControl` (a runId → controller registry populated by the pipeline for the duration of a run). Unknown ids → `NOT_FOUND`; not-in-flight or invalid transitions → `FAILED_PRECONDITION`.
+- A breach (`limit:<kind>`) always wins over cancellation: it settles `FAILED` with its reason, evidence intact.
 
 ## Evidence Pipeline (shared by all agents)
 

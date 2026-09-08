@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import type { Artifact, Run, Verdict } from '@hpath/contract';
 import { ArtifactKind } from '@hpath/contract';
 import {
+  invokeControlRun,
   invokeDownloadArtifact,
   invokeSaveArtifact,
   invokeShowTrace,
@@ -40,7 +41,6 @@ type RunPanelProps = {
   onClose: () => void;
   onToast: (text: string, error?: boolean) => void;
 };
-
 // Base64 data URLs per artifact, shared across panel openings. Capped so a
 // long session cannot retain every screenshot of every run forever.
 const CACHE_LIMIT = 100;
@@ -612,6 +612,31 @@ function RunPanel({
   const [query, setQuery] = useState('');
   const feedRef = useRef<HTMLDivElement>(null);
 
+  // Live lifecycle status: the latest run_status event in the stream wins
+  // (RUNNING / PAUSED / terminal); falls back to RUNNING while the run is
+  // in flight and to the settled result's status after completion.
+  const liveStatus = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      if (ev.kind === 'runStatus' && ev.status !== undefined) return ev.status;
+    }
+    return undefined;
+  }, [events]);
+  const status = running
+    ? (liveStatus ?? RUN_STATUS.RUNNING)
+    : (result?.status ?? RUN_STATUS.PENDING);
+  const paused = running && status === RUN_STATUS.PAUSED;
+  const controlRunId = runId ?? (events.length > 0 ? events[events.length - 1].runId : undefined);
+
+  const controlRun = async (action: 'pause' | 'resume' | 'cancel') => {
+    if (!controlRunId) return;
+    try {
+      await invokeControlRun(action, controlRunId);
+    } catch (err) {
+      onToast(String(err), true);
+    }
+  };
+
   const allSteps = useMemo(() => buildSteps(events), [events]);
   const q = query.trim().toLowerCase();
   const steps = useMemo(
@@ -645,13 +670,34 @@ function RunPanel({
     }
   };
 
+  // Elapsed clock that skips paused spans: pause periods are accumulated in
+  // a ref and subtracted, so a paused run does not inflate the shown time.
+  const pauseStartRef = useRef(0);
+  const pausedTotalRef = useRef(0);
+  useEffect(() => {
+    if (!running) return;
+    if (paused) {
+      pauseStartRef.current = Date.now();
+      return;
+    }
+    if (pauseStartRef.current) {
+      pausedTotalRef.current += Date.now() - pauseStartRef.current;
+      pauseStartRef.current = 0;
+    }
+  }, [paused, running]);
+
   useEffect(() => {
     if (!running) return;
     // A fresh run restarts the clock: without the reset the timer would carry
     // the previous run's elapsed value into the new run.
     setElapsedMs(0);
+    pauseStartRef.current = 0;
+    pausedTotalRef.current = 0;
     const started = Date.now();
-    const timer = setInterval(() => setElapsedMs(Date.now() - started), 500);
+    const timer = setInterval(() => {
+      const pauseSpan = pauseStartRef.current ? Date.now() - pauseStartRef.current : 0;
+      setElapsedMs(Math.max(0, Date.now() - started - pausedTotalRef.current - pauseSpan));
+    }, 500);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
@@ -678,8 +724,6 @@ function RunPanel({
     document.getElementById(`hstep-${key}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, []);
 
-  const status = running ? RUN_STATUS.RUNNING : (result?.status ?? RUN_STATUS.PENDING);
-
   return (
     <section className="sec">
       <div className="shead">
@@ -693,6 +737,22 @@ function RunPanel({
           {envName && <span className="badge" style={{ marginLeft: 8 }}>{envName}</span>}
         </h2>
         <span className="more">
+          {running && !replay && controlRunId && (
+            <>
+              {paused ? (
+                <button className="btn sm" style={{ marginRight: 8 }} onClick={() => void controlRun('resume')}>
+                  ▶ {t('runPanel.resume')}
+                </button>
+              ) : (
+                <button className="btn sm" style={{ marginRight: 8 }} onClick={() => void controlRun('pause')}>
+                  ⏸ {t('runPanel.pause')}
+                </button>
+              )}
+              <button className="btn sm" style={{ marginRight: 8 }} onClick={() => void controlRun('cancel')}>
+                ■ {t('runPanel.stop')}
+              </button>
+            </>
+          )}
           {onRerun && (
             <button className="btn sm" style={{ marginRight: 8 }} onClick={onRerun}>
               ⟳ {t('runPanel.rerun')}

@@ -144,7 +144,49 @@ export function createListExistingCasesTool(context: ToolContext): AgentTool {
  * DRAFT_INPUT_SCHEMA, stamps the full pending agent draft (proto Case shape)
  * and records it as run evidence — drafts survive limit breaches. The run is
  * still only finished through finish_verdict.
+ *
+ * Real models occasionally serialize nested structures as JSON strings (the
+ * same quirk the verdict channel unwraps for finish_verdict): the whole
+ * argument object arrives stringified, or `alignments` comes through as a
+ * JSON-encoded array/string instead of an array. Coerce the common shapes
+ * BEFORE the strict schema check so the model's first call already lands
+ * instead of burning steps on blind retries.
  */
+function coerceDraftParams(raw: unknown): Record<string, unknown> {
+  let params = raw;
+  if (typeof params === "string") {
+    try {
+      params = JSON.parse(params);
+    } catch {
+      return { title: "", goal: "", alignments: [], sourcePrdRef: "", _raw: params } as Record<string, unknown>;
+    }
+  }
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    return { title: "", goal: "", alignments: [], sourcePrdRef: "", _raw: params } as Record<string, unknown>;
+  }
+  const record = { ...(params as Record<string, unknown>) };
+  const alignments = record.alignments;
+  if (typeof alignments === "string") {
+    try {
+      const parsed = JSON.parse(alignments);
+      if (Array.isArray(parsed)) {
+        record.alignments = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        record.alignments = [parsed];
+      } else {
+        record.alignments = [{ rule: alignments }];
+      }
+    } catch {
+      // A plain-text rule: treat it as one alignment entry instead of
+      // failing the call (the schema still requires a non-empty rule).
+      record.alignments = [{ rule: alignments }];
+    }
+  } else if (alignments && typeof alignments === "object" && !Array.isArray(alignments)) {
+    record.alignments = [alignments];
+  }
+  return record;
+}
+
 export function createWriteCaseDraftTool(context: ToolContext): AgentTool {
   return {
     name: "write_case_draft",
@@ -154,11 +196,13 @@ export function createWriteCaseDraftTool(context: ToolContext): AgentTool {
         + "(rule, and where the PRD names them apiPath and uiAnchor) and sourcePrdRef. "
         + "The kernel stamps id, project, pending status, agent creator, version and "
         + "changelog, and returns the full draft; include exactly these stamped drafts "
-        + "in your final finish_verdict.",
+        + "in your final finish_verdict. Pass alignments as a real JSON array "
+        + '(e.g. [{"rule": "...", "apiPath": "...", "uiAnchor": "..."}]), never as a string.',
     parameters: Type.Object({}, { additionalProperties: true }),
     execute: async (_toolCallId, params) => {
-      assertSchema(params, DRAFT_INPUT_SCHEMA, "case draft");
-      const draft = stampDraft(context, params as Record<string, unknown>);
+      const proposal = coerceDraftParams(params);
+      assertSchema(proposal, DRAFT_INPUT_SCHEMA, "case draft");
+      const draft = stampDraft(context, proposal);
       // The stamped draft must itself be schema-valid — a kernel bug would
       // surface here instead of producing broken cases.
       assertSchema(draft, CASE_DRAFT_SCHEMA, "stamped case draft");

@@ -74,7 +74,7 @@ export const EXECUTE_AGENT_DEFAULT_MODEL = "gpt-4.1-mini";
 export const EXECUTE_AGENT_DEFAULT_LIMITS: HardLimits = {
   maxSteps: 32,
   tokenBudget: 400_000,
-  timeoutMs: 300_000,
+  timeoutMs: 300_000, // 5 min (kernel limits are internal ms; the contract/UI unit is minutes)
 };
 
 const SYSTEM_PROMPT_TEMPLATE = `You are the HPath execute-agent, an autonomous QA agent executing one test case end to end.

@@ -114,5 +114,45 @@ describe("migrations", () => {
       db.close();
     }
   });
+
+  it("0006 converts existing agent_timeout_ms values to ceil(minutes) and keeps 0 as not-set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hpath-db-"));
+    const path = join(dir, "hpath.db");
+    // Build a pre-0006 database: everything through 0005, then seed timeout
+    // values in milliseconds (90_000 -> 2 min via ceil, 300_000 -> 5 exactly,
+    // 0 stays 0 "not set").
+    const raw = new DatabaseSync(path);
+    raw.exec("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+    for (const migration of MIGRATIONS.slice(0, 5)) {
+      raw.exec(migration.sql);
+      raw
+        .prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)")
+        .run(migration.name, "2026-01-01T00:00:00.000Z");
+    }
+    const insertProject = raw.prepare(
+      "INSERT INTO projects (id, name, repo_url, created_at) VALUES (?, ?, ?, ?)",
+    );
+    insertProject.run("p1", "one", "", "2026-01-01T00:00:00.000Z");
+    const insertEnv = raw.prepare(
+      `INSERT INTO envs (id, project_id, name, web_base_url, grpc_address, vars_json, credentials_json,
+                         agent_max_steps, agent_token_budget, agent_timeout_ms)
+       VALUES (?, ?, ?, '', '', '{}', '{}', 0, 0, ?)`,
+    );
+    insertEnv.run("e1", "p1", "partial", 90_000); // 1.5 min -> ceil 2
+    insertEnv.run("e2", "p1", "exact", 300_000); // 5 min exactly
+    insertEnv.run("e3", "p1", "unset", 0); // "not set" stays 0
+    raw.close();
+
+    const db = HpathDb.open(path);
+    try {
+      const envs = db.envs.listByProject("p1");
+      const byId = new Map(envs.map((env) => [env.id, env.agentLimits]));
+      assert.deepEqual(byId.get("e1"), { maxSteps: 0, tokenBudget: 0, timeoutMin: 2 });
+      assert.deepEqual(byId.get("e2"), { maxSteps: 0, tokenBudget: 0, timeoutMin: 5 });
+      assert.equal(byId.get("e3"), undefined);
+    } finally {
+      db.close();
+    }
+  });
 });
 

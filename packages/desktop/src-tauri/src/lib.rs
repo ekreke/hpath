@@ -13,8 +13,8 @@ pub mod grpc;
 
 use dto::{
     ArtifactDto, ArtifactProgressDto, CaseDto, ChatEventDto, ChatMessageDto, ChatSessionDto,
-    EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunEventDto, RunResultDto,
-    SettingsDto, VerdictDto,
+    EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto, RunEventDto,
+    RunResultDto, SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -552,6 +552,34 @@ async fn run_case(
     Ok(result)
 }
 
+/// Runtime control of an in-flight run (T14): PauseRun / ResumeRun / CancelRun
+/// target the run id directly (the server keeps executing a run even if the
+/// RunCase client disconnects) and return the refreshed Run row.
+#[tauri::command]
+async fn control_run(
+    state: State<'_, AppState>,
+    action: String,
+    run_id: String,
+) -> Result<RunDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let request = Request::new(hpath::RunControlRequest {
+        run_id: run_id.clone(),
+    });
+    let run = match action.as_str() {
+        "pause" => client.pause_run(request).await,
+        "resume" => client.resume_run(request).await,
+        "cancel" => client.cancel_run(request).await,
+        _ => return Err(format!("unknown run control action: {action}")),
+    }
+    .map_err(|e| e.to_string())?
+    .into_inner();
+
+    Ok(RunDto::from(&run))
+}
+
 /// Collect an artifact's bytes over the gRPC byte stream, emitting a progress
 /// tick per chunk when a channel is supplied (T13: the replay view fetches
 /// video / trace bytes and surfaces download progress).
@@ -785,6 +813,7 @@ pub fn run() {
             list_runs,
             parse_prd,
             run_case,
+            control_run,
             download_artifact,
             get_run,
             save_artifact,

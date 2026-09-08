@@ -47,8 +47,9 @@ function sandboxProvider(): ToolProvider {
 function makeKernel(
   streamFn: StreamFn,
   providers: ToolProvider[] = [],
+  definitionOverrides: Parameters<typeof stubDefinition>[0] = {},
 ): AgentKernel {
-  const agents = new AgentRegistry().register(stubDefinition());
+  const agents = new AgentRegistry().register(stubDefinition(definitionOverrides));
   const toolProviders = new ToolProviderRegistry();
   for (const provider of providers) {
     toolProviders.register(provider);
@@ -303,7 +304,7 @@ test("tokenBudget limit: cumulative usage is capped and reported", async () => {
   assert.equal(textEvents.length, 1);
 });
 
-test("timeoutMs limit: wall-clock breach stops the run as limit:timeout_ms", async () => {
+test("timeoutMs limit: wall-clock breach stops the run as limit:timeout", async () => {
   const agents = new AgentRegistry().register(
     stubDefinition({
       hardLimits: { maxSteps: 10, tokenBudget: 100_000, timeoutMs: 80 },
@@ -318,10 +319,10 @@ test("timeoutMs limit: wall-clock breach stops the run as limit:timeout_ms", asy
   const result = await kernel.run({ agentId: "stub-agent", input: BASE_INPUT, env: STUB_ENV });
 
   assert.equal(result.status, RunStatus.RUN_STATUS_FAILED);
-  assert.equal(result.failReason, "limit:timeout_ms");
+  assert.equal(result.failReason, "limit:timeout");
   assert.ok(result.durationMs < 5000, "run should stop at the timeout, not hang");
   const terminal = result.events[result.events.length - 1];
-  assert.equal((terminal.payload as { reason: string }).reason, "limit:timeout_ms");
+  assert.equal((terminal.payload as { reason: string }).reason, "limit:timeout");
 });
 
 test("a verdict violating the output schema is rejected; run fails with no_verdict", async () => {
@@ -439,11 +440,196 @@ test("a hanging tool call cannot outlive the wall-clock hard limit", async () =>
   const elapsed = Date.now() - startedAt;
 
   assert.equal(result.status, RunStatus.RUN_STATUS_FAILED);
-  assert.equal(result.failReason, "limit:timeout_ms");
+  assert.equal(result.failReason, "limit:timeout");
   assert.ok(elapsed < 5_000, "run must finish shortly after the limit trips, not hang forever");
   // The aborted tool's completion is still recorded (event symmetry).
   const finished = result.events.filter((event) =>
     event.payload.kind === "tool_finished" && (event.payload as { tool: string }).tool === "hang",
   );
   assert.ok(finished.length >= 1, "the aborted hanging tool still emits tool_finished");
+});
+
+// ── run control: PauseRun / ResumeRun / CancelRun through the kernel registry ─
+
+/** Poll until `predicate` holds or the budget expires (pause-gate timing). */
+async function waitForCondition(predicate: () => boolean, budgetMs = 2_000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitForCondition: predicate never became true");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/**
+ * Provider whose tool blocks until the test releases it. Gives the test a
+ * deterministic handle on "the first turn ended, tool executed": the pause
+ * gate sits at the turn boundary, so pausing while this tool is pending
+ * suspends the loop before the second model call.
+ */
+function blockingToolProvider(): { provider: ToolProvider; release: () => void; entered: Promise<void> } {
+  let releaseGate: () => void = () => {};
+  const release = () => releaseGate();
+  let enterGate: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    enterGate = resolve;
+  });
+  const provider: ToolProvider = {
+    id: "block",
+    description: "blocks until released by the test",
+    createTools: () => [
+      {
+        name: "block",
+        label: "Block",
+        description: "waits for the test to release it",
+        parameters: Type.Object({}),
+        execute: async (_id, _args, signal) =>
+          new Promise((resolve) => {
+            enterGate?.();
+            const finish = () =>
+              resolve({ content: [{ type: "text", text: "released" }], details: {} });
+            if (signal?.aborted) finish();
+            else signal?.addEventListener("abort", finish, { once: true });
+            releaseGate = () => {
+              signal?.removeEventListener("abort", finish);
+              finish();
+            };
+          }),
+      },
+    ],
+  };
+  return { provider, release, entered };
+}
+
+test("pause at a turn boundary suspends the loop; resume completes the run", async () => {
+  const { provider, release, entered } = blockingToolProvider();
+  const calls: StreamCallRecord[] = [];
+  const streamFn = scriptedStreamFn((_context, call) =>
+    call === 1
+      ? assistantToolCallMessage("block", {})
+      : assistantToolCallMessage("finish_verdict", VALID_VERDICT),
+    calls,
+  );
+  const kernel = makeKernel(streamFn, [provider], { toolBindings: ["block"] });
+
+  const runId = "pause-resume-run";
+  const runPromise = kernel.run({ agentId: "stub-agent", runId, input: BASE_INPUT, env: STUB_ENV });
+
+  // The first turn's tool is executing: the turn boundary (and the pause
+  // gate) sits right behind it. Pause while the loop is still inside the
+  // first turn — the gate arms for the upcoming boundary.
+  await entered;
+  kernel.runControl.get(runId)!.pause();
+  release();
+
+  // The loop is suspended at the turn boundary: the second model call never
+  // arrives while paused.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(calls.length, 1, "the paused loop must not advance to the next model call");
+
+  kernel.runControl.get(runId)!.resume();
+  const result = await runPromise;
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_PASSED);
+  assert.equal(calls.length, 2);
+  const statuses = result.events
+    .filter((event) => event.payload.kind === "run_status")
+    .map((event) => (event.payload as { status: RunStatus }).status);
+  assert.ok(statuses.includes(RunStatus.RUN_STATUS_PAUSED), "PAUSED is recorded");
+  assert.ok(
+    statuses.indexOf(RunStatus.RUN_STATUS_PAUSED) < statuses.indexOf(RunStatus.RUN_STATUS_PASSED),
+  );
+  // Pause is unregistered after settle.
+  assert.equal(kernel.runControl.get(runId), undefined);
+});
+
+test("cancel while paused unwinds the gate and settles as CANCELLED", async () => {
+  const { provider, release, entered } = blockingToolProvider();
+  const calls: StreamCallRecord[] = [];
+  const streamFn = scriptedStreamFn(() => assistantToolCallMessage("block", {}), calls);
+  const kernel = makeKernel(streamFn, [provider], { toolBindings: ["block"] });
+
+  const runId = "cancel-while-paused-run";
+  const runPromise = kernel.run({ agentId: "stub-agent", runId, input: BASE_INPUT, env: STUB_ENV });
+
+  await entered;
+  kernel.runControl.get(runId)!.pause();
+  kernel.runControl.get(runId)!.cancel();
+  release();
+  const result = await runPromise;
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_CANCELLED);
+  assert.equal(result.failReason, "cancelled");
+  assert.equal(result.verdict, undefined);
+  const terminal = result.events[result.events.length - 1];
+  assert.deepEqual(terminal.payload, {
+    kind: "run_status",
+    status: RunStatus.RUN_STATUS_CANCELLED,
+    reason: "cancelled",
+  });
+  assert.equal(kernel.runControl.get(runId), undefined);
+});
+
+test("cancel during an in-flight tool aborts it and settles as CANCELLED", async () => {
+  const kernel = new AgentKernel({
+    agents: new AgentRegistry().register(stubDefinition({
+      toolBindings: ["hang"],
+      hardLimits: { maxSteps: 10, tokenBudget: 100_000, timeoutMs: 5_000 },
+    })),
+    toolProviders: new ToolProviderRegistry().register(hangingProvider()),
+    streamFn: scriptedStreamFn(() => assistantToolCallMessage("hang", {})),
+    resolveModel: () => STUB_MODEL,
+  });
+
+  const runId = "cancel-in-flight-run";
+  const runPromise = kernel.run({ agentId: "stub-agent", runId, input: BASE_INPUT, env: STUB_ENV });
+
+  await waitForCondition(() => kernel.runControl.get(runId) !== undefined);
+  kernel.runControl.get(runId)!.cancel();
+  const result = await runPromise;
+
+  assert.equal(result.status, RunStatus.RUN_STATUS_CANCELLED);
+  assert.equal(result.failReason, "cancelled");
+});
+
+test("pause stops the wall-clock timer; the suspended time is not charged", async () => {
+  const { provider, release, entered } = blockingToolProvider();
+  const calls: StreamCallRecord[] = [];
+  const streamFn = scriptedStreamFn((_context, call) =>
+    call === 1
+      ? assistantToolCallMessage("block", {})
+      : assistantToolCallMessage("finish_verdict", VALID_VERDICT),
+    calls,
+  );
+  const kernel = makeKernel(streamFn, [provider], { toolBindings: ["block"] });
+
+  const runId = "pause-timer-run";
+  const runPromise = kernel.run({ agentId: "stub-agent", runId, input: BASE_INPUT, env: STUB_ENV });
+
+  await entered;
+  kernel.runControl.get(runId)!.pause();
+  // Stay suspended longer than the whole wall-clock budget would allow
+  // (timeoutMs is 5s); the timer must be stopped while paused.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  kernel.runControl.get(runId)!.resume();
+  release();
+  const result = await runPromise;
+
+  // The 5s timer was stopped while paused: the run still passes, and the
+  // reported duration excludes the suspended span.
+  assert.equal(result.status, RunStatus.RUN_STATUS_PASSED);
+  assert.ok(result.durationMs < 5_000, "paused span must not be charged to the duration");
+});
+
+test("invalid control transitions throw InvalidTransitionError", async () => {
+  const kernel = makeKernel(scriptedStreamFn(() => assistantTextMessage("bye")));
+  const runPromise = kernel.run({ agentId: "stub-agent", runId: "bad-transitions", input: BASE_INPUT, env: STUB_ENV });
+
+  const controller = kernel.runControl.get("bad-transitions")!;
+  assert.throws(() => controller.resume(), /cannot resume/);
+  await runPromise;
+  // The run is settled: the controller is unregistered (further control is
+  // FAILED_PRECONDITION at the RPC layer, not this registry).
+  assert.equal(kernel.runControl.get("bad-transitions"), undefined);
 });

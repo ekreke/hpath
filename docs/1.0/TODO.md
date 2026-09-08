@@ -1,9 +1,20 @@
 # TODO — Current Iteration
 
-Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; human acceptance passed)
+Iteration target: **T9 analyze-agent — real-mode ParsePRD wiring** (done; grpcurl smoke passed)
 
 ## Working notes
 
+- Real-mode ParsePRD wiring (2026-09-08, T9 final piece; SPEC checkbox ticked):
+  - `grpc/prd-analysis.ts`: `createParsePrdHandler` — validation (project NOT_FOUND, empty content / missing filename / >20 MB INVALID_ARGUMENT, format from the proto enum or inferred from the filename), PRD bytes to the artifact store under `artifacts/{project}/-/prd/{uuid}-{name}` (content_ref, best-effort upload; NOT in the run-scoped artifacts index), `db.prds.insert`, `prd_registered` event, then the registered analyze-agent through the shared kernel with a synthetic env binding (no env-bound tools; definition default limits) and the project's existing case list as `existingCases`.
+  - Event mapping: kernel `agent_text`/`agent_thinking` -> proto `thinking`; tool starts/finishes -> synthetic `progress` (10/30/40/60/70/90, mock parity); `error` -> `error`; drafts surface once at the end. Analysis events are not persisted to the events table (run-scoped FK; analyze runs have no runs row), matching the mock.
+  - Settle semantics: only a PASSED verdict persists drafts (`db.cases.create` per stamped draft, one broken draft doesn't drop the others) and closes with `drafts_created`; FAILED/limit runs close with a structured `error` event (kind = failReason) — evidence drafts stay in the stream, never in the cases table. Client disconnect does not abort the analysis.
+  - Wiring: `hpath.ts` spreads `parsePrd` into the runDeps block (RunCase/GetRun/DownloadArtifact/PauseRun/...); without execution deps ParsePRD stays UNIMPLEMENTED (real-read boundary suite updated; it no longer pins ParsePRD as unwired).
+  - Model-compat hardening from live smoke (ekreke gateway, step-3.7-flash):
+    - `write_case_draft` coerces JSON-stringified `alignments` / whole-argument strings before the strict schema check (same quirk class as the T8 finish_verdict unwrap); tool description warns "never as a string".
+    - `finish_verdict` completes an analyze-style verdict's missing `drafts` field from the run's stamped-draft evidence (identified by proto-Case shape: title + creator + status; execute-agent observations never match) and its error hint no longer hardcodes the execute-agent verdict shape.
+  - Tests: `test/prd-analysis-grpc.test.ts` (9 tests: validation errors, happy path with byte round-trip through the store + kernel-input assertions, all three formats, FAILED/limit settle with no persisted drafts, kernel crash, upload-failure degradation). Gates: server suite 214 tests / 209 pass / 0 fail (5 skipped, baseline); `pnpm -r build` + `cargo check` green.
+  - grpcurl smoke (`--real`): fixtures/prds/payment.md -> 29 events -> 3 schema-valid pending drafts (creator analyze-agent, sourcePrdRef to PRD sections, contentRef bytes round-trip); ReviewCase approve bumped version + changelog; desktop PRD view (all five ParseEvent branches incl. error) needed no changes.
+  - Along the way: fixed the run-control WIP's broken test baseline so the gates run green again (timeoutMs->timeoutMin fixtures in repositories/run-execution tests, pipeline.test.ts `limit:timeout` expectations, mock-run-script.test.ts `control: { registry }` option shape). The pause/resume/cancel feature itself remains a separate in-flight effort (desktop UI etc.).
 - Real-mode ReviewCase wiring (2026-09-07, T9 scope note half landed; ParsePRD still open):
   - `grpc/hpath.ts`: real `reviewCase` handler — delegates to `db.cases.review` (transaction + version bump + changelog). `REVIEW_ACTION_UNSPECIFIED` answers INVALID_ARGUMENT (matches mock); state-machine violations surface FAILED_PRECONDITION and unknown cases NOT_FOUND via the existing typed-error mapping. Changelog author is fixed to "reviewer" (1.0 has no operator identity); an empty comment falls back to the repo's "<ACTION> via review" convention.
   - Zero contract / desktop / Rust changes: the desktop already calls `review_case` through `invokeReviewCase` and the Rust `review_case` IPC command existed — only the gRPC handler was missing.
@@ -34,8 +45,8 @@ Iteration target: **T8 real RunCase wiring + T7a/T7b/T8 checkpoint** (done; huma
 
 ## Next up
 
-- T9 analyze-agent: real-mode `ParsePRD` gRPC wiring (kernel side + tests already exist). Same iteration: real-mode `ReviewCase` wiring (review workflow is mock-only right now).
 - T15 E2E demo script + README (no README yet).
+- Run-control feature (in-flight, separate from T9): kernel pause/resume machinery + contract landed; remaining are 3 red kernel pause tests (pipeline.test.ts), mock desktop wiring checks and the desktop RunPanel work in progress.
 - T6 leftover: `s3` backend round-trip against the compose `s3` profile SeaweedFS.
 - T18 desktop dogfooding (SPEC E section): debug bridge in the desktop app + one seeded dogfood case; schedule after T9/T15.
 

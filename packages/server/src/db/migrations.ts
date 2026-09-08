@@ -214,6 +214,18 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE envs ADD COLUMN agent_timeout_ms   INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    name: "0006_env_timeout_minutes",
+    sql: `
+      -- The timeout override switches units from milliseconds to minutes
+      -- (contract field AgentLimits.timeout_ms -> timeout_min). Existing
+      -- non-zero values are converted with ceil so a budget is never
+      -- shortened (e.g. 90_000 ms -> 2 min); 0 stays 0 ("not set").
+      ALTER TABLE envs RENAME COLUMN agent_timeout_ms TO agent_timeout_min;
+      UPDATE envs
+      SET agent_timeout_min = CAST(CEIL(agent_timeout_min / 60000.0) AS INTEGER);
+    `,
+  },
 ];
 
 function nowIso(): string {

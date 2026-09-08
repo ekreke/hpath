@@ -137,6 +137,21 @@ export class RunRepository {
     return this.getRequired(id);
   }
 
+  /**
+   * Patch a non-terminal lifecycle field in place (PENDING -> RUNNING ->
+   * PAUSED -> ... while the run executes). Terminal transitions go through
+   * finish(), which also records verdict/timing; this only rewrites status.
+   */
+  updateStatus(id: string, status: RunStatus): Run {
+    const info = this.db
+      .prepare("UPDATE runs SET status = ? WHERE id = ?")
+      .run(status, id);
+    if (Number(info.changes) === 0) {
+      throw new NotFoundError(`run not found: ${id}`);
+    }
+    return this.getRequired(id);
+  }
+
   /** Run history for filters, most recent first. */
   list(filter: RunFilter): Run[] {
     const conditions: string[] = ["project_id = ?"];

@@ -111,7 +111,7 @@ impl From<pb::Case> for CaseDto {
 pub struct AgentLimitsDto {
     pub max_steps: i32,
     pub token_budget: i32,
-    pub timeout_ms: i32,
+    pub timeout_min: i32,
 }
 
 impl From<&pb::AgentLimits> for AgentLimitsDto {
@@ -119,7 +119,7 @@ impl From<&pb::AgentLimits> for AgentLimitsDto {
         AgentLimitsDto {
             max_steps: l.max_steps,
             token_budget: l.token_budget,
-            timeout_ms: l.timeout_ms,
+            timeout_min: l.timeout_min,
         }
     }
 }
@@ -129,7 +129,7 @@ impl From<AgentLimitsDto> for pb::AgentLimits {
         pb::AgentLimits {
             max_steps: l.max_steps,
             token_budget: l.token_budget,
-            timeout_ms: l.timeout_ms,
+            timeout_min: l.timeout_min,
         }
     }
 }

@@ -25,7 +25,7 @@ type EnvForm = {
   // Agent hard-limit overrides; '' = not set (falls back to agent defaults).
   maxStepsText: string;
   tokenBudgetText: string;
-  timeoutMsText: string;
+  timeoutMinText: string;
 };
 
 // 0 means "not set" on the wire, so it renders as an empty input.
@@ -61,7 +61,7 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
     credentialsText: kvToText(env?.credentials ?? {}),
     maxStepsText: limitText(env?.agentLimits?.maxSteps),
     tokenBudgetText: limitText(env?.agentLimits?.tokenBudget),
-    timeoutMsText: limitText(env?.agentLimits?.timeoutMs),
+    timeoutMinText: limitText(env?.agentLimits?.timeoutMin),
   });
   const [busy, setBusy] = useState(false);
 
@@ -72,17 +72,18 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
     }
     // Agent limit overrides: blank = not set (0 on the wire); anything else
     // must be a non-negative integer so bad input never reaches the server.
+    // The timeout is authored in minutes and capped at one day (1440).
     const rawLimits = [
       { key: 'maxSteps' as const, text: form.maxStepsText },
       { key: 'tokenBudget' as const, text: form.tokenBudgetText },
-      { key: 'timeoutMs' as const, text: form.timeoutMsText },
+      { key: 'timeoutMin' as const, text: form.timeoutMinText, max: 1440 },
     ];
     const parsed: Record<string, number> = {};
-    for (const { key, text } of rawLimits) {
+    for (const { key, text, max } of rawLimits) {
       const trimmed = text.trim();
       if (!trimmed) continue;
       const n = Number(trimmed);
-      if (!Number.isInteger(n) || n < 0) {
+      if (!Number.isInteger(n) || n < 0 || (max !== undefined && n > max)) {
         onToast(t('envs.limitsInvalid'), true);
         return;
       }
@@ -105,7 +106,7 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
               agentLimits: {
                 maxSteps: parsed.maxSteps ?? 0,
                 tokenBudget: parsed.tokenBudget ?? 0,
-                timeoutMs: parsed.timeoutMs ?? 0,
+                timeoutMin: parsed.timeoutMin ?? 0,
               },
             }
           : {}),
@@ -184,9 +185,9 @@ function EnvFormModal({ projectId, env, onSaved, onClose, onToast }: EnvFormModa
           />
           <input
             inputMode="numeric"
-            value={form.timeoutMsText}
-            placeholder={t('envs.timeoutMs')}
-            onChange={(e) => setForm({ ...form, timeoutMsText: e.target.value })}
+            value={form.timeoutMinText}
+            placeholder={t('envs.timeoutMin')}
+            onChange={(e) => setForm({ ...form, timeoutMinText: e.target.value })}
           />
           <span className="hint">{t('envs.limitsHint')}</span>
         </div>

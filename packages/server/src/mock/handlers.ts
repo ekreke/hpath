@@ -43,6 +43,7 @@ import type {
   DownloadArtifactRequest,
   Project,
   Prd,
+  RunControlRequest,
   RunDetail,
   UpdateCaseRequest,
   UpdateProjectRequest,
@@ -59,11 +60,13 @@ import {
   Empty,
   PrdFormat,
   ReviewAction,
+  RunStatus,
   RunTrigger,
 } from "@hpath/contract";
 import type { MockStore } from "./store.js";
 import { nowIso } from "./store.js";
-import { simulateRun, type RunOutcome } from "./run-script.js";
+import { simulateRun, type RunController, type RunOutcome } from "./run-script.js";
+import type { Run } from "@hpath/contract";
 
 function grpcError(code: status, message: string): ServiceError {
   return { code, details: message, message, name: "ServiceError" } as ServiceError;
@@ -121,7 +124,41 @@ function outcomeForTitle(title: string): RunOutcome {
 
 const CHUNK_SIZE = 64 * 1024;
 
+/** Shared implementation of PauseRun/ResumeRun/CancelRun for mock mode:
+ * same state-machine semantics as the real handler — NOT_FOUND for unknown
+ * runs, FAILED_PRECONDITION for runs that are not in flight or for invalid
+ * transitions, and the refreshed Run as the response. */
+function mockRunControl(
+  store: MockStore,
+  controllers: Map<string, RunController>,
+  call: ServerUnaryCall<RunControlRequest, Run>,
+  callback: sendUnaryData<Run>,
+  action: "pause" | "resume" | "cancel",
+): void {
+  try {
+    const runId = call.request.runId;
+    const run = store.runs.get(runId);
+    if (!run) {
+      throw grpcError(status.NOT_FOUND, `run not found: ${runId}`);
+    }
+    const controller = controllers.get(runId);
+    if (!controller) {
+      throw grpcError(status.FAILED_PRECONDITION, `run is not active: ${runId}`);
+    }
+    try {
+      controller[action]();
+    } catch (err) {
+      throw grpcError(status.FAILED_PRECONDITION, (err as Error).message);
+    }
+    callback(null, store.runs.get(runId) ?? run);
+  } catch (err) {
+    callback(err as ServiceError);
+  }
+}
+
 export function createMockHandlers(store: MockStore): HpathServer {
+  // run id -> controller of a live scripted run (PauseRun/ResumeRun/CancelRun).
+  const runControllers = new Map<string, RunController>();
   return {
     // ------------------------------------------------------------------
     // Projects
@@ -577,6 +614,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
             // demo every scripted outcome; see outcomeForTitle.
             outcome: outcomeForTitle(kase.title),
             delayMs: 400,
+            control: { registry: runControllers },
             onEvent: (event) => {
               if (!call.cancelled) {
                 call.write(event);
@@ -588,6 +626,27 @@ export function createMockHandlers(store: MockStore): HpathServer {
           call.emit("error", err as ServiceError);
         }
       })();
+    },
+
+    pauseRun: (
+      call: ServerUnaryCall<RunControlRequest, Run>,
+      callback: sendUnaryData<Run>,
+    ) => {
+      mockRunControl(store, runControllers, call, callback, "pause");
+    },
+
+    resumeRun: (
+      call: ServerUnaryCall<RunControlRequest, Run>,
+      callback: sendUnaryData<Run>,
+    ) => {
+      mockRunControl(store, runControllers, call, callback, "resume");
+    },
+
+    cancelRun: (
+      call: ServerUnaryCall<RunControlRequest, Run>,
+      callback: sendUnaryData<Run>,
+    ) => {
+      mockRunControl(store, runControllers, call, callback, "cancel");
     },
 
     listRuns: (

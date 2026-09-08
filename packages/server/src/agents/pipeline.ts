@@ -23,6 +23,7 @@ import type {
   ThinkingContent,
 } from "@earendil-works/pi-ai";
 import { RunStatus } from "@hpath/contract";
+import { InvalidTransitionError } from "../db/errors.js";
 import type { AgentEventSink } from "./events.js";
 import { InMemoryEventSink } from "./events.js";
 import { RunEvidence } from "./evidence.js";
@@ -31,6 +32,8 @@ import { createCatalogModelResolver, createDefaultModels } from "./model.js";
 import { assertSchema } from "./schema.js";
 import { renderTemplate } from "./template.js";
 import { AgentRegistry } from "./registry.js";
+import type { RunController } from "./run-control.js";
+import { RunControlRegistry } from "./run-control.js";
 import type { ToolProviderRegistry } from "./tools.js";
 import { VerdictChannel, createEvidenceToolProvider } from "./verdict.js";
 import type {
@@ -90,6 +93,8 @@ function tokensOf(message: AssistantMessage): number {
 export class AgentKernel {
   readonly agents: AgentRegistry;
   readonly toolProviders: ToolProviderRegistry;
+  /** Controllers for in-flight runs: RPC handlers pause/resume/cancel by id. */
+  readonly runControl = new RunControlRegistry();
 
   private readonly streamFn: StreamFn;
   private readonly resolveModel: ModelResolver;
@@ -140,6 +145,11 @@ export class AgentKernel {
     let breach: AgentRunFailureReason | "" = "";
     let errorMessage: string | undefined;
     let promptFailed = false;
+    // Run-control state (PauseRun/ResumeRun/CancelRun). `cancelled` routes
+    // the settle path to CANCELLED; `pausedMs` feeds the wall-clock duration
+    // so a paused run is not charged for the time it spent suspended.
+    let cancelled = false;
+    let pausedMs = 0;
     const channel = new VerdictChannel(definition.outputSchema);
     // Declared before `settle` because the early failure paths below settle
     // before the tools (and their run evidence) are materialized.
@@ -149,7 +159,12 @@ export class AgentKernel {
       const verdict: Verdict | undefined = channel.isRecorded ? channel.value : undefined;
       let status: RunStatus;
       let reason: AgentRunFailureReason | "";
-      if (!breach && verdict !== undefined) {
+      if (cancelled && !breach) {
+        // User-requested cancellation: terminal CANCELLED unless a hard-limit
+        // breach claims priority (breach keeps its evidence-backed failure).
+        status = RunStatus.RUN_STATUS_CANCELLED;
+        reason = "cancelled";
+      } else if (!breach && verdict !== undefined) {
         // The structured verdict channel is the only success path.
         status = RunStatus.RUN_STATUS_PASSED;
         reason = "";
@@ -173,7 +188,7 @@ export class AgentKernel {
         tokenCost,
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        durationMs: finishedAt.getTime() - startedAt.getTime() - pausedMs,
         events: sink.events(),
         // Disposal has already run by the time settle is reached, so providers
         // (browser video/trace) have registered their by-products.
@@ -217,6 +232,32 @@ export class AgentKernel {
     // playwright, grpc calls) through ToolContext.signal, so the wall-clock
     // limit stays hard even when a tool call never returns on its own.
     const runAbort = new AbortController();
+    // Pause machinery. `waitWhilePaused` is awaited inside the turn_end
+    // listener (the agent loop awaits listener promises, which suspends it at
+    // the turn boundary); waking happens on resume() or on the run's abort
+    // signal, so a cancel/timeout while paused still unwinds and settles.
+    let paused = false;
+    let pausedAt = 0;
+    const pauseWaiters: Array<() => void> = [];
+    const wakePaused = (): void => {
+      for (const waiter of pauseWaiters.splice(0)) waiter();
+    };
+    const waitWhilePaused = (signal: AbortSignal | undefined): Promise<void> => {
+      if (!paused) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const onAbort = () => {
+          const idx = pauseWaiters.indexOf(waiter);
+          if (idx >= 0) pauseWaiters.splice(idx, 1);
+          resolve();
+        };
+        const waiter = () => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        pauseWaiters.push(waiter);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    };
     const context = {
       runId,
       agentId: definition.id,
@@ -254,7 +295,7 @@ export class AgentKernel {
       sessionId: runId,
     });
 
-    agent.subscribe((event) => {
+    agent.subscribe(async (event, signal) => {
       switch (event.type) {
         case "agent_start":
           sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" });
@@ -309,6 +350,22 @@ export class AgentKernel {
             breach ||= "limit:max_steps";
             agent.abort();
             runAbort.abort();
+            break;
+          }
+          // Pause gate: the loop awaits listener promises, so blocking here
+          // suspends the agent at the turn boundary while the browser session,
+          // event sink and transcript stay alive for a later resume. Woken by
+          // resume() — or by the run's abort signal, which covers a cancel
+          // arriving while paused and the wall-clock timer firing mid-pause.
+          // Gating only when the turn ends with pending tool calls: a final
+          // text turn is about to end the run anyway, and pausing after the
+          // verdict is recorded would needlessly delay settlement.
+          if (paused && !channel.isRecorded && message.stopReason === "toolUse") {
+            sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_PAUSED, reason: "" });
+            await waitWhilePaused(signal);
+            if (!cancelled && !breach) {
+              sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" });
+            }
           }
           break;
         }
@@ -322,12 +379,77 @@ export class AgentKernel {
 
     // Hard limit: wall clock. Firing aborts the agent AND the run signal (the
     // latter interrupts in-flight tool work); evidence already in the sink is
-    // preserved.
-    const timer = setTimeout(() => {
-      breach ||= "limit:timeout_ms";
+    // preserved. Pause stops the timer and restarts it with the remaining
+    // budget on resume, so a suspended run is not charged wall-clock time.
+    let timer: NodeJS.Timeout | undefined = setTimeout(() => {
+      breach ||= "limit:timeout";
       agent.abort();
       runAbort.abort();
     }, hardLimits.timeoutMs);
+    const stopTimer = (): void => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    let timerRemainingMs = hardLimits.timeoutMs;
+    let timerStartedAt = Date.now();
+    const armTimer = (remainingMs: number): void => {
+      stopTimer();
+      timerStartedAt = Date.now();
+      timer = setTimeout(() => {
+        breach ||= "limit:timeout";
+        agent.abort();
+        runAbort.abort();
+      }, remainingMs);
+    };
+
+    // Run-control handle: the surface RPC handlers use through
+    // kernel.runControl to pause/resume/cancel this run while it executes.
+    const controller: RunController = {
+      pause(): void {
+        if (cancelled || breach || paused || channel.isRecorded) {
+          throw new InvalidTransitionError(
+            `run ${runId} cannot pause from status ${cancelled ? "CANCELLED" : breach ? "FAILED" : paused ? "PAUSED" : "RUNNING"}`,
+          );
+        }
+        paused = true;
+        pausedAt = Date.now();
+        if (timer !== undefined) {
+          timerRemainingMs = Math.max(0, timerRemainingMs - (Date.now() - timerStartedAt));
+          stopTimer();
+        }
+        sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_PAUSED, reason: "" });
+      },
+      resume(): void {
+        if (cancelled || breach || !paused) {
+          throw new InvalidTransitionError(
+            `run ${runId} cannot resume from status ${cancelled ? "CANCELLED" : breach ? "FAILED" : "RUNNING"}`,
+          );
+        }
+        paused = false;
+        pausedMs += Date.now() - pausedAt;
+        if (timerRemainingMs > 0) {
+          armTimer(timerRemainingMs);
+        } else {
+          // The pause consumed the remaining wall-clock budget.
+          breach ||= "limit:timeout";
+          agent.abort();
+          runAbort.abort();
+        }
+        wakePaused();
+      },
+      cancel(): void {
+        if (cancelled || breach) return; // idempotent; breach already failed the run
+        cancelled = true;
+        paused = false;
+        stopTimer();
+        agent.abort();
+        runAbort.abort();
+        wakePaused();
+      },
+    };
+    this.runControl.register(runId, controller);
 
     try {
       const userMessage = typeof options.input === "string" ? options.input : JSON.stringify(options.input);
@@ -337,7 +459,11 @@ export class AgentKernel {
       errorMessage = (err as Error).message;
       sink.append({ kind: "error", errorKind: "agent_error", message: errorMessage });
     } finally {
-      clearTimeout(timer);
+      this.runControl.unregister(runId);
+      // A cancel requested while the gate was pending resolves through the
+      // abort signal; make sure the paused flag never outlives the run.
+      paused = false;
+      stopTimer();
       // Release stragglers the loop no longer waits for (no-op when a breach
       // already aborted), then release run-scoped resources (browser, pages,
       // ...). Disposal errors never mask the run outcome and evidence already

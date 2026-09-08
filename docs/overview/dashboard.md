@@ -41,6 +41,7 @@ Three blocks:
 - Opened on run trigger (or from Run History for a finished run, in replay mode).
 - Streaming event feed: agent thinking, tool calls, screenshots inline (thumbnails, click to enlarge), request/response records.
 - Hard-limit status bar: steps used / max, tokens used / budget, elapsed / timeout.
+- Runtime control: Pause (⏸) / Resume (▶) / Stop (■) buttons while a run is live. The live status pill follows the stream's `run_status` events (RUNNING ⇄ PAUSED → terminal); the elapsed clock skips paused spans.
 
 ### 5. Run Detail (replay, three layers)
 - **Watch** — inline webm video player + screenshot timeline + full agent transcript (thoughts and tool calls, step by step).
@@ -51,7 +52,7 @@ Three blocks:
 Run list filterable by project/env/case/status/date; aggregate health per case (last N results dots).
 
 ### 7. Env Management
-Per project: list envs, create/edit (name, web URL, gRPC address, variables, credentials — plaintext in 1.0), delete with run-existence guard.
+Per project: list envs, create/edit (name, web URL, gRPC address, variables, credentials — plaintext in 1.0; optional agent-limit overrides: maxSteps, tokenBudget, timeout in **minutes**, capped at 1440), delete with run-existence guard.
 
 ## Tauri IPC Surface (mirror of gRPC)
 
@@ -62,6 +63,7 @@ Per project: list envs, create/edit (name, web URL, gRPC address, variables, cre
 | upload_prd / parse_prd (stream) | ParsePRD |
 | list_cases / get_case / review_case | ListCases / GetCase / ReviewCase |
 | run_case (events stream) | RunCase |
+| control_run (pause/resume/cancel) | PauseRun / ResumeRun / CancelRun |
 | list_runs / get_run | ListRuns / GetRun |
 | download_artifact (progress events) | DownloadArtifact |
 | get_settings / update_settings | GetSettings / UpdateSettings |
