@@ -810,6 +810,55 @@ export interface Asset {
    * the preview.
    */
   textContent: string;
+  /**
+   * Structured method manifest of a proto asset (the parse output behind
+   * api_doc); empty for PRD assets. Drives the client's API list view.
+   */
+  methods: ApiMethod[];
+}
+
+/** One unary method of a proto asset's API surface. */
+export interface ApiMethod {
+  /** fully qualified service name, e.g. "demo.v1.BalanceService" */
+  service: string;
+  /** RPC name, e.g. "GetBalance" */
+  method: string;
+  /** fully qualified request message name */
+  request: string;
+  /** fully qualified response message name */
+  response: string;
+  /** leading comment on the method ("" when absent) */
+  comment: string;
+  /** markdown documentation (signature + message schemas) */
+  doc: string;
+}
+
+/**
+ * Invoke one unary method of the project's API surface against an env's gRPC
+ * target (manual "try it out" calls from the API list view). The method must
+ * be defined by the project's proto assets (same allowlist as the run-time
+ * grpc_call tool); the target comes from the env's grpc_address.
+ */
+export interface InvokeMethodRequest {
+  envId: string;
+  /** "package.Service/Method" */
+  method: string;
+  /** request message fields as a JSON object ("{}" for empty) */
+  requestJson: string;
+  /** optional per-call deadline (default 10000, cap 60000) */
+  timeoutMs: number;
+}
+
+export interface InvokeMethodResponse {
+  ok: boolean;
+  /** response message as JSON (ok) or error payload (not ok) */
+  responseJson: string;
+  /** gRPC status name, empty on success */
+  errorCode: string;
+  errorDetails: string;
+  /** resolved "host:port" the call went to */
+  target: string;
+  durationMs: number;
 }
 
 /** One file of an UploadAsset request. */
@@ -4671,6 +4720,7 @@ function createBaseAsset(): Asset {
     apiDoc: "",
     fileCount: 0,
     textContent: "",
+    methods: [],
   };
 }
 
@@ -4705,6 +4755,9 @@ export const Asset: MessageFns<Asset> = {
     }
     if (message.textContent !== "") {
       writer.uint32(82).string(message.textContent);
+    }
+    for (const v of message.methods) {
+      ApiMethod.encode(v!, writer.uint32(90).fork()).join();
     }
     return writer;
   },
@@ -4802,6 +4855,14 @@ export const Asset: MessageFns<Asset> = {
             message.textContent = reader.string();
             continue;
           }
+          case 11: {
+            if (tag !== 90) {
+              break;
+            }
+
+            message.methods.push(ApiMethod.decode(reader, reader.uint32()));
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -4854,6 +4915,9 @@ export const Asset: MessageFns<Asset> = {
         : isSet(object.text_content)
         ? globalThis.String(object.text_content)
         : "",
+      methods: globalThis.Array.isArray(object?.methods)
+        ? object.methods.map((e: any) => ApiMethod.fromJSON(e))
+        : [],
     };
   },
 
@@ -4889,6 +4953,9 @@ export const Asset: MessageFns<Asset> = {
     if (message.textContent !== "") {
       obj.textContent = message.textContent;
     }
+    if (message.methods?.length) {
+      obj.methods = message.methods.map((e) => ApiMethod.toJSON(e));
+    }
     return obj;
   },
 
@@ -4907,6 +4974,450 @@ export const Asset: MessageFns<Asset> = {
     message.apiDoc = object.apiDoc ?? "";
     message.fileCount = object.fileCount ?? 0;
     message.textContent = object.textContent ?? "";
+    message.methods = object.methods?.map((e) => ApiMethod.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseApiMethod(): ApiMethod {
+  return { service: "", method: "", request: "", response: "", comment: "", doc: "" };
+}
+
+export const ApiMethod: MessageFns<ApiMethod> = {
+  encode(message: ApiMethod, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.service !== "") {
+      writer.uint32(10).string(message.service);
+    }
+    if (message.method !== "") {
+      writer.uint32(18).string(message.method);
+    }
+    if (message.request !== "") {
+      writer.uint32(26).string(message.request);
+    }
+    if (message.response !== "") {
+      writer.uint32(34).string(message.response);
+    }
+    if (message.comment !== "") {
+      writer.uint32(42).string(message.comment);
+    }
+    if (message.doc !== "") {
+      writer.uint32(50).string(message.doc);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ApiMethod {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseApiMethod();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.service = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.method = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.request = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.response = reader.string();
+            continue;
+          }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.comment = reader.string();
+            continue;
+          }
+          case 6: {
+            if (tag !== 50) {
+              break;
+            }
+
+            message.doc = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): ApiMethod {
+    return {
+      service: isSet(object.service) ? globalThis.String(object.service) : "",
+      method: isSet(object.method) ? globalThis.String(object.method) : "",
+      request: isSet(object.request) ? globalThis.String(object.request) : "",
+      response: isSet(object.response) ? globalThis.String(object.response) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      doc: isSet(object.doc) ? globalThis.String(object.doc) : "",
+    };
+  },
+
+  toJSON(message: ApiMethod): unknown {
+    const obj: any = {};
+    if (message.service !== "") {
+      obj.service = message.service;
+    }
+    if (message.method !== "") {
+      obj.method = message.method;
+    }
+    if (message.request !== "") {
+      obj.request = message.request;
+    }
+    if (message.response !== "") {
+      obj.response = message.response;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.doc !== "") {
+      obj.doc = message.doc;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ApiMethod>, I>>(base?: I): ApiMethod {
+    return ApiMethod.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ApiMethod>, I>>(object: I): ApiMethod {
+    const message = createBaseApiMethod();
+    message.service = object.service ?? "";
+    message.method = object.method ?? "";
+    message.request = object.request ?? "";
+    message.response = object.response ?? "";
+    message.comment = object.comment ?? "";
+    message.doc = object.doc ?? "";
+    return message;
+  },
+};
+
+function createBaseInvokeMethodRequest(): InvokeMethodRequest {
+  return { envId: "", method: "", requestJson: "", timeoutMs: 0 };
+}
+
+export const InvokeMethodRequest: MessageFns<InvokeMethodRequest> = {
+  encode(message: InvokeMethodRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.envId !== "") {
+      writer.uint32(10).string(message.envId);
+    }
+    if (message.method !== "") {
+      writer.uint32(18).string(message.method);
+    }
+    if (message.requestJson !== "") {
+      writer.uint32(26).string(message.requestJson);
+    }
+    if (message.timeoutMs !== 0) {
+      writer.uint32(32).int32(message.timeoutMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeMethodRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseInvokeMethodRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.envId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.method = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.requestJson = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 32) {
+              break;
+            }
+
+            message.timeoutMs = reader.int32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): InvokeMethodRequest {
+    return {
+      envId: isSet(object.envId)
+        ? globalThis.String(object.envId)
+        : isSet(object.env_id)
+        ? globalThis.String(object.env_id)
+        : "",
+      method: isSet(object.method) ? globalThis.String(object.method) : "",
+      requestJson: isSet(object.requestJson)
+        ? globalThis.String(object.requestJson)
+        : isSet(object.request_json)
+        ? globalThis.String(object.request_json)
+        : "",
+      timeoutMs: isSet(object.timeoutMs)
+        ? globalThis.Number(object.timeoutMs)
+        : isSet(object.timeout_ms)
+        ? globalThis.Number(object.timeout_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: InvokeMethodRequest): unknown {
+    const obj: any = {};
+    if (message.envId !== "") {
+      obj.envId = message.envId;
+    }
+    if (message.method !== "") {
+      obj.method = message.method;
+    }
+    if (message.requestJson !== "") {
+      obj.requestJson = message.requestJson;
+    }
+    if (message.timeoutMs !== 0) {
+      obj.timeoutMs = Math.round(message.timeoutMs);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeMethodRequest>, I>>(base?: I): InvokeMethodRequest {
+    return InvokeMethodRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeMethodRequest>, I>>(object: I): InvokeMethodRequest {
+    const message = createBaseInvokeMethodRequest();
+    message.envId = object.envId ?? "";
+    message.method = object.method ?? "";
+    message.requestJson = object.requestJson ?? "";
+    message.timeoutMs = object.timeoutMs ?? 0;
+    return message;
+  },
+};
+
+function createBaseInvokeMethodResponse(): InvokeMethodResponse {
+  return { ok: false, responseJson: "", errorCode: "", errorDetails: "", target: "", durationMs: 0 };
+}
+
+export const InvokeMethodResponse: MessageFns<InvokeMethodResponse> = {
+  encode(message: InvokeMethodResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ok !== false) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.responseJson !== "") {
+      writer.uint32(18).string(message.responseJson);
+    }
+    if (message.errorCode !== "") {
+      writer.uint32(26).string(message.errorCode);
+    }
+    if (message.errorDetails !== "") {
+      writer.uint32(34).string(message.errorDetails);
+    }
+    if (message.target !== "") {
+      writer.uint32(42).string(message.target);
+    }
+    if (message.durationMs !== 0) {
+      writer.uint32(48).int32(message.durationMs);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeMethodResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseInvokeMethodResponse();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.ok = reader.bool();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.responseJson = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.errorCode = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.errorDetails = reader.string();
+            continue;
+          }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.target = reader.string();
+            continue;
+          }
+          case 6: {
+            if (tag !== 48) {
+              break;
+            }
+
+            message.durationMs = reader.int32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): InvokeMethodResponse {
+    return {
+      ok: isSet(object.ok) ? globalThis.Boolean(object.ok) : false,
+      responseJson: isSet(object.responseJson)
+        ? globalThis.String(object.responseJson)
+        : isSet(object.response_json)
+        ? globalThis.String(object.response_json)
+        : "",
+      errorCode: isSet(object.errorCode)
+        ? globalThis.String(object.errorCode)
+        : isSet(object.error_code)
+        ? globalThis.String(object.error_code)
+        : "",
+      errorDetails: isSet(object.errorDetails)
+        ? globalThis.String(object.errorDetails)
+        : isSet(object.error_details)
+        ? globalThis.String(object.error_details)
+        : "",
+      target: isSet(object.target) ? globalThis.String(object.target) : "",
+      durationMs: isSet(object.durationMs)
+        ? globalThis.Number(object.durationMs)
+        : isSet(object.duration_ms)
+        ? globalThis.Number(object.duration_ms)
+        : 0,
+    };
+  },
+
+  toJSON(message: InvokeMethodResponse): unknown {
+    const obj: any = {};
+    if (message.ok !== false) {
+      obj.ok = message.ok;
+    }
+    if (message.responseJson !== "") {
+      obj.responseJson = message.responseJson;
+    }
+    if (message.errorCode !== "") {
+      obj.errorCode = message.errorCode;
+    }
+    if (message.errorDetails !== "") {
+      obj.errorDetails = message.errorDetails;
+    }
+    if (message.target !== "") {
+      obj.target = message.target;
+    }
+    if (message.durationMs !== 0) {
+      obj.durationMs = Math.round(message.durationMs);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeMethodResponse>, I>>(base?: I): InvokeMethodResponse {
+    return InvokeMethodResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeMethodResponse>, I>>(object: I): InvokeMethodResponse {
+    const message = createBaseInvokeMethodResponse();
+    message.ok = object.ok ?? false;
+    message.responseJson = object.responseJson ?? "";
+    message.errorCode = object.errorCode ?? "";
+    message.errorDetails = object.errorDetails ?? "";
+    message.target = object.target ?? "";
+    message.durationMs = object.durationMs ?? 0;
     return message;
   },
 };
@@ -9318,6 +9829,22 @@ export const HpathService = {
     responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
     responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
   },
+  /**
+   * Manually invoke one unary method from the project's API surface against
+   * an env (API list view "try it out"). Method must be defined by the
+   * project's proto assets (INVALID_ARGUMENT otherwise); unknown env:
+   * NOT_FOUND.
+   */
+  invokeMethod: {
+    path: "/hpath.v1.Hpath/InvokeMethod" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: InvokeMethodRequest): Buffer => Buffer.from(InvokeMethodRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): InvokeMethodRequest => InvokeMethodRequest.decode(value),
+    responseSerialize: (value: InvokeMethodResponse): Buffer =>
+      Buffer.from(InvokeMethodResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): InvokeMethodResponse => InvokeMethodResponse.decode(value),
+  },
   listCases: {
     path: "/hpath.v1.Hpath/ListCases" as const,
     requestStream: false as const,
@@ -9616,6 +10143,13 @@ export interface HpathServer extends UntypedServiceImplementation {
    * cases reference PRDs by traceability string only).
    */
   deleteAsset: handleUnaryCall<DeleteAssetRequest, Empty>;
+  /**
+   * Manually invoke one unary method from the project's API surface against
+   * an env (API list view "try it out"). Method must be defined by the
+   * project's proto assets (INVALID_ARGUMENT otherwise); unknown env:
+   * NOT_FOUND.
+   */
+  invokeMethod: handleUnaryCall<InvokeMethodRequest, InvokeMethodResponse>;
   listCases: handleUnaryCall<ListCasesRequest, ListCasesResponse>;
   getCase: handleUnaryCall<GetCaseRequest, Case>;
   /**

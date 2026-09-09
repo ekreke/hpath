@@ -59,6 +59,8 @@ import type {
   RunFrame,
   WatchRunRequest,
   Env,
+  InvokeMethodRequest,
+  InvokeMethodResponse,
 } from "@hpath/contract";
 import {
   ArtifactKind,
@@ -397,6 +399,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
             apiDoc: "",
             fileCount: 1,
             textContent: Buffer.from(req.content).toString("utf8"),
+            methods: [],
           });
           call.write({ prdRegistered: { prd } });
           await sleep(150);
@@ -483,6 +486,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
           apiDoc: bundle.apiDoc,
           fileCount: bundle.fileCount,
           textContent: "",
+          methods: bundle.methods,
         };
         store.assets.set(asset.id, asset);
         callback(null, asset);
@@ -994,6 +998,67 @@ export function createMockHandlers(store: MockStore): HpathServer {
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
           .slice(-200);
         callback(null, { messages });
+      } catch (err) {
+        callback(err as ServiceError);
+      }
+    },
+
+    // Mock InvokeMethod: never touches the network. Validates like the real
+    // handler (env + method allowlist from the project's proto assets) and
+    // echoes a deterministic canned response so the API list view's
+    // "try it out" flow is demonstrable without a live backend.
+    invokeMethod: (
+      call: ServerUnaryCall<InvokeMethodRequest, InvokeMethodResponse>,
+      callback: sendUnaryData<InvokeMethodResponse>,
+    ) => {
+      try {
+        const { envId, method } = call.request;
+        if (!envId) {
+          throw grpcError(status.INVALID_ARGUMENT, "env_id is required");
+        }
+        if (!method || !method.includes("/")) {
+          throw grpcError(status.INVALID_ARGUMENT, 'method is required as "package.Service/Method"');
+        }
+        const env = store.envs.get(envId);
+        if (!env) {
+          throw grpcError(status.NOT_FOUND, `env not found: ${envId}`);
+        }
+        const allowed = new Set(
+          [...store.assets.values()]
+            .filter((asset) => asset.projectId === env.projectId && asset.type === AssetType.ASSET_TYPE_PROTO)
+            .flatMap((asset) => (asset.methods ?? []).map((m) => `${m.service}/${m.method}`)),
+        );
+        if (allowed.size === 0) {
+          throw grpcError(status.FAILED_PRECONDITION, "project has no API surface (upload a proto asset first)");
+        }
+        if (!allowed.has(method)) {
+          throw grpcError(
+            status.INVALID_ARGUMENT,
+            `gRPC method "${method}" is not defined in this project's API surface. Defined methods:\n`
+              + [...allowed].map((key) => `- ${key}`).join("\n"),
+          );
+        }
+        let request: unknown = {};
+        const trimmed = (call.request.requestJson ?? "").trim();
+        if (trimmed) {
+          request = JSON.parse(trimmed);
+        }
+        const started = Date.now();
+        const responseJson = JSON.stringify({
+          ok: true,
+          mock: true,
+          method,
+          request,
+          note: "mock mode: canned echo response, no backend call was made",
+        });
+        callback(null, {
+          ok: true,
+          responseJson,
+          errorCode: "",
+          errorDetails: "",
+          target: env.grpcAddress || "mock",
+          durationMs: Math.max(1, Date.now() - started),
+        });
       } catch (err) {
         callback(err as ServiceError);
       }

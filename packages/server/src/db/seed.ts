@@ -190,6 +190,7 @@ function seedDogfoodProject(db: HpathDb, clock: SeedClock): Project | undefined 
       contentRef: `proto/hpath/v1/hpath.proto`,
       apiDoc: bundle.apiDoc,
       methodsJson: JSON.stringify(bundle.methods),
+      methods: bundle.methods,
       fileCount: 0,
       textContent: "",
       storedFiles: [{ filename: "hpath.proto", key: "proto/hpath/v1/hpath.proto" }],
@@ -227,6 +228,7 @@ function seedAssets(db: HpathDb, projectId: string, clock: SeedClock, texts: Map
       // fixtures the repo-relative path is a stable, human-readable ref.
       contentRef: `fixtures/prds/${fixture.filename}`,
       apiDoc: "",
+      methods: [],
       fileCount: 0,
       textContent: texts.get(fixture.filename) ?? "",
       storedFiles: [],
@@ -254,6 +256,7 @@ function seedAssets(db: HpathDb, projectId: string, clock: SeedClock, texts: Map
           contentRef: `fixtures/demo-app/proto/balance.proto`,
           apiDoc: bundle.apiDoc,
           methodsJson: JSON.stringify(bundle.methods),
+          methods: bundle.methods,
           fileCount: 0,
           textContent: "",
           storedFiles: [{ filename: "balance.proto", key: "fixtures/demo-app/proto/balance.proto" }],

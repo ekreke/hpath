@@ -19,6 +19,7 @@ import type {
 import {
   AssetType,
   Empty,
+  type ApiMethod,
   type Asset,
   type DeleteAssetRequest,
   type GetAssetRequest,
@@ -27,11 +28,23 @@ import {
   type UploadAssetRequest,
 } from "@hpath/contract";
 import type { StoredFileRef } from "../db/repositories/assets.js";
-import { ProtoBundleError, parseProtoBundle } from "../assets/proto-doc.js";
+import { ProtoBundleError, parseProtoBundle, type ApiMethodDoc } from "../assets/proto-doc.js";
 import { ingestPrd, prdFormatFromFilename } from "../agents/prd.js";
 import { readAll } from "../artifacts/stream.js";
 import type { RunExecutionDeps } from "./run-execution.js";
 import { grpcError, toGrpcError } from "./errors.js";
+
+/** proto-doc ApiMethodDoc -> contract ApiMethod (field-identical shapes). */
+export function toContractMethods(docs: ApiMethodDoc[]): ApiMethod[] {
+  return docs.map((doc) => ({
+    service: doc.service,
+    method: doc.method,
+    request: doc.request,
+    response: doc.response,
+    comment: doc.comment,
+    doc: doc.doc,
+  }));
+}
 
 /** Storage key of one uploaded bundle file. Assets have no run of their own;
  * the env segment carries the stable "-" placeholder like PRDs do. */
@@ -109,6 +122,7 @@ export function createUploadAssetHandler(deps: RunExecutionDeps) {
           contentRef: entryKey,
           apiDoc: bundle.apiDoc,
           methodsJson: JSON.stringify(bundle.methods),
+          methods: toContractMethods(bundle.methods),
           fileCount: 0,
           storedFiles: persisted,
         });

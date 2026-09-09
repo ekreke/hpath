@@ -18,8 +18,8 @@ use debug_bridge::BridgeState;
 
 use dto::{
     ArtifactDto, ArtifactProgressDto, AssetDto, CaseDto, ChatEventDto, ChatMessageDto,
-    ChatSessionDto, EnvDto, ParseEventDto, ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto,
-    RunEventDto, RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
+    ChatSessionDto, EnvDto, InvokeMethodResultDto, ParseEventDto, ParsePrdResultDto, ProjectDto,
+    RunDetailDto, RunDto, RunEventDto, RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -600,6 +600,41 @@ async fn delete_asset(state: State<'_, AppState>, asset_id: String) -> Result<()
     Ok(())
 }
 
+/// API list view: manually invoke one unary method of the project's API
+/// surface against an env (server validates against the project's protos).
+#[tauri::command]
+async fn invoke_method(
+    state: State<'_, AppState>,
+    env_id: String,
+    method: String,
+    request_json: String,
+    timeout_ms: Option<i32>,
+) -> Result<InvokeMethodResultDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .invoke_method(Request::new(hpath::InvokeMethodRequest {
+            env_id,
+            method,
+            request_json,
+            timeout_ms: timeout_ms.unwrap_or(0),
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let r = response.into_inner();
+    Ok(InvokeMethodResultDto {
+        ok: r.ok,
+        response_json: r.response_json,
+        error_code: r.error_code,
+        error_details: r.error_details,
+        target: r.target,
+        duration_ms: r.duration_ms,
+    })
+}
+
 /// Run trigger (T12): forwards every stream event to the webview on the
 /// `run-event` channel while reducing the stream to the final outcome, which
 /// is returned when the command resolves (invoke end = run end).
@@ -962,6 +997,7 @@ pub fn run() {
             list_assets,
             get_asset,
             delete_asset,
+            invoke_method,
             run_case,
             control_run,
             watch_run,

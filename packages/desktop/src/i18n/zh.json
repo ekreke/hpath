@@ -53,6 +53,7 @@
     "cases": "用例",
     "runHistory": "运行历史",
     "prdDocs": "素材库",
+    "apis": "接口列表",
     "envs": "环境",
     "casesView": "用例",
     "envsView": "环境",
@@ -82,7 +83,11 @@
     "serverAddress": "服务器地址",
     "serverHint": "修改后点击应用重新连接 gRPC 服务",
     "apply": "应用",
-    "language": "界面语言"
+    "language": "界面语言",
+    "browserPoolZero": "0 — 每次运行单独启动",
+    "browserPoolDefault": "1（默认）",
+    "browserPoolMax": "4（上限，约 2.4–4 GB 内存）",
+    "multimodal": "支持图片输入（多模态）"
   },
   "status": {
     "unspecified": "未知",
@@ -277,6 +282,23 @@
     "parsed": "解析完成,生成 {{count}} 份草稿",
     "reviewHint": "已进入待评审队列,在用例视图中审核",
     "formatsHint": "支持 .md / .docx / .pdf,文件在本地上传后发送至服务端解析"
+  },
+  "api": {
+    "title": "接口列表",
+    "subtitle": "项目 Proto 素材解析出的 gRPC 接口 — 展开查看消息结构，并可按环境直接调用",
+    "env": "环境",
+    "envHint": "选择环境后可在此直接调用接口（目标为该环境的 gRPC 地址）",
+    "pickEnvFirst": "请先选择环境",
+    "empty": "暂无接口 — 先在素材库上传 Proto 素材",
+    "colMethod": "方法",
+    "colRequest": "请求",
+    "colResponse": "响应",
+    "colComment": "说明",
+    "requestJson": "请求 JSON",
+    "invoke": "调用",
+    "invoking": "调用中…",
+    "ok": "成功",
+    "failed": "失败"
   },
   "asset": {
     "title": "素材库",

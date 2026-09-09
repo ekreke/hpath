@@ -153,6 +153,7 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
           createdAt: now,
           contentRef,
           apiDoc: "",
+          methods: [],
           fileCount: 0,
           textContent,
           storedFiles,

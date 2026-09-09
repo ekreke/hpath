@@ -5,7 +5,7 @@
 // storage key and content_refs_json the full manifest of the upload.
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Asset } from "@hpath/contract";
+import type { ApiMethod, Asset } from "@hpath/contract";
 import { AssetType } from "@hpath/contract";
 import { NotFoundError, translateConstraintError } from "../errors.js";
 
@@ -42,6 +42,7 @@ function toAsset(row: AssetRow): Asset {
     apiDoc: row.api_doc,
     fileCount: 0, // computed column; never read back from SQLite directly
     textContent: row.text_content ?? "",
+    methods: parseMethodsJson(row.methods_json),
   };
 }
 
@@ -62,6 +63,21 @@ export function parseStoredFiles(asset: Asset, refsJson: string): StoredFileRef[
   }
 }
 
+/** Decode the stored method manifest (methods_json); empty/garbage -> []. */
+export function parseMethodsJson(raw: string): ApiMethod[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is ApiMethod =>
+      typeof entry === "object" && entry !== null
+      && typeof (entry as { service?: unknown }).service === "string"
+      && typeof (entry as { method?: unknown }).method === "string");
+  } catch {
+    return [];
+  }
+}
+
 /** Parsed proto bundle payload persisted alongside the asset row. */
 export interface ProtoSurface {
   apiDoc: string;
@@ -74,10 +90,10 @@ export interface PrdText {
   textContent: string;
 }
 
-export type AssetInsert = Asset & {
+export type AssetInsert = Omit<Asset, "methods"> & {
   type: AssetType;
   storedFiles: StoredFileRef[];
-} & Partial<ProtoSurface & PrdText>;
+} & Partial<Pick<Asset, "methods"> & ProtoSurface & PrdText>;
 
 export class AssetRepository {
   constructor(private readonly db: DatabaseSync) {}
@@ -107,7 +123,9 @@ export class AssetRepository {
     } catch (err) {
       throw translateConstraintError(err, `insert asset "${asset.filename}"`);
     }
-    return { ...asset, fileCount: refs.length };
+    // Normalize to the full contract shape: proto callers pass the parsed
+    // methods, PRD paths default to an empty manifest.
+    return { methods: asset.methods ?? [], ...asset, fileCount: refs.length };
   }
 
   get(id: string): Asset | undefined {

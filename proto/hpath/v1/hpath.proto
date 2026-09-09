@@ -350,6 +350,39 @@ message Asset {
   // means the text is unavailable (unreadable bytes) and a re-upload restores
   // the preview.
   string text_content = 10;
+  // Structured method manifest of a proto asset (the parse output behind
+  // api_doc); empty for PRD assets. Drives the client's API list view.
+  repeated ApiMethod methods = 11;
+}
+
+// One unary method of a proto asset's API surface.
+message ApiMethod {
+  string service = 1;  // fully qualified service name, e.g. "demo.v1.BalanceService"
+  string method = 2;   // RPC name, e.g. "GetBalance"
+  string request = 3;  // fully qualified request message name
+  string response = 4; // fully qualified response message name
+  string comment = 5;  // leading comment on the method ("" when absent)
+  string doc = 6;      // markdown documentation (signature + message schemas)
+}
+
+// Invoke one unary method of the project's API surface against an env's gRPC
+// target (manual "try it out" calls from the API list view). The method must
+// be defined by the project's proto assets (same allowlist as the run-time
+// grpc_call tool); the target comes from the env's grpc_address.
+message InvokeMethodRequest {
+  string env_id = 1;
+  string method = 2;      // "package.Service/Method"
+  string request_json = 3; // request message fields as a JSON object ("{}" for empty)
+  int32 timeout_ms = 4;   // optional per-call deadline (default 10000, cap 60000)
+}
+
+message InvokeMethodResponse {
+  bool ok = 1;
+  string response_json = 2; // response message as JSON (ok) or error payload (not ok)
+  string error_code = 3;    // gRPC status name, empty on success
+  string error_details = 4;
+  string target = 5;        // resolved "host:port" the call went to
+  int32 duration_ms = 6;
 }
 
 // One file of an UploadAsset request.
@@ -689,6 +722,11 @@ service Hpath {
   // Deletes an asset and best-effort purges its stored bytes (no refcount:
   // cases reference PRDs by traceability string only).
   rpc DeleteAsset(DeleteAssetRequest) returns (Empty);
+  // Manually invoke one unary method from the project's API surface against
+  // an env (API list view "try it out"). Method must be defined by the
+  // project's proto assets (INVALID_ARGUMENT otherwise); unknown env:
+  // NOT_FOUND.
+  rpc InvokeMethod(InvokeMethodRequest) returns (InvokeMethodResponse);
 
   rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
   rpc GetCase(GetCaseRequest) returns (Case);

@@ -53,6 +53,7 @@
     "cases": "Cases",
     "runHistory": "Run history",
     "prdDocs": "Materials",
+    "apis": "APIs",
     "envs": "Environments",
     "casesView": "Cases",
     "envsView": "Environments",
@@ -82,7 +83,11 @@
     "serverAddress": "Server address",
     "serverHint": "Apply to reconnect to the gRPC server",
     "apply": "Apply",
-    "language": "Language"
+    "language": "Language",
+    "browserPoolZero": "0 — launch per run",
+    "browserPoolDefault": "1 (default)",
+    "browserPoolMax": "4 (cap, ~2.4–4 GB memory)",
+    "multimodal": "Image input supported (multimodal)"
   },
   "status": {
     "unspecified": "unknown",
@@ -277,6 +282,23 @@
     "parsed": "Parsed — {{count}} draft(s) created",
     "reviewHint": "Queued as pending; review them in the Cases view",
     "formatsHint": "Supports .md / .docx / .pdf; files are uploaded and parsed server-side"
+  },
+  "api": {
+    "title": "APIs",
+    "subtitle": "gRPC methods parsed from the project's proto assets — expand for message schemas and invoke against an env",
+    "env": "Env",
+    "envHint": "Pick an env to invoke methods directly from here (target: the env's gRPC address)",
+    "pickEnvFirst": "Pick an environment first",
+    "empty": "No methods yet — upload a proto asset in Materials first",
+    "colMethod": "Method",
+    "colRequest": "Request",
+    "colResponse": "Response",
+    "colComment": "Comment",
+    "requestJson": "Request JSON",
+    "invoke": "Invoke",
+    "invoking": "Invoking…",
+    "ok": "OK",
+    "failed": "Failed"
   },
   "asset": {
     "title": "Assets",

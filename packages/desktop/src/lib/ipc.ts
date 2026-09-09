@@ -310,7 +310,38 @@ export type Asset = {
   fileCount: number;
   // PRD detail preview text (filled by GetAsset only; empty when unavailable)
   textContent?: string;
+  // Structured method manifest of a proto asset (API list view payload)
+  methods: ApiMethod[];
 };
+
+// One unary method of a proto asset's API surface.
+export type ApiMethod = {
+  service: string;
+  method: string;
+  request: string;
+  response: string;
+  comment: string;
+  doc: string;
+};
+
+// Result of a manual InvokeMethod call from the API list view.
+export type InvokeMethodResult = {
+  ok: boolean;
+  responseJson: string;
+  errorCode: string;
+  errorDetails: string;
+  target: string;
+  durationMs: number;
+};
+
+export function invokeMethod(
+  envId: string,
+  method: string,
+  requestJson: string,
+  timeoutMs?: number,
+): Promise<InvokeMethodResult> {
+  return invoke<InvokeMethodResult>('invoke_method', { envId, method, requestJson, timeoutMs });
+}
 
 export const ASSET_TYPE = { PRD: 1, PROTO: 2 } as const;
 

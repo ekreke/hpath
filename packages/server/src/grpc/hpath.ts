@@ -66,6 +66,7 @@ import {
   createListAssetsHandler,
   createUploadAssetHandler,
 } from "./assets.js";
+import { createInvokeMethodHandler } from "./invoke-method.js";
 import {
   createDownloadArtifactHandler,
   createGetRunHandler,
@@ -188,6 +189,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         listAssets: createListAssetsHandler(runDeps),
         getAsset: createGetAssetHandler(runDeps),
         deleteAsset: createDeleteAssetHandler(runDeps),
+        invokeMethod: createInvokeMethodHandler(runDeps),
       }
       : {}),
 

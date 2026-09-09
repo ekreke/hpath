@@ -8,6 +8,7 @@ import ChatView from './views/ChatView';
 import EnvsView from './views/EnvsView';
 import HistoryView from './views/HistoryView';
 import AssetView from './views/AssetView';
+import ApiView from './views/ApiView';
 import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
 import {
@@ -21,9 +22,9 @@ import {
 } from './lib/ipc';
 import { useTranslation } from 'react-i18next';
 
-type ProjectTab = 'cases' | 'history' | 'prd' | 'envs' | 'detail';
+type ProjectTab = 'cases' | 'history' | 'prd' | 'apis' | 'envs' | 'detail';
 
-const PROJECT_TABS: ProjectTab[] = ['cases', 'history', 'prd', 'envs'];
+const PROJECT_TABS: ProjectTab[] = ['cases', 'history', 'prd', 'apis', 'envs'];
 
 function initialProjectTab(): ProjectTab {
   const stored = localStorage.getItem('hpath.projectTab');
@@ -206,6 +207,7 @@ function App() {
     { id: 'cases', label: t('sidebar.cases'), count: caseCount },
     { id: 'history', label: t('sidebar.runHistory'), count: null },
     { id: 'prd', label: t('sidebar.prdDocs'), count: null },
+    { id: 'apis', label: t('sidebar.apis'), count: null },
     { id: 'envs', label: t('sidebar.envs'), count: envs.length },
   ];
   const workspace = view === 'projects' && projectsPage === 'workspace' && selectedProjectId !== null;
@@ -300,6 +302,15 @@ function App() {
                     <AssetView
                       projectId={selectedProjectId}
                       onDraftsCreated={refreshEnvs}
+                      onToast={onToast}
+                    />
+                  )}
+                  {projectTab === 'apis' && (
+                    <ApiView
+                      projectId={selectedProjectId}
+                      envs={envs}
+                      selectedEnvId={selectedEnvId}
+                      onSelectEnv={setSelectedEnvId}
                       onToast={onToast}
                     />
                   )}

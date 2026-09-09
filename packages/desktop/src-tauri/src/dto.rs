@@ -329,7 +329,8 @@ impl From<&pb::Prd> for PrdDto {
 }
 
 /// A project asset (T22 asset library): PRD document or parsed proto bundle
-/// (`api_doc` carries the markdown API surface of proto assets).
+/// (`api_doc` carries the markdown API surface of proto assets, `methods`
+/// the structured method manifest driving the API list view).
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetDto {
@@ -342,6 +343,44 @@ pub struct AssetDto {
     pub content_ref: String,
     pub api_doc: String,
     pub file_count: i32,
+    pub methods: Vec<ApiMethodDto>,
+}
+
+/// One unary method of a proto asset's API surface (contract ApiMethod).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiMethodDto {
+    pub service: String,
+    pub method: String,
+    pub request: String,
+    pub response: String,
+    pub comment: String,
+    pub doc: String,
+}
+
+impl From<&pb::ApiMethod> for ApiMethodDto {
+    fn from(m: &pb::ApiMethod) -> Self {
+        ApiMethodDto {
+            service: m.service.clone(),
+            method: m.method.clone(),
+            request: m.request.clone(),
+            response: m.response.clone(),
+            comment: m.comment.clone(),
+            doc: m.doc.clone(),
+        }
+    }
+}
+
+/// Result of a manual InvokeMethod call from the API list view.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvokeMethodResultDto {
+    pub ok: bool,
+    pub response_json: String,
+    pub error_code: String,
+    pub error_details: String,
+    pub target: String,
+    pub duration_ms: i32,
 }
 
 impl From<&pb::Asset> for AssetDto {
@@ -356,6 +395,7 @@ impl From<&pb::Asset> for AssetDto {
             content_ref: a.content_ref.clone(),
             api_doc: a.api_doc.clone(),
             file_count: a.file_count,
+            methods: a.methods.iter().map(ApiMethodDto::from).collect(),
         }
     }
 }

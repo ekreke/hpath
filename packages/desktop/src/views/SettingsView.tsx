@@ -217,21 +217,27 @@ function SettingsView({
           </div>
 
           <div className="field" style={{ maxWidth: 480 }}>
-            <label htmlFor="browser-pool-size">{t('settings.browserPool')}</label>
-            <input
-              id="browser-pool-size"
-              type="number"
-              min={0}
-              max={4}
-              step={1}
-              value={browserPool}
+            <label>{t('settings.browserPool')}</label>
+            <Select
+              value={String(browserPool)}
+              ariaLabel={t('settings.browserPool')}
               disabled={busy}
-              onChange={(e) => setBrowserPool(Number(e.target.value))}
-              onBlur={(e) => {
-                // Clamp on blur; the server re-validates (integer 0-4).
-                const clamped = Math.max(0, Math.min(4, Math.round(Number(e.target.value) || 0)));
-                setBrowserPool(clamped);
-                void saveBrowserPool(clamped);
+              options={[0, 1, 2, 3, 4].map((size) => ({
+                value: String(size),
+                label:
+                  size === 0
+                    ? t('settings.browserPoolZero')
+                    : size === 4
+                      ? t('settings.browserPoolMax')
+                      : size === 1
+                        ? t('settings.browserPoolDefault')
+                        : String(size),
+              }))}
+              onChange={(v) => {
+                // Immediate save (server re-validates the 0-4 range).
+                const size = Math.max(0, Math.min(4, Number(v) || 0));
+                setBrowserPool(size);
+                void saveBrowserPool(size);
               }}
             />
             <div className="hint">{t('settings.browserPoolHint')}</div>
@@ -241,16 +247,35 @@ function SettingsView({
             <div className="k">{t('settings.endpoint')}</div>
             <div className="v mono">{parsed ? Object.values(parsed.providers).map((p) => p.baseUrl ?? '—').join(', ') : '—'}</div>
             <div className="k">{t('settings.models')}</div>
-            <div className="v">
+            <div className="v" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {models.map(({ providerId, model }) => (
-                <span key={`${providerId}/${model.id}`} className="pill" style={{ marginRight: 6 }}>
+                <span
+                  key={`${providerId}/${model.id}`}
+                  className={`pill model${model.multimodal ? '' : ' dim'}`}
+                  title={model.multimodal ? t('settings.multimodal') : t('settings.notMultimodal')}
+                >
+                  <i className={model.multimodal ? 'mm' : ''} />
                   {model.id}
-                  {model.multimodal ? ' ◆' : ''}
                 </span>
               ))}
+              {models.length === 0 && <span className="hint">{t('settings.noModels')}</span>}
             </div>
           </div>
-          <p className="hint">◆ {t('settings.multimodalMark')}</p>
+          <p className="hint">
+            <i
+              className="mm"
+              style={{
+                display: 'inline-block',
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: 'var(--hc-3)',
+                marginRight: 6,
+                verticalAlign: 'middle',
+              }}
+            />
+            {t('settings.multimodalMark')}
+          </p>
 
           <div className="btns" style={{ marginTop: 14 }}>
             <button className="btn w" disabled={busy || !settings} onClick={openEditor}>
