@@ -46,7 +46,6 @@ function ProjectDetailPanel({ project, onRenamed, onDeleted, onToast }: ProjectD
             {t('projects.detail')}
             <span className="pill">{project.name}</span>
           </h1>
-          <div className="path">{project.id}</div>
         </div>
       </div>
 

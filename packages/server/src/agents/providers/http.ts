@@ -91,14 +91,26 @@ export function createHttpRequestTool(context: ToolContext, options: HttpToolPro
   const maxTimeoutMs = Math.max(options.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS, timeoutMs);
   const maxBodyChars = options.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS;
   const maxDownloadBytes = options.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
-  const allowedOrigins = allowedOriginSet(context.env.baseUrl, options.allowedOrigins ?? []);
+  // Env-driven origin extension (T18 dogfood): the env's `hpath_allowed_origins`
+  // variable (comma-separated origins) widens the fence beyond the baseUrl
+  // origin, e.g. for the desktop client's loopback debug bridge. Same
+  // deployment-level semantics as HttpToolProviderOptions.allowedOrigins.
+  const envOrigins = (context.env.variables.hpath_allowed_origins ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
+  const allowedOrigins = allowedOriginSet(
+    context.env.baseUrl,
+    [...(options.allowedOrigins ?? []), ...envOrigins],
+  );
   return {
     name: "http_request",
     label: "HTTP request",
     description:
       "Perform an HTTP request against the system under test. Relative URLs are "
-        + "resolved against the current environment's base URL; only that origin is "
-        + "reachable. Returns status, headers and the body (parsed as JSON when possible).",
+        + "resolved against the current environment's base URL; only that origin "
+        + "(plus origins the environment explicitly allows) is reachable. Returns "
+        + "status, headers and the body (parsed as JSON when possible).",
     parameters: Type.Object({
       url: Type.String({ description: "Path like /api/balance resolved against the env base URL (same-origin only)" }),
       method: Type.Optional(Type.String({ description: "HTTP method (default GET)" })),

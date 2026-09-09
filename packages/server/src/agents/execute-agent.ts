@@ -118,7 +118,7 @@ export function createExecuteAgentDefinition(options: ExecuteAgentOptions = {}):
     id: EXECUTE_AGENT_ID,
     role: "autonomous case executor",
     systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
-    toolBindings: ["browser", "http", "grpc", "api-docs"],
+    toolBindings: ["browser", "http", "grpc", "api-docs", "desktop"],
     model: options.model ?? EXECUTE_AGENT_DEFAULT_MODEL,
     hardLimits: { ...EXECUTE_AGENT_DEFAULT_LIMITS, ...options.hardLimits },
     inputSchema: EXECUTE_AGENT_INPUT_SCHEMA,

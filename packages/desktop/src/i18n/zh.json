@@ -102,7 +102,6 @@
   },
   "cases": {
     "title": "用例",
-    "subtitle": "三方对齐:PRD 逻辑 ↔ 前端展示 ↔ 后端输出",
     "colCase": "用例",
     "colStatus": "状态",
     "colCreator": "创建者",
@@ -308,6 +307,12 @@
     "noApiDoc": "该素材没有接口文档",
     "deleteConfirm": "确认删除？",
     "deleted": "已删除 {{name}}",
+    "selectAll": "全选",
+    "selectAsset": "选择素材",
+    "batchDelete": "删除所选",
+    "batchDeleteConfirm": "确认删除所选 {{count}} 个素材？此操作不可恢复。",
+    "batchDeleted": "已删除 {{count}} 个素材",
+    "batchDeleteFailed": "{{count}} 个素材删除失败",
     "empty": "暂无素材 — 点击右上角上传",
     "noTextPreview": "该文档没有可预览的文本（旧数据或不支持的格式），重新上传后可预览"
   },

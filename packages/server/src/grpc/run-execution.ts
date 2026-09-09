@@ -22,8 +22,10 @@
 // the kernel's runControl registry (see createRunControlHandler).
 
 import { randomUUID } from "node:crypto";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { status } from "@grpc/grpc-js";
 import type {
   sendUnaryData,
@@ -151,6 +153,35 @@ export function buildRunInput(kase: Case, apiSurface: string): Record<string, un
 const NO_API_SURFACE = "None registered for this project: no proto assets uploaded. "
   + "http_request stays available; gRPC endpoints may not exist.";
 
+/**
+ * Seeded assets use repo-relative pseudo keys (e.g.
+ * fixtures/demo-app/proto/balance.proto, proto/hpath/v1/hpath.proto) that
+ * never hit the artifact store. When the store has no object for a manifest
+ * key, fall back to reading the repo-relative file (walking up from this
+ * module, like the seed's own locators). Store keys (artifacts/…) and
+ * traversal attempts never touch the filesystem.
+ */
+function readRepoRelativeFile(key: string): Buffer | undefined {
+  if (key.startsWith("artifacts/") || key.split("/").includes("..")) {
+    return undefined;
+  }
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = join(dir, key);
+    if (existsSync(candidate)) {
+      try {
+        return readFileSync(candidate);
+      } catch {
+        return undefined;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
 function decodeMethodsJson(raw: string | undefined): ApiMethodDoc[] {
   if (!raw) return [];
   try {
@@ -190,14 +221,20 @@ export async function buildProjectApiSurface(
       methods.push(...decodeMethodsJson(full.methodsJson));
       if (full.apiDoc) docs.push(full.apiDoc);
       for (const ref of full.storedFiles) {
-        // Seed fixtures reference repo-relative pseudo keys that never hit the
-        // store; getObject fails and the file is skipped with a warning.
+        // Artifact store first; seeded repo-relative pseudo refs fall back to
+        // the repo checkout. Unreadable files are skipped with a warning —
+        // a missing file must never fail the run.
+        let body: Buffer | undefined;
         try {
           const object = await artifactStore.getObject(ref.key);
-          const body = await readAll(object.stream);
+          body = await readAll(object.stream);
+        } catch {
+          body = readRepoRelativeFile(ref.key);
+        }
+        if (body) {
           files.push({ filename: ref.filename, content: body });
-        } catch (err) {
-          console.warn(`[hpath-server] project proto "${ref.filename}" unreadable (${ref.key}): ${(err as Error).message}`);
+        } else {
+          console.warn(`[hpath-server] project proto "${ref.filename}" unreadable (${ref.key})`);
         }
       }
     }

@@ -495,3 +495,28 @@ export function invokeDeleteChatSession(sessionId: string): Promise<void> {
 export function invokeListChatMessages(sessionId: string): Promise<ChatMessage[]> {
   return invoke<ChatMessage[]>('list_chat_messages', { sessionId });
 }
+
+// ---------------------------------------------------------------------------
+// T18 dogfooding: debug-only shell-state push. The desktop app's debug bridge
+// (present in debug builds only) serves GET /state from the latest snapshot
+// pushed here, so the execute-agent can observe the shell's live connection
+// status / selection. Dev-guarded: in release builds the command exists but
+// nothing reads the sink; in a plain browser tab (Playwright) the invoke
+// rejects and is swallowed.
+// ---------------------------------------------------------------------------
+
+export type ShellStateSnapshot = {
+  connectionStatus: string;
+  selectedProjectId: string | null;
+  selectedProjectName: string | null;
+  selectedEnvId: string | null;
+  view: string;
+};
+
+export function pushShellState(state: ShellStateSnapshot): void {
+  if (!import.meta.env.DEV) return;
+  tauriInvoke('debug_push_state', { state })
+    .catch(() => {
+      // Not fatal: plain-browser-tab runs (dogfood browser layer) have no IPC.
+    });
+}

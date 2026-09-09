@@ -305,7 +305,6 @@ function CasesView({
               <h1>
                 {t('cases.title')} <span className="pill">{cases.length}</span>
               </h1>
-              <div className="path">{t('cases.subtitle')}</div>
             </div>
             <div className="btns">
               <button className="btn w" onClick={() => { setEditing(null); setFormOpen(true); }}>
@@ -382,7 +381,7 @@ function CasesView({
                   {t('common.delete')}
                 </button>
               )}
-              <button className="btn ghost" onClick={() => setSelectedCaseId(null)}>
+              <button className="btn ghost sm" onClick={() => setSelectedCaseId(null)}>
                 ← {t('common.back')}
               </button>
             </div>

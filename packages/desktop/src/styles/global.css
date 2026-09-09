@@ -187,7 +187,7 @@ h1 .pill {
   padding: 2px 11px;
 }
 .path { color: var(--faint); font-size: 14px; margin-top: 6px; }
-.ph .btns { margin-left: auto; display: flex; gap: 10px; padding-top: 4px; }
+.ph .btns { margin-left: auto; display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 
 .settings-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 28px; align-items: start; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }

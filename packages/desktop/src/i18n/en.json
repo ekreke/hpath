@@ -102,7 +102,6 @@
   },
   "cases": {
     "title": "Cases",
-    "subtitle": "Three-way alignment: PRD logic ↔ frontend display ↔ backend output",
     "colCase": "Case",
     "colStatus": "Status",
     "colCreator": "Creator",
@@ -308,6 +307,12 @@
     "noApiDoc": "This asset has no API doc",
     "deleteConfirm": "Confirm delete?",
     "deleted": "Deleted {{name}}",
+    "selectAll": "Select all",
+    "selectAsset": "Select asset",
+    "batchDelete": "Delete selected",
+    "batchDeleteConfirm": "Delete {{count}} selected asset(s)? This cannot be undone.",
+    "batchDeleted": "Deleted {{count}} asset(s)",
+    "batchDeleteFailed": "Failed to delete {{count}} asset(s)",
     "empty": "No assets yet — upload one from the top right",
     "noTextPreview": "No text preview available for this document (legacy data or unsupported format); re-upload to enable it"
   },

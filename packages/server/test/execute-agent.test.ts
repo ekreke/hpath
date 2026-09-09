@@ -236,11 +236,11 @@ test("execute-agent is a registered AgentDefinition with the T7b tool surface", 
 
   const definition = agents.require(EXECUTE_AGENT_ID);
   assert.equal(definition.id, "execute-agent");
-  assert.deepEqual(definition.toolBindings, ["browser", "http", "grpc", "api-docs"]);
+  assert.deepEqual(definition.toolBindings, ["browser", "http", "grpc", "api-docs", "desktop"]);
   assert.equal(definition.model, EXECUTE_AGENT_DEFAULT_MODEL);
   assert.deepEqual(definition.hardLimits, EXECUTE_AGENT_DEFAULT_LIMITS);
   // The verdict channel is pipeline machinery, always present.
-  for (const providerId of ["browser", "http", "grpc", "evidence", "api-docs"]) {
+  for (const providerId of ["browser", "http", "grpc", "evidence", "api-docs", "desktop"]) {
     assert.ok(toolProviders.require(providerId), `provider ${providerId} registered`);
   }
   // System prompt is a strict template over env + input.

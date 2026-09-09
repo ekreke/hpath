@@ -27,11 +27,27 @@ describe("seedDatabase", () => {
       const seed = await seedDatabase(db);
       assert.ok(seed, "fresh database must be seeded");
 
-      // Project: demo-bank with metadata repo_url.
+      // Project: demo-bank with metadata repo_url (+ the T18 dogfood project).
       const projects = db.projects.list();
-      assert.equal(projects.length, 1);
+      assert.equal(projects.length, 2);
       assert.equal(projects[0]!.name, "demo-bank");
       assert.equal(projects[0]!.repoUrl, "https://github.com/example/demo-bank");
+
+      // T18 dogfood project: local env against the vite dev URL + own server,
+      // one approved case, and the contract proto as the API surface.
+      const dogfood = projects.find((project) => project.name === "HPath Desktop (dogfood)")!;
+      const dogfoodEnvs = db.envs.listByProject(dogfood.id);
+      assert.deepEqual(dogfoodEnvs.map((env) => env.name), ["local"]);
+      assert.equal(dogfoodEnvs[0]!.webBaseUrl, "http://localhost:1420");
+      const dogfoodCases = db.cases.listByProject(dogfood.id);
+      assert.equal(dogfoodCases.length, 1);
+      assert.equal(dogfoodCases[0]!.status, CaseStatus.CASE_STATUS_APPROVED);
+      const dogfoodProtos = db.assets.listByProject(dogfood.id, AssetType.ASSET_TYPE_PROTO);
+      assert.equal(dogfoodProtos.length, 1);
+      assert.equal(dogfoodProtos[0]!.filename, "hpath.proto");
+      assert.ok(dogfoodProtos[0]!.apiDoc.includes("hpath.v1.Hpath/ListProjects"));
+      const dogfoodFull = db.assets.getFull(dogfoodProtos[0]!.id);
+      assert.ok(dogfoodFull?.methodsJson?.includes("ListProjects"));
 
       // Envs: dev + staging with the mock's connection data.
       const envs = db.envs.listByProject(seed.project.id);
@@ -120,7 +136,7 @@ describe("seedDatabase", () => {
       assert.ok(first);
       const again = await seedDatabase(db);
       assert.equal(again, undefined);
-      assert.equal(db.projects.list().length, 1);
+      assert.equal(db.projects.list().length, 2);
       assert.equal(db.cases.listByProject(first!.project.id).length, 5);
       assert.equal(db.runs.list({ projectId: first!.project.id }).length, 2);
       assert.equal(db.assets.listByProject(first!.project.id).length, 4);
@@ -173,7 +189,7 @@ describe("seedDatabase", () => {
       db.envs.create = originalCreate;
       const seed = await seedDatabase(db);
       assert.ok(seed, "a fresh boot after the failure re-seeds fully");
-      assert.equal(db.projects.list().length, 1);
+      assert.equal(db.projects.list().length, 2);
       assert.equal(db.cases.listByProject(seed!.project.id).length, 5);
       assert.equal(db.runs.list({ projectId: seed!.project.id }).length, 2);
       assert.equal(db.assets.listByProject(seed!.project.id).length, 4);

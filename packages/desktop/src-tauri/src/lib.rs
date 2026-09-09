@@ -10,6 +10,11 @@ pub mod hpath {
 }
 
 pub mod grpc;
+pub mod debug_bridge;
+
+use std::sync::Arc;
+
+use debug_bridge::BridgeState;
 
 use dto::{
     ArtifactDto, ArtifactProgressDto, AssetDto, CaseDto, ChatEventDto, ChatMessageDto,
@@ -913,12 +918,31 @@ fn download_dir() -> std::path::PathBuf {
     }
 }
 
+/// Debug-bridge state push (T18 dogfooding): the webview reports its live
+/// shell state (connectionStatus / selected project & env / active view) so
+/// GET /state on the loopback debug bridge can serve it. Present in release
+/// builds as a harmless no-op sink — nothing reads it there.
+#[tauri::command]
+fn debug_push_state(bridge: State<'_, Arc<BridgeState>>, state: serde_json::Value) -> Result<(), String> {
+    bridge.push(state);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let bridge_state = Arc::new(BridgeState::default());
+    let bridge_state_for_setup = bridge_state.clone();
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(bridge_state)
+        .setup(move |app| {
+            // T18 dogfood debug bridge: debug builds only (no-op in release).
+            debug_bridge::start(app.handle().clone(), bridge_state_for_setup.clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             set_server_addr,
+            debug_push_state,
             list_projects,
             create_project,
             update_project,

@@ -19,3 +19,11 @@ tokio = { version = "1", features = ["full"] }
 tonic = "0.12"
 prost = "0.13"
 base64 = "0.22"
+
+# T18 dogfood debug bridge: window-id discovery for the true-window screenshot.
+# NOTE: cargo cannot select dependencies on debug_assertions, so this is a
+# plain macOS target dep; the code that touches it is #[cfg(debug_assertions)]
+# and release builds simply never reference it.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+core-foundation = "0.10"

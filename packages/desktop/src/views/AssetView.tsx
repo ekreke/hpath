@@ -58,6 +58,7 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
   // Library state
   const [assets, setAssets] = useState<Asset[]>([]);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<Asset | null>(null);
   // Upload modal state
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -80,6 +81,7 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
   };
 
   useEffect(() => {
+    setSelectedIds(new Set());
     if (projectId) void refresh(projectId);
     else setAssets([]);
   }, [projectId]);
@@ -166,11 +168,43 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
     setConfirmId(null);
     try {
       await invokeDeleteAsset(asset.id);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(asset.id);
+        return next;
+      });
       void refresh(projectId!);
       onToast(t('asset.deleted', { name: asset.filename }));
     } catch (err) {
       onToast(String(err), true);
     }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected = assets.length > 0 && selectedIds.size === assets.length;
+
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(assets.map((a) => a.id)));
+  };
+
+  const removeSelected = async () => {
+    if (!projectId || selectedIds.size === 0) return;
+    const ids = [...selectedIds];
+    if (!window.confirm(t('asset.batchDeleteConfirm', { count: ids.length }))) return;
+    const results = await Promise.allSettled(ids.map((id) => invokeDeleteAsset(id)));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    setSelectedIds(new Set());
+    void refresh(projectId);
+    if (failed > 0) onToast(t('asset.batchDeleteFailed', { count: failed }), true);
+    else onToast(t('asset.batchDeleted', { count: ids.length }));
   };
 
   const openPreview = async (asset: Asset) => {
@@ -200,6 +234,11 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
         <div className="shead">
           <h2>{t('asset.libraryTitle')}</h2>
           <span className="n">{assets.length}</span>
+          {selectedIds.size > 0 && (
+            <button className="btn ghost sm" style={{ marginLeft: 'auto' }} onClick={() => void removeSelected()}>
+              {t('asset.batchDelete')} ({selectedIds.size})
+            </button>
+          )}
         </div>
         {assets.length === 0 ? (
           <div className="panelbox">
@@ -210,6 +249,14 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
             <table className="tbl">
               <thead>
                 <tr>
+                  <th style={{ width: 34 }}>
+                    <input
+                      type="checkbox"
+                      aria-label={t('asset.selectAll')}
+                      checked={allSelected}
+                      onChange={toggleAll}
+                    />
+                  </th>
                   <th>{t('asset.colType')}</th>
                   <th>{t('asset.colFile')}</th>
                   <th>{t('asset.colFiles')}</th>
@@ -221,6 +268,14 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
               <tbody>
                 {assets.map((asset) => (
                   <tr key={asset.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={t('asset.selectAsset')}
+                        checked={selectedIds.has(asset.id)}
+                        onChange={() => toggleSelected(asset.id)}
+                      />
+                    </td>
                     <td>
                       <span className={asset.type === ASSET_TYPE.PROTO ? 'tag run' : 'tag pending'}>
                         {asset.type === ASSET_TYPE.PROTO ? t('asset.typeProto') : t('asset.typePrd')}

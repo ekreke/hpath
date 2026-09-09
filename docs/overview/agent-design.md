@@ -18,7 +18,7 @@ AgentRegistry (agent-level extension entry)
   1.1+: diagnose-agent, optimize-agent, config/MCP-injected custom agents
 
 ToolProviderRegistry (tool-level extension entry)
-  1.0 built-ins: browser, http, grpc, evidence, prd-analysis, api-docs
+  1.0 built-ins: browser, http, grpc, evidence, prd-analysis, api-docs, desktop
   1.1+ reserved: mcp/<external-server>, skills/<name>
 ```
 
@@ -48,6 +48,7 @@ The server kernel only knows `AgentDefinition`. Adding an agent = registering a 
 | grpc | grpc_call |
 | evidence (kernel) | record_evidence, finish_verdict |
 | api-docs | list_apis, describe_api (T22; no tools without a project API surface) |
+| desktop | shell_state, capture_window (T18 dogfood; no tools unless the desktop client's debug bridge is discoverable) |
 
 **Project API surface (T22):** proto assets uploaded through the asset
 library are parsed server-side into a method allowlist + markdown API doc.

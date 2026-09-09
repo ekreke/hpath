@@ -14,6 +14,7 @@ import {
   invokeListEnvs,
   invokeListProjects,
   invokeSetServerAddr,
+  pushShellState,
   toFriendlyError,
   type Env,
   type Project,
@@ -188,6 +189,19 @@ function App() {
   }, []);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
+
+  // T18 dogfooding: mirror the live shell state into the debug bridge
+  // (dev builds only; no-op in release and in plain browser tabs).
+  useEffect(() => {
+    pushShellState({
+      connectionStatus,
+      selectedProjectId,
+      selectedProjectName: selectedProject?.name ?? null,
+      selectedEnvId,
+      view,
+    });
+  }, [connectionStatus, selectedProjectId, selectedProject, selectedEnvId, view]);
+
   const projectTabs: { id: ProjectTab; label: string; count: number | null }[] = [
     { id: 'cases', label: t('sidebar.cases'), count: caseCount },
     { id: 'history', label: t('sidebar.runHistory'), count: null },

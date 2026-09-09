@@ -97,13 +97,15 @@ after(async () => {
 });
 
 describe("real mode read path (SQLite)", () => {
-  it("ListProjects serves the seed project", async () => {
+  it("ListProjects serves the seed project (+ T18 dogfood project)", async () => {
     const { err, res } = await callUnary("listProjects", {});
     assert.equal(err, null);
     const projects = (res as ListProjectsResponse).projects;
-    assert.equal(projects.length, 1);
+    // demo-bank is the oldest seed project; the dogfood project follows.
+    assert.equal(projects.length, 2);
     assert.equal(projects[0]!.name, "demo-bank");
     assert.equal(projects[0]!.repoUrl, "https://github.com/example/demo-bank");
+    assert.equal(projects[1]!.name, "HPath Desktop (dogfood)");
   });
 
   it("ListEnvs serves dev + staging from SQLite", async () => {
@@ -216,7 +218,7 @@ describe("real mode CreateProject (T5 repository wiring)", () => {
 
     const list = await callUnary("listProjects", {});
     const names = (list.res as ListProjectsResponse).projects.map((p) => p.name);
-    assert.deepEqual(names, ["demo-bank", "wired-project"]);
+    assert.deepEqual(names, ["demo-bank", "HPath Desktop (dogfood)", "wired-project"]);
   });
 
   it("defaults repoUrl to empty when omitted", async () => {

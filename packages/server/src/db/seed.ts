@@ -41,6 +41,8 @@ export interface SeedResult {
   };
   runs: { passed: Run; failed: Run };
   assets: Asset[];
+  /** T18 dogfood project (undefined when the contract proto was unavailable). */
+  dogfood?: Project;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +95,109 @@ export function demoAppProtoPath(): string {
     dir = parent;
   }
   return resolve("fixtures", "demo-app", "proto", "balance.proto");
+}
+
+/** Locate the repo's own contract proto (T18 dogfood asset). */
+export function hpathProtoPath(): string {
+  let dir = MODULE_DIR;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = join(dir, "proto", "hpath", "v1", "hpath.proto");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return resolve("proto", "hpath", "v1", "hpath.proto");
+}
+
+/**
+ * T18 dogfood seed: a second project pointing the execute-agent at HPath's
+ * own desktop client. The env's web base URL is the vite dev server the
+ * `tauri dev` shell loads (same UI code); the gRPC address is the local
+ * HPath server itself (ListProjects is the backend side of the alignment).
+ * The debug bridge is discovered at RUN time (bridge_url variable or the
+ * port file the desktop app publishes) — the seed never depends on the
+ * desktop app being up. Skipped when the repo proto is unavailable.
+ */
+function seedDogfoodProject(db: HpathDb, clock: SeedClock): Project | undefined {
+  const protoPath = hpathProtoPath();
+  if (!existsSync(protoPath)) {
+    console.warn(`[hpath-server] seed: dogfood project skipped (no contract proto at ${protoPath})`);
+    return undefined;
+  }
+  const project: Project = {
+    id: randomUUID(),
+    name: "HPath Desktop (dogfood)",
+    repoUrl: "https://github.com/example/hpath",
+    createdAt: clock.at(10),
+  };
+  db.projects.create(project);
+  db.envs.create({
+    id: randomUUID(),
+    projectId: project.id,
+    name: "local",
+    webBaseUrl: "http://localhost:1420",
+    grpcAddress: "127.0.0.1:50051",
+    vars: { bridge: "desktop-debug-bridge (auto-discovered)" },
+    credentials: {},
+    isDefault: true,
+  });
+  const kase: Case = {
+    id: randomUUID(),
+    projectId: project.id,
+    title: "Desktop client lists the seeded project after applying the server address",
+    goal:
+      "Point HPath's own desktop client at the local server and verify three-way alignment: "
+      + "apply the server address in Settings, then check that the Projects view lists demo-bank, "
+      + "that the desktop shell state (debug bridge) reports connected, and that gRPC ListProjects "
+      + "returns demo-bank. Capture a true-window screenshot as visual evidence.",
+    alignments: [
+      {
+        apiPath: "hpath.v1.Hpath/ListProjects",
+        uiAnchor: "Projects view / desktop shell state",
+        rule:
+          "After applying the server address, the Projects view and the shell (bridge /state) show the "
+          + "seeded demo-bank project with connection status connected, and gRPC ListProjects returns it.",
+      },
+    ],
+    creator: { type: CreatorType.CREATOR_TYPE_HUMAN, name: "john", runRef: "" },
+    status: CaseStatus.CASE_STATUS_APPROVED,
+    sourcePrdRef: "",
+    version: 1,
+    changelog: [{ version: 1, author: "john", comment: "Dogfood case (T18)", changedAt: clock.at(11) }],
+    createdAt: clock.at(11),
+    updatedAt: clock.at(11),
+  };
+  db.cases.create(kase);
+  // The contract itself becomes the project's API surface: ListProjects is
+  // then prompt-injected and grpc_call hard-validated against it (T22).
+  try {
+    const bundle = parseProtoBundle(
+      [{ filename: "hpath.proto", content: readFileSync(protoPath) }],
+      "hpath.proto",
+    );
+    db.assets.insert({
+      id: randomUUID(),
+      projectId: project.id,
+      type: AssetType.ASSET_TYPE_PROTO,
+      filename: "hpath.proto",
+      sizeBytes: bundle.totalBytes,
+      createdAt: clock.at(12),
+      contentRef: `proto/hpath/v1/hpath.proto`,
+      apiDoc: bundle.apiDoc,
+      methodsJson: JSON.stringify(bundle.methods),
+      fileCount: 0,
+      textContent: "",
+      storedFiles: [{ filename: "hpath.proto", key: "proto/hpath/v1/hpath.proto" }],
+    });
+  } catch (err) {
+    console.warn(`[hpath-server] seed: dogfood proto asset skipped (parse failed): ${(err as Error).message}`);
+  }
+  return project;
 }
 
 function seedAssets(db: HpathDb, projectId: string, clock: SeedClock, texts: Map<string, string>): Asset[] {
@@ -565,6 +670,7 @@ export async function seedDatabase(db: HpathDb): Promise<SeedResult | undefined>
     const cases = seedCases(db, project, clock);
     const runs = seedRuns(db, project, envs, cases, base);
     const assets = seedAssets(db, project.id, clock, texts);
-    return { project, envs, cases, runs, assets };
+    const dogfood = seedDogfoodProject(db, clock);
+    return { project, envs, cases, runs, assets, dogfood };
   });
 }
