@@ -1,8 +1,20 @@
 # TODO — Current Iteration
 
-Iteration target: **T15 E2E demo script + README** (done; `make demo` green end to end)
+Iteration target: **T23 Browser pool** (done; SPEC checkbox ticked)
 
 ## Working notes
+
+- T23 Browser pool (2026-09-09; SPEC checkbox ticked):
+  - Motivation + measurement: cold `chromium.launch` is ~70-95 ms on Apple silicon but the pooled win matters more on slower disks/containers; a bare headless chromium costs ~0.6-1 GB RSS (~6-7 helper processes), context+page idle pushes ~0.8-0.9 GB, so the pool size is capped (4) and defaults to 1.
+  - Contract: `AppSettings.browser_pool_size` (uint32, proto3 field 3; 0 = disabled, server cap 4, default 1); TS types + descriptor regenerated. Note: proto3 JSON omits zero-valued scalars in responses — clients must treat a missing field as 0 (the desktop DTO defaults it).
+  - `agents/providers/browser-pool.ts`: `BrowserPool` with injected launcher (tests stub without spawning); prewarm/fillIdle evicts dead instances (`isConnected()`), shrink closes surplus idle browsers, `release()` re-pools while idle < target else closes, `close()` drains for shutdown; `resize()` is best-effort/non-throwing.
+  - `providers/browser.ts`: `BrowserSession` borrows the browser (pool.acquire) and returns it after context close (release instead of close); a context-creation failure on a borrowed browser also returns via release (instance is suspect but release-vs-close is decided by health); acquire failure falls back to a fresh launch; **no pool wired = exact pre-T23 behavior** (tests stub `chromium.launch` directly). Per-run fresh BrowserContext (video/trace/screencast) unchanged — isolation holds at the context level; doc wording updated in agent-design.md.
+  - Settings: `browserPool` in SettingsDoc (validate integer [0..4] else InvalidSettingsError; seed 1; `normalizeBrowserPool` best-effort on stored docs so a hand-edit can't brick sizing; `parseSettingsJson` third param is the wire override). `SettingsStore.browserPoolSize()` accessor.
+  - Wiring: `index.ts` builds the pool (boot prewarm non-blocking), passes it through `BuiltInOptions.browser.pool` (typed via `BrowserToolProviderOptions.pool`), exposes it on `RealExecutionDeps.browserPool`; UpdateSettings calls `resize(saved.browserPool)` fire-and-forget; shutdown drains the pool after gRPC shutdown. Mock: `browserPoolSize` round-trips in the in-memory settings store (default 1; no live pool to resize).
+  - Desktop: `SettingsDto` + `AppSettings` gain `browserPoolSize`; Settings → Models numeric input (min 0 / max 4, blur-clamped round, server re-validates; failure toasts and snaps back), i18n en/zh hint with the memory cost.
+  - Tests: browser-pool.test.ts (8: prewarm, borrow/return, over-capacity ephemeral, dead eviction on acquire+prewarm, dead release closes, resize grow/shrink, post-close passthrough, size-0 disabled), settings.test.ts (+5: seed=1, wire override, default when omitted, 0/4 accepted, 5/-1/1.5 rejected), t7b-providers.test.ts (+2: pool reuse across two runs with a launch counter, no-pool regression). Along the way: repaired the parallel-session `textContent` (asset detail preview) fallouts in tests (seedDatabase is now async — awaited in seed/real-read tests; AssetInsert objects carry `textContent: ""`; GetAsset backfill expects the trimmed text).
+  - Live `--real` smoke: boot log "browser pool: 1 warm chromium instance(s)"; GetSettings returns 1; UpdateSettings 2 → process count 3→6 (each chromium = 3 procs); >4 → INVALID_ARGUMENT "browserPool must be an integer in [0, 4]"; 0 → all chromium procs gone. Pending: back-to-back RunCase pair against demo-app needs an LLM key (pool reuse itself is asserted by the t7b integration test).
+  - Ops note: `make test`'s mock startup had a flaky window in this environment (nohup'd server not yet listening when grpcurl polls); rerunning succeeded — unrelated to this change.
 
 - T15 demo + README + smoke repair (2026-09-08; SPEC checkbox ticked):
   - Smoke fix (pre-existing failure): `scripts/smoke.ts` `updateCase` sent `alignments: []`, rejected by the T19 `assertAlignments` guard ("at least one alignment is required"). The script now sends a valid alignment on update; `make test` (build + mock + unit + smoke) is green again.

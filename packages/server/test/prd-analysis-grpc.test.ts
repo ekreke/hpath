@@ -356,7 +356,7 @@ describe("real parsePrd handler — analyze run", () => {
       const kinds = stream.events.map((event) => Object.keys(event)[0]);
       assert.equal(kinds[0], "prdRegistered");
       assert.equal(kinds[kinds.length - 1], "draftsCreated");
-      const registered = (stream.events[0] as { prdRegistered: { prd: { format: PrdFormat; sizeBytes: number; contentRef: string } } }).prdRegistered.prd;
+      const registered = (stream.events[0] as { prdRegistered: { prd: { id: string; format: PrdFormat; sizeBytes: number; contentRef: string } } }).prdRegistered.prd;
       assert.equal(registered.format, PrdFormat.PRD_FORMAT_MD, "resolved format echoed on the Prd row");
       assert.equal(registered.sizeBytes, Buffer.byteLength(MD_CONTENT));
       assert.ok(isValidArtifactKey(registered.contentRef), "content_ref is a valid store key");
@@ -365,6 +365,12 @@ describe("real parsePrd handler — analyze run", () => {
       const stored = await deps.artifactStore.getObject(registered.contentRef);
       const bytes = await readAll(stored.stream);
       assert.equal(bytes.toString("utf8"), MD_CONTENT);
+
+      // The asset row carries the extracted preview text (detail view);
+      // ingestPrd trims trailing whitespace, hence the .trim().
+      const assetRow = db.assets.get(registered.id);
+      assert.ok(assetRow, "asset row registered");
+      assert.equal(assetRow!.textContent, MD_CONTENT.trim(), "extracted text persisted for the detail preview");
 
       // thinking + progress mapping (mock-parity cadence).
       const thinking = stream.events.filter((event) => event.thinking !== undefined);

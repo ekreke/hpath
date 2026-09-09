@@ -14,14 +14,16 @@
 //       "models": [ { "id": "glm-5.3-flash", "name": "GLM-5.3 Flash", "multimodal": true } ]
 //     }
 //   },
-//   "defaultModel": "glm-5.3-flash"
+//   "defaultModel": "glm-5.3-flash",
+//   "browserPool": 1
 // }
 //
 // Invariants enforced by validateSettings():
 //   - at least one provider with a non-empty baseUrl
 //   - every model has a non-empty unique id (unique within its provider)
 //   - defaultModel references an existing model marked multimodal: the chat
-//     page and the agents must be able to send screenshots.
+//     page and the agents must be able to send screenshots
+//   - browserPool is an integer in [0, MAX_BROWSER_POOL] (0 = pool disabled)
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -43,7 +45,18 @@ export interface ProviderConfig {
 export interface SettingsDoc {
   providers: Record<string, ProviderConfig>;
   defaultModel: string;
+  /**
+   * Warm chromium browser pool size (T23): 0 disables the pool (launch per
+   * run, current pre-T23 behavior); capped at MAX_BROWSER_POOL. Default 1.
+   */
+  browserPool: number;
 }
+
+/** Hard cap for SettingsDoc.browserPool — each pooled chromium is ~0.6-1 GB RSS. */
+export const MAX_BROWSER_POOL = 4;
+
+/** Default warm-browser pool size when the document omits browserPool. */
+export const DEFAULT_BROWSER_POOL = 1;
 
 /** Thrown for structurally invalid settings; maps to INVALID_ARGUMENT. */
 export class InvalidSettingsError extends Error {}
@@ -81,6 +94,7 @@ export function seedSettings(): SettingsDoc {
       },
     },
     defaultModel: "glm-5.3-flash",
+    browserPool: DEFAULT_BROWSER_POOL,
   };
 }
 
@@ -156,7 +170,28 @@ export function validateSettings(value: unknown): SettingsDoc {
       `defaultModel "${defaultModel}" is not multimodal — the chat page and the agents need image input (screenshots)`,
     );
   }
+  const rawPool = (value as Record<string, unknown>).browserPool;
+  if (rawPool !== undefined) {
+    if (typeof rawPool !== "number" || !Number.isInteger(rawPool) || rawPool < 0 || rawPool > MAX_BROWSER_POOL) {
+      throw new InvalidSettingsError(
+        `browserPool must be an integer in [0, ${MAX_BROWSER_POOL}] (0 disables the warm browser pool)`,
+      );
+    }
+  }
+  (value as SettingsDoc).browserPool = normalizeBrowserPool(rawPool);
   return value as SettingsDoc;
+}
+
+/**
+ * Clamp browserPool to a valid integer in [0, MAX_BROWSER_POOL]; absent or
+ * invalid values fall back to the default. Non-throwing: stored documents
+ * skip validation on load, so a hand-edit must not brick the pool sizing.
+ */
+export function normalizeBrowserPool(value: unknown): number {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_BROWSER_POOL) {
+    return value;
+  }
+  return DEFAULT_BROWSER_POOL;
 }
 
 /** Locate a model id across providers; returns its multimodal flag when found. */
@@ -179,10 +214,15 @@ function findModel(
 
 /**
  * Parse + validate a settings JSON string (the wire format of AppSettings).
- * `defaultModelOverride` replaces the document's embedded defaultModel before
- * validation, so the wire's explicit field wins.
+ * `defaultModelOverride` replaces the document's embedded defaultModel and
+ * `browserPoolOverride` its browserPool before validation, so the wire's
+ * explicit fields win.
  */
-export function parseSettingsJson(json: string, defaultModelOverride?: string): SettingsDoc {
+export function parseSettingsJson(
+  json: string,
+  defaultModelOverride?: string,
+  browserPoolOverride?: number,
+): SettingsDoc {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -192,6 +232,9 @@ export function parseSettingsJson(json: string, defaultModelOverride?: string): 
   const doc = parsed as SettingsDoc;
   if (defaultModelOverride !== undefined) {
     doc.defaultModel = defaultModelOverride;
+  }
+  if (browserPoolOverride !== undefined) {
+    doc.browserPool = browserPoolOverride;
   }
   return validateSettings(doc);
 }
@@ -226,12 +269,20 @@ export class SettingsStore {
       );
     }
     // Stored docs skip validation: they were validated when written, and a
-    // hand-edit that breaks invariants should not brick server startup.
-    return new SettingsStore(path, parsed as SettingsDoc);
+    // hand-edit that breaks invariants should not brick server startup. The
+    // browser pool size is normalized best-effort (pre-T23 docs lack it).
+    const stored = parsed as SettingsDoc;
+    stored.browserPool = normalizeBrowserPool(stored.browserPool);
+    return new SettingsStore(path, stored);
   }
 
   get(): SettingsDoc {
     return this.doc;
+  }
+
+  /** Current warm browser pool size (normalized; 0 = pool disabled). */
+  browserPoolSize(): number {
+    return normalizeBrowserPool(this.doc.browserPool);
   }
 
   /** Validate + persist a new document atomically (validated on the way in). */

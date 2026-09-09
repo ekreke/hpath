@@ -231,11 +231,9 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
                     <td>{formatBytes(asset.sizeBytes)}</td>
                     <td>{new Date(asset.createdAt).toLocaleString(i18n.language)}</td>
                     <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      {asset.type === ASSET_TYPE.PROTO && (
-                        <button className="btn ghost sm" onClick={() => void openPreview(asset)}>
-                          {t('asset.view')}
-                        </button>
-                      )}
+                      <button className="btn ghost sm" onClick={() => void openPreview(asset)}>
+                        {t('asset.view')}
+                      </button>
                       <button
                         className="btn ghost sm"
                         style={confirmId === asset.id ? { color: 'var(--danger, #f66)' } : undefined}
@@ -393,7 +391,7 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
         </aside>
       </div>
 
-      {/* API-doc preview modal ---------------------------------------------- */}
+      {/* Detail preview modal (both asset types) ----------------------------- */}
       {preview && (
         <div className="overlay" onClick={() => setPreview(null)}>
           <div className="modal" style={{ maxWidth: 720, width: '90%' }} onClick={(e) => e.stopPropagation()}>
@@ -401,13 +399,36 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
               {t('asset.previewTitle')} · <span className="mono">{preview.filename}</span>
             </h3>
             <div
+              className="hint"
+              style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}
+            >
+              <span className={preview.type === ASSET_TYPE.PROTO ? 'tag run' : 'tag pending'}>
+                {preview.type === ASSET_TYPE.PROTO ? t('asset.typeProto') : t('asset.typePrd')}
+              </span>
+              <span>
+                {t('asset.colFiles')}: <b className="mono">{preview.fileCount || 1}</b>
+              </span>
+              <span>
+                {t('asset.colSize')}: <b className="mono">{formatBytes(preview.sizeBytes)}</b>
+              </span>
+              <span>
+                {t('asset.colTime')}: {new Date(preview.createdAt).toLocaleString(i18n.language)}
+              </span>
+            </div>
+            <div
               className="md"
               style={{ maxHeight: '60vh', overflowY: 'auto', fontSize: 13, lineHeight: 1.55 }}
             >
-              {preview.apiDoc ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.apiDoc}</ReactMarkdown>
+              {preview.type === ASSET_TYPE.PROTO ? (
+                preview.apiDoc ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.apiDoc}</ReactMarkdown>
+                ) : (
+                  <p className="hint">{t('asset.noApiDoc')}</p>
+                )
+              ) : preview.textContent?.trim() ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.textContent}</ReactMarkdown>
               ) : (
-                <p className="hint">{t('asset.noApiDoc')}</p>
+                <p className="hint">{t('asset.noTextPreview')}</p>
               )}
             </div>
             <div className="mfoot">

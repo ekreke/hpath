@@ -62,6 +62,32 @@ describe("settings validation", () => {
   it("seed doc is valid and defaults to glm-5.3-flash", () => {
     const doc = validateSettings(seedSettings());
     assert.equal(doc.defaultModel, "glm-5.3-flash");
+    assert.equal(doc.browserPool, 1, "seeded pool size is 1");
+  });
+
+  it("lets the wire-level browserPoolSize override the embedded one", () => {
+    const doc = parseSettingsJson(VALID_JSON, undefined, 3);
+    assert.equal(doc.browserPool, 3);
+  });
+
+  it("defaults browserPool to 1 when the document omits it", () => {
+    const doc = parseSettingsJson(VALID_JSON);
+    assert.equal(doc.browserPool, 1);
+  });
+
+  it("accepts browserPool 0 (pool disabled) and the cap 4", () => {
+    assert.equal(parseSettingsJson(VALID_JSON, undefined, 0).browserPool, 0);
+    assert.equal(parseSettingsJson(VALID_JSON, undefined, 4).browserPool, 4);
+  });
+
+  it("rejects browserPool above the cap, negative and non-integer values", () => {
+    for (const bad of [5, -1, 1.5]) {
+      assert.throws(
+        () => parseSettingsJson(VALID_JSON, undefined, bad),
+        (err: unknown) => err instanceof InvalidSettingsError && /browserPool must be an integer in \[0, 4\]/.test(err.message),
+        `expected rejection for browserPool=${bad}`,
+      );
+    }
   });
 });
 

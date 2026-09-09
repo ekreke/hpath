@@ -11,6 +11,7 @@ import protoLoader from "@grpc/proto-loader";
 import type { AddressInfo } from "node:net";
 import { chromium } from "playwright";
 import {
+  BrowserPool,
   InMemoryEventSink,
   RunEvidence,
   VerdictChannel,
@@ -388,6 +389,66 @@ test("browser provider: run-scoped cleanup closes the session (isolation)", asyn
   await context.evidence.dispose();
   await assert.rejects(() => navigate.execute("c2", { url: "/" }), /already closed/);
   await server.close();
+});
+
+test("browser provider with a pool: releases the browser between runs and reuses it (T23)", async () => {
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<html><body>hi</body></html>");
+  });
+  let launches = 0;
+  const originalLaunch = chromium.launch;
+  chromium.launch = ((...args: Parameters<typeof chromium.launch>) => {
+    launches += 1;
+    return originalLaunch.call(chromium, ...args);
+  }) as typeof chromium.launch;
+  try {
+    const pool = new BrowserPool({ size: 1 });
+    const runOne = async (): Promise<ToolContext> => {
+      const context = makeContext(server.baseUrl);
+      const tools = createBrowserTools(context, { pool });
+      const navigate = tools.find((tool) => tool.name === "navigate")!;
+      await navigate.execute("c1", { url: "/" });
+      await context.evidence.dispose(); // closes the context, releases the browser
+      return context;
+    };
+    await runOne();
+    assert.equal(launches, 1, "first run launches through the pool");
+    await runOne();
+    assert.equal(launches, 1, "second run must reuse the pooled browser (no relaunch)");
+    await pool.close();
+  } finally {
+    chromium.launch = originalLaunch;
+    await server.close();
+  }
+});
+
+test("browser provider without a pool keeps the launch-per-run behavior (T23 disabled path)", async () => {
+  const server = await startHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<html><body>hi</body></html>");
+  });
+  let launches = 0;
+  const originalLaunch = chromium.launch;
+  chromium.launch = ((...args: Parameters<typeof chromium.launch>) => {
+    launches += 1;
+    return originalLaunch.call(chromium, ...args);
+  }) as typeof chromium.launch;
+  try {
+    const runOne = async (): Promise<void> => {
+      const context = makeContext(server.baseUrl);
+      const tools = createBrowserTools(context);
+      const navigate = tools.find((tool) => tool.name === "navigate")!;
+      await navigate.execute("c1", { url: "/" });
+      await context.evidence.dispose();
+    };
+    await runOne();
+    await runOne();
+    assert.equal(launches, 2, "no pool wired -> every run launches its own chromium");
+  } finally {
+    chromium.launch = originalLaunch;
+    await server.close();
+  }
 });
 
 test("built-in provider registry entries describe the T7b tool surface", () => {

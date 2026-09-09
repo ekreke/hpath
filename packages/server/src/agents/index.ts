@@ -22,6 +22,7 @@ export {
 } from "./verdict.js";
 export { createDefaultModels, createCatalogModelResolver } from "./model.js";
 export { createBrowserToolProvider, createBrowserTools } from "./providers/browser.js";
+export { BrowserPool } from "./providers/browser-pool.js";
 export type { BrowserToolProviderOptions } from "./providers/browser.js";
 export { createHttpToolProvider, createHttpRequestTool } from "./providers/http.js";
 export type { HttpToolProviderOptions } from "./providers/http.js";

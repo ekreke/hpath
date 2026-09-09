@@ -19,7 +19,7 @@ export { CaseRepository, repairZeroAlignmentCases } from "./repositories/cases.j
 export { RunRepository, type RunFilter, type RunFinishPatch } from "./repositories/runs.js";
 export { EventRepository } from "./repositories/events.js";
 export { ArtifactRepository } from "./repositories/artifacts.js";
-export { AssetRepository, parseStoredFiles, type AssetInsert, type AssetRowType, type ProtoSurface, type StoredFileRef } from "./repositories/assets.js";
+export { AssetRepository, parseStoredFiles, type AssetInsert, type AssetRowType, type PrdText, type ProtoSurface, type StoredFileRef } from "./repositories/assets.js";
 export {
   ChatSessionRepository,
   ChatMessageRepository,

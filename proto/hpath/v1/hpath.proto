@@ -344,6 +344,12 @@ message Asset {
   // (services / methods / message fields), empty for PRD assets.
   string api_doc = 8;
   int32 file_count = 9; // number of files in the upload (1 for PRDs)
+  // Extracted plain text of a PRD asset (md/docx/pdf ingest), rendered by
+  // clients as the asset detail preview. Filled by GetAsset only — ListAssets
+  // leaves it empty to keep the list payload light; empty after GetAsset
+  // means the text is unavailable (unreadable bytes) and a re-upload restores
+  // the preview.
+  string text_content = 10;
 }
 
 // One file of an UploadAsset request.
@@ -553,6 +559,10 @@ message BytesChunk {
 message AppSettings {
   string provider_config_json = 1;
   string default_model = 2; // must reference a multimodal model in the config
+  // Warm chromium browser pool size (T23): 0 disables the pool (launch per
+  // run), the server caps the value at 4; default 1. Each pooled instance is
+  // ~0.6-1 GB RSS; every run still gets its own fresh BrowserContext.
+  uint32 browser_pool_size = 3;
 }
 
 message ChatRequest {

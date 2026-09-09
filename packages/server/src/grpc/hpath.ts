@@ -53,6 +53,7 @@ import type { MockStore } from "../mock/store.js";
 import { createMockHandlers } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
 import { InvalidSettingsError, parseSettingsJson, type SettingsStore } from "../settings.js";
+import type { BrowserPool } from "../agents/providers/browser-pool.js";
 import type { HpathDb } from "../db/index.js";
 import type { AgentKernel } from "../agents/pipeline.js";
 import type { ArtifactStore } from "../artifacts/store.js";
@@ -83,6 +84,8 @@ export interface RealExecutionDeps {
   kernel?: AgentKernel;
   artifactStore?: ArtifactStore;
   artifactIndex?: ArtifactIndex;
+  /** Warm chromium pool (T23): UpdateSettings resizes it live. */
+  browserPool?: BrowserPool;
 }
 
 function unimplemented(): ServiceError {
@@ -264,6 +267,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
       callback(null, {
         providerConfigJson: JSON.stringify(doc, null, 2),
         defaultModel: doc.defaultModel,
+        browserPoolSize: settings.browserPoolSize(),
       });
     },
 
@@ -272,10 +276,16 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
       callback: sendUnaryData<AppSettings>,
     ): void => {
       try {
-        const saved = settings.update(parseSettingsJson(call.request.providerConfigJson, call.request.defaultModel));
+        const saved = settings.update(
+          parseSettingsJson(call.request.providerConfigJson, call.request.defaultModel, call.request.browserPoolSize),
+        );
+        // T23: apply the new warm pool size live (grow prewarms, shrink closes
+        // surplus idle browsers; leased ones close on release).
+        void execution?.browserPool?.resize(saved.browserPool);
         callback(null, {
           providerConfigJson: JSON.stringify(saved, null, 2),
           defaultModel: saved.defaultModel,
+          browserPoolSize: saved.browserPool,
         });
       } catch (err) {
         if (err instanceof InvalidSettingsError) {

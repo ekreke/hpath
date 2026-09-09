@@ -77,6 +77,8 @@
     "providerJson": "Provider JSON（baseUrl / apiKey / models）",
     "invalidJson": "JSON 无效：{{reason}}",
     "saved": "设置已保存",
+    "browserPool": "浏览器池",
+    "browserPoolHint": "运行之间保持的预热 chromium 实例数（0 = 每次运行单独启动）。每个实例约占 0.6–1 GB 内存，服务端上限为 4。修改后即时生效，无需重启。",
     "serverAddress": "服务器地址",
     "serverHint": "修改后点击应用重新连接 gRPC 服务",
     "apply": "应用",
@@ -306,7 +308,8 @@
     "noApiDoc": "该素材没有接口文档",
     "deleteConfirm": "确认删除？",
     "deleted": "已删除 {{name}}",
-    "empty": "暂无素材 — 点击右上角上传"
+    "empty": "暂无素材 — 点击右上角上传",
+    "noTextPreview": "该文档没有可预览的文本（旧数据或不支持的格式），重新上传后可预览"
   },
   "chat": {
     "title": "Chat",

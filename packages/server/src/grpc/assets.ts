@@ -28,6 +28,8 @@ import {
 } from "@hpath/contract";
 import type { StoredFileRef } from "../db/repositories/assets.js";
 import { ProtoBundleError, parseProtoBundle } from "../assets/proto-doc.js";
+import { ingestPrd, prdFormatFromFilename } from "../agents/prd.js";
+import { readAll } from "../artifacts/stream.js";
 import type { RunExecutionDeps } from "./run-execution.js";
 import { grpcError, toGrpcError } from "./errors.js";
 
@@ -103,6 +105,7 @@ export function createUploadAssetHandler(deps: RunExecutionDeps) {
           filename: bundle.entryFilename,
           sizeBytes: totalBytes,
           createdAt: new Date().toISOString(),
+          textContent: "",
           contentRef: entryKey,
           apiDoc: bundle.apiDoc,
           methodsJson: JSON.stringify(bundle.methods),
@@ -124,8 +127,11 @@ export function createListAssetsHandler(deps: RunExecutionDeps) {
   ): void => {
     try {
       deps.db.projects.getRequired(call.request.projectId);
+      // text_content stays out of list payloads (GetAsset carries it).
       callback(null, {
-        assets: deps.db.assets.listByProject(call.request.projectId, call.request.type),
+        assets: deps.db.assets
+          .listByProject(call.request.projectId, call.request.type)
+          .map((asset) => ({ ...asset, textContent: "" })),
       });
     } catch (err) {
       callback(toGrpcError(err));
@@ -134,19 +140,39 @@ export function createListAssetsHandler(deps: RunExecutionDeps) {
 }
 
 export function createGetAssetHandler(deps: RunExecutionDeps) {
-  return (
-    call: ServerUnaryCall<GetAssetRequest, Asset>,
-    callback: sendUnaryData<Asset>,
-  ): void => {
-    try {
-      const asset = deps.db.assets.get(call.request.assetId);
-      if (!asset) {
-        throw grpcError(status.NOT_FOUND, `asset not found: ${call.request.assetId}`);
+  return (call: ServerUnaryCall<GetAssetRequest, Asset>, callback: sendUnaryData<Asset>): void => {
+    void (async () => {
+      try {
+        const asset = deps.db.assets.get(call.request.assetId);
+        if (!asset) {
+          throw grpcError(status.NOT_FOUND, `asset not found: ${call.request.assetId}`);
+        }
+        // Lazy PRD text backfill (0008): legacy rows (or uploads that predate
+        // the detail preview) carry empty text_content. When the raw bytes are
+        // retrievable from the artifact store, ingest once and persist — the
+        // preview then works for the asset's lifetime. Unreadable bytes (e.g.
+        // the seed's repo-relative pseudo keys) leave it empty; the client
+        // shows "no preview" and a re-upload restores it.
+        if (asset.type === AssetType.ASSET_TYPE_PRD && !asset.textContent && asset.contentRef) {
+          try {
+            const object = await deps.artifactStore.getObject(asset.contentRef);
+            const body = await readAll(object.stream);
+            const format = prdFormatFromFilename(asset.filename);
+            if (format) {
+              const ingested = await ingestPrd(body, format);
+              deps.db.assets.updateTextContent(asset.id, ingested.text);
+              asset.textContent = ingested.text;
+            }
+          } catch (err) {
+            // Best-effort: an unreadable asset stays preview-less.
+            console.warn(`[hpath-server] asset "${asset.filename}" text backfill failed: ${(err as Error).message}`);
+          }
+        }
+        callback(null, asset);
+      } catch (err) {
+        callback(toGrpcError(err));
       }
-      callback(null, asset);
-    } catch (err) {
-      callback(toGrpcError(err));
-    }
+    })();
   };
 }
 

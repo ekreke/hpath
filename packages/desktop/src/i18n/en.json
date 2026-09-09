@@ -77,6 +77,8 @@
     "providerJson": "Provider JSON (baseUrl / apiKey / models)",
     "invalidJson": "Invalid JSON: {{reason}}",
     "saved": "Settings saved",
+    "browserPool": "Browser pool",
+    "browserPoolHint": "Warm chromium instances kept between runs (0 = launch per run). Each instance costs ~0.6-1 GB of memory; the server caps the value at 4. A settings change applies without a restart.",
     "serverAddress": "Server address",
     "serverHint": "Apply to reconnect to the gRPC server",
     "apply": "Apply",
@@ -306,7 +308,8 @@
     "noApiDoc": "This asset has no API doc",
     "deleteConfirm": "Confirm delete?",
     "deleted": "Deleted {{name}}",
-    "empty": "No assets yet — upload one from the top right"
+    "empty": "No assets yet — upload one from the top right",
+    "noTextPreview": "No text preview available for this document (legacy data or unsupported format); re-upload to enable it"
   },
   "chat": {
     "title": "Chat",

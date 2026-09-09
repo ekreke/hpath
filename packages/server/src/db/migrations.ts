@@ -260,6 +260,16 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX idx_assets_project_type ON assets(project_id, type);
     `,
   },
+  {
+    name: "0008_assets_text",
+    sql: `
+      -- T22 asset detail: extracted plain text of a PRD asset (md/docx/pdf
+      -- via the same ingest the analyze flow uses), rendered by clients as
+      -- the detail preview. Proto assets and unreadable legacy rows stay
+      -- empty; GetAsset lazily backfills PRD rows whose bytes are retrievable.
+      ALTER TABLE assets ADD COLUMN text_content TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 function nowIso(): string {

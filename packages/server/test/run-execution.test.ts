@@ -332,6 +332,7 @@ describe("buildProjectApiSurface", () => {
         contentRef: "",
         apiDoc: bundle.apiDoc,
         methodsJson: JSON.stringify(bundle.methods),
+        textContent: "",
         fileCount: 0,
         storedFiles: [],
       });
@@ -349,6 +350,7 @@ describe("buildProjectApiSurface", () => {
         methodsJson: JSON.stringify([
           { service: "x.v1.Extra", method: "Do", request: "x.v1.R", response: "x.v1.P", comment: "", doc: "" },
         ]),
+        textContent: "",
         fileCount: 0,
         storedFiles: [{ filename: "extra.proto", key: "artifacts/nowhere/extra.proto" }],
       });
@@ -384,6 +386,7 @@ describe("buildProjectApiSurface", () => {
         contentRef: key,
         apiDoc: bundle.apiDoc,
         methodsJson: JSON.stringify(bundle.methods),
+        textContent: "",
         fileCount: 0,
         storedFiles: [{ filename: "balance.proto", key }],
       });
@@ -417,6 +420,7 @@ describe("buildProjectApiSurface", () => {
         contentRef: key,
         apiDoc: bundle.apiDoc,
         methodsJson: JSON.stringify(bundle.methods),
+        textContent: "",
         fileCount: 0,
         storedFiles: [{ filename: "balance.proto", key }],
       });

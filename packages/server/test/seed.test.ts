@@ -21,10 +21,10 @@ import { withTransaction } from "../src/db/database.js";
 import { prdFixturesDir, seedDatabase } from "../src/db/seed.js";
 
 describe("seedDatabase", () => {
-  it("seeds a fresh database with the demo project, envs, cases, runs and PRDs", () => {
+  it("seeds a fresh database with the demo project, envs, cases, runs and PRDs", async () => {
     const db = HpathDb.inMemory();
     try {
-      const seed = seedDatabase(db);
+      const seed = await seedDatabase(db);
       assert.ok(seed, "fresh database must be seeded");
 
       // Project: demo-bank with metadata repo_url.
@@ -113,12 +113,12 @@ describe("seedDatabase", () => {
     }
   });
 
-  it("is a no-op when the database already contains projects", () => {
+  it("is a no-op when the database already contains projects", async () => {
     const db = HpathDb.inMemory();
     try {
-      const first = seedDatabase(db);
+      const first = await seedDatabase(db);
       assert.ok(first);
-      const again = seedDatabase(db);
+      const again = await seedDatabase(db);
       assert.equal(again, undefined);
       assert.equal(db.projects.list().length, 1);
       assert.equal(db.cases.listByProject(first!.project.id).length, 5);
@@ -129,14 +129,14 @@ describe("seedDatabase", () => {
     }
   });
 
-  it("persists across a close/reopen cycle without re-seeding (fresh boot)", () => {
+  it("persists across a close/reopen cycle without re-seeding (fresh boot)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hpath-seed-"));
     const path = join(dir, "hpath.db");
     let projectId: string;
     {
       const db = HpathDb.open(path);
       try {
-        const seed = seedDatabase(db);
+        const seed = await seedDatabase(db);
         assert.ok(seed);
         projectId = seed!.project.id;
       } finally {
@@ -145,14 +145,14 @@ describe("seedDatabase", () => {
     }
     const reopened = HpathDb.open(path);
     try {
-      assert.equal(seedDatabase(reopened), undefined, "reboot must not duplicate the seed");
+      assert.equal(await seedDatabase(reopened), undefined, "reboot must not duplicate the seed");
       assert.equal(reopened.projects.getRequired(projectId).name, "demo-bank");
     } finally {
       reopened.close();
     }
   });
 
-  it("rolls the whole seed back when any step fails, so the next boot re-seeds cleanly", () => {
+  it("rolls the whole seed back when any step fails, so the next boot re-seeds cleanly", async () => {
     const db = HpathDb.inMemory();
     try {
       const originalCreate = db.envs.create.bind(db.envs);
@@ -166,12 +166,12 @@ describe("seedDatabase", () => {
         return originalCreate(env);
       }) as typeof db.envs.create;
 
-      assert.throws(() => seedDatabase(db), /injected seed failure/);
+      await assert.rejects(() => seedDatabase(db), /injected seed failure/);
       // No residue: the project inserted before the failure was rolled back.
       assert.equal(db.projects.list().length, 0);
 
       db.envs.create = originalCreate;
-      const seed = seedDatabase(db);
+      const seed = await seedDatabase(db);
       assert.ok(seed, "a fresh boot after the failure re-seeds fully");
       assert.equal(db.projects.list().length, 1);
       assert.equal(db.cases.listByProject(seed!.project.id).length, 5);

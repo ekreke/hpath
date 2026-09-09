@@ -63,7 +63,36 @@ guidance only.
 - Every run = a fresh pi Agent session. No cross-run or cross-env memory.
 - Env binding: system prompt + tool config contain only the current env's targets/variables. Other envs are invisible.
 - Storage namespace: runs / events / artifacts keyed by `(project, env, run)`.
-- Execution isolation: one Playwright chromium context per run; `recordVideo` + `tracing.start(screenshots, snapshots, sources)` + per-step screenshots.
+- Execution isolation: one Playwright chromium **BrowserContext** per run; `recordVideo` + `tracing.start(screenshots, snapshots, sources)` + per-step screenshots. The chromium process may be shared (see the browser pool below) — contexts are what carry the per-run state.
+
+## Browser Pool (T23)
+
+The browser ToolProvider can borrow its chromium process from a warm pool
+(`BrowserPool`, `agents/providers/browser-pool.ts`) instead of launching one
+per run:
+
+- `AppSettings.browser_pool_size` (Settings → Models in the desktop): warm
+  chromium instances kept idle between runs. `0` disables the pool (launch
+  per run — the pre-T23 behavior); the server caps the value at
+  `MAX_BROWSER_POOL = 4`; default `1`.
+- Each pooled instance is a bare chromium process (~0.6–1 GB RSS headless on
+  macOS, less in the playwright docker image). Every run still creates its
+  own fresh `BrowserContext` (cookies/storage/cache partitions, video,
+  trace, screencast), so per-run isolation is unchanged; pooling only shares
+  the process infrastructure.
+- Lifecycle: prewarm at server boot (best-effort, non-blocking), `acquire()`
+  hands out a healthy idle browser (`isConnected()` checked; dead instances
+  are evicted) or launches fresh when the pool is empty/disabled,
+  `release()` re-pools while there is room (idle < target) and closes
+  otherwise. Concurrency beyond the pool size launches ephemeral browsers —
+  no queuing.
+- `UpdateSettings` resizes the live pool (grow = prewarm the shortfall,
+  shrink = close surplus idle browsers; leased ones close on release) — no
+  restart needed. Server shutdown closes every pooled instance.
+- Isolation trade-off: a pooled chromium shares process-level caches (DNS,
+  GPU/network service). Playwright BrowserContexts isolate cookies, storage
+  and cache partitions, which is what the tests observe. A browser that
+  dies mid-run is discarded on release and replaced on the next acquire.
 
 ## Hard Limits
 

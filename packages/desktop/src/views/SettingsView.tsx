@@ -1,10 +1,12 @@
 // Settings view with sub-tabs shared by the chat page and the agents:
-//   - Models: provider configuration (default model, provider JSON editor).
+//   - Models: provider configuration (default model, browser pool size,
+//     provider JSON editor).
 //     The provider document is an opencode-style JSON string (baseUrl /
 //     apiKey / models with a multimodal flag); the default model must be
 //     multimodal-capable (the agents and chat send screenshots). Edits go
 //     through a secondary modal and are validated + persisted server-side
-//     via UpdateSettings.
+//     via UpdateSettings. The browser pool size (T23) is a separate numeric
+//     field on the wire (0 = disabled, server-capped at 4).
 //   - Server: gRPC server address (moved here from the top bar); applying
 //     persists to localStorage and re-connects in App.
 //   - General: UI language toggle (moved here from the top bar).
@@ -53,6 +55,7 @@ function SettingsView({
   const [tab, setTab] = useState<SettingsTab>('models');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [defaultModel, setDefaultModel] = useState('');
+  const [browserPool, setBrowserPool] = useState(1);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorText, setEditorText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -62,6 +65,7 @@ function SettingsView({
       const s = await invokeGetSettings();
       setSettings(s);
       setDefaultModel(s.defaultModel);
+      setBrowserPool(s.browserPoolSize);
     } catch (err) {
       onToast(String(err), true);
     }
@@ -96,6 +100,7 @@ function SettingsView({
       const saved = await invokeUpdateSettings({
         providerConfigJson: settings.providerConfigJson,
         defaultModel: modelId,
+        browserPoolSize: browserPool,
       });
       setSettings(saved);
       setDefaultModel(saved.defaultModel);
@@ -103,6 +108,29 @@ function SettingsView({
     } catch (err) {
       onToast(String(err), true);
       setDefaultModel(settings.defaultModel);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // T23: persist the warm browser pool size. The server clamps/validates the
+  // value (integer 0-4) and resizes its pool live; on failure the input
+  // snaps back to the stored value.
+  const saveBrowserPool = async (size: number) => {
+    if (!settings || size === settings.browserPoolSize) return;
+    setBusy(true);
+    try {
+      const saved = await invokeUpdateSettings({
+        providerConfigJson: settings.providerConfigJson,
+        defaultModel,
+        browserPoolSize: size,
+      });
+      setSettings(saved);
+      setBrowserPool(saved.browserPoolSize);
+      onToast(t('settings.saved'));
+    } catch (err) {
+      onToast(String(err), true);
+      setBrowserPool(settings.browserPoolSize);
     } finally {
       setBusy(false);
     }
@@ -127,6 +155,7 @@ function SettingsView({
       const saved = await invokeUpdateSettings({
         providerConfigJson: editorText,
         defaultModel,
+        browserPoolSize: browserPool,
       });
       setSettings(saved);
       setDefaultModel(saved.defaultModel);
@@ -185,6 +214,27 @@ function SettingsView({
               onChange={(v) => void saveDefaultModel(v)}
             />
             <div className="hint">{t('settings.defaultModelHint')}</div>
+          </div>
+
+          <div className="field" style={{ maxWidth: 480 }}>
+            <label htmlFor="browser-pool-size">{t('settings.browserPool')}</label>
+            <input
+              id="browser-pool-size"
+              type="number"
+              min={0}
+              max={4}
+              step={1}
+              value={browserPool}
+              disabled={busy}
+              onChange={(e) => setBrowserPool(Number(e.target.value))}
+              onBlur={(e) => {
+                // Clamp on blur; the server re-validates (integer 0-4).
+                const clamped = Math.max(0, Math.min(4, Math.round(Number(e.target.value) || 0)));
+                setBrowserPool(clamped);
+                void saveBrowserPool(clamped);
+              }}
+            />
+            <div className="hint">{t('settings.browserPoolHint')}</div>
           </div>
 
           <div className="kv" style={{ gridTemplateColumns: '140px 1fr', gap: '6px 12px' }}>

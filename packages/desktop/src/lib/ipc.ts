@@ -308,6 +308,8 @@ export type Asset = {
   contentRef: string;
   apiDoc: string;
   fileCount: number;
+  // PRD detail preview text (filled by GetAsset only; empty when unavailable)
+  textContent?: string;
 };
 
 export const ASSET_TYPE = { PRD: 1, PROTO: 2 } as const;
@@ -427,9 +429,12 @@ export function invokeShowTrace(artifactId: string, runId: string): Promise<stri
 // opencode-style provider document (baseUrl / apiKey / models with a
 // multimodal flag); the server validates the shape and that defaultModel is
 // multimodal-capable, failing with INVALID_ARGUMENT otherwise.
+// browserPoolSize is the warm chromium pool (T23): 0 disables the pool, the
+// server caps the value at 4, default 1.
 export type AppSettings = {
   providerConfigJson: string;
   defaultModel: string;
+  browserPoolSize: number;
 };
 
 export function invokeGetSettings(): Promise<AppSettings> {

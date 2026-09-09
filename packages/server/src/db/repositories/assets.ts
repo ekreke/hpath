@@ -27,6 +27,7 @@ interface AssetRow {
   content_refs_json: string;
   api_doc: string;
   methods_json: string;
+  text_content: string;
 }
 
 function toAsset(row: AssetRow): Asset {
@@ -40,6 +41,7 @@ function toAsset(row: AssetRow): Asset {
     contentRef: row.content_ref,
     apiDoc: row.api_doc,
     fileCount: 0, // computed column; never read back from SQLite directly
+    textContent: row.text_content ?? "",
   };
 }
 
@@ -67,10 +69,15 @@ export interface ProtoSurface {
   methodsJson: string;
 }
 
+/** Extracted plain text of a PRD asset (detail preview payload). */
+export interface PrdText {
+  textContent: string;
+}
+
 export type AssetInsert = Asset & {
   type: AssetType;
   storedFiles: StoredFileRef[];
-} & Partial<ProtoSurface>;
+} & Partial<ProtoSurface & PrdText>;
 
 export class AssetRepository {
   constructor(private readonly db: DatabaseSync) {}
@@ -81,8 +88,8 @@ export class AssetRepository {
     try {
       this.db
         .prepare(
-          `INSERT INTO assets (id, project_id, type, filename, size_bytes, created_at, content_ref, content_refs_json, api_doc, methods_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO assets (id, project_id, type, filename, size_bytes, created_at, content_ref, content_refs_json, api_doc, methods_json, text_content)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           asset.id,
@@ -95,6 +102,7 @@ export class AssetRepository {
           JSON.stringify(refs),
           asset.apiDoc ?? "",
           asset.methodsJson ?? "",
+          asset.textContent ?? "",
         );
     } catch (err) {
       throw translateConstraintError(err, `insert asset "${asset.filename}"`);
@@ -149,6 +157,16 @@ export class AssetRepository {
       asset.fileCount = parseStoredFiles(asset, row.content_refs_json).length;
       return asset;
     });
+  }
+
+  /** Persist a lazily-ingested PRD text (GetAsset backfill). */
+  updateTextContent(id: string, text: string): void {
+    const info = this.db
+      .prepare("UPDATE assets SET text_content = ? WHERE id = ?")
+      .run(text, id);
+    if (Number(info.changes) === 0) {
+      throw new NotFoundError(`asset not found: ${id}`);
+    }
   }
 
   /** Delete a row; returns the manifest so callers can purge stored bytes. */

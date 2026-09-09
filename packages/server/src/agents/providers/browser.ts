@@ -1,16 +1,19 @@
 // Built-in "browser" ToolProvider (T7b): navigate/click/fill/read_page/
 // screenshot/wait via Playwright chromium.
 //
-// Isolation rule (docs/overview/agent-design.md): one chromium instance and
-// one BrowserContext per run — no cookie/storage sharing across runs or envs.
-// Every run records video (video.webm) and a Playwright trace (trace.zip);
-// both are only finalized when the context closes, so close() registers them
-// as pending run artifacts and the T8 wiring uploads them to the artifact
-// store after the run settles. The browser launches lazily on the first tool
-// call (runs that never touch the browser do not pay for it) and is closed
-// through the run's evidence cleanup registry AND the run abort signal, so
-// hard-limit aborts still release the process and interrupt in-flight
-// Playwright operations.
+// Isolation rule (docs/overview/agent-design.md): one BrowserContext per run —
+// no cookie/storage sharing across runs or envs. The chromium PROCESS is
+// borrowed from the warm BrowserPool (T23, default size 1) when one is wired,
+// or launched per run without a pool; either way every run records video
+// (video.webm) and a Playwright trace (trace.zip) on its own context; both
+// are only finalized when the context closes, so close() registers them as
+// pending run artifacts and the T8 wiring uploads them to the artifact store
+// after the run settles. The browser launches lazily on the first tool call
+// (runs that never touch the browser do not pay for it) and the context is
+// closed through the run's evidence cleanup registry AND the run abort signal,
+// so hard-limit aborts still release the process and interrupt in-flight
+// Playwright operations; the underlying browser is released back to the pool
+// (or closed) afterwards.
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +25,7 @@ import { Type } from "typebox";
 import type { ToolContext, ToolProvider } from "../tools.js";
 import type { RunEvidence } from "../evidence.js";
 import type { RunFrameHub } from "../frames.js";
+import type { BrowserPool } from "./browser-pool.js";
 
 export interface BrowserToolProviderOptions {
   /** Run headless (default true; server deployments have no display). */
@@ -36,6 +40,12 @@ export interface BrowserToolProviderOptions {
   maxPageTextChars?: number;
   /** Extra origins navigation may reach in addition to the env's baseUrl origin. */
   allowedOrigins?: string[];
+  /**
+   * Warm chromium pool (T23): acquire/release the browser process instead of
+   * launching per run. Optional — absent keeps the pre-T23 launch-per-run
+   * behavior (tests rely on stubbing chromium.launch directly).
+   */
+  pool?: BrowserPool;
 }
 
 const DEFAULTS = {
@@ -46,12 +56,15 @@ const DEFAULTS = {
   maxPageTextChars: 8_000,
 };
 
-/** Run-scoped Playwright session: one browser, one context, one page. */
+/** Run-scoped Playwright session: one browser (from the T23 pool when wired,
+ * else a fresh launch), one context, one page. */
 class BrowserSession {
   private browser?: Browser;
   private context?: BrowserContext;
   private page?: Page;
   private cdp?: CDPSession;
+  /** Whether the current browser was borrowed from the pool (release vs close). */
+  private pooled = false;
   private readonly screencastListener = (event: { data: string; sessionId: number }): void => {
     void this.ackAndPublish(event);
   };
@@ -64,7 +77,7 @@ class BrowserSession {
 
   constructor(
     private readonly baseUrl: string,
-    private readonly options: Required<typeof DEFAULTS>,
+    private readonly options: Required<typeof DEFAULTS> & { pool?: BrowserPool },
     private readonly allowedOrigins: Set<string>,
     private readonly evidence: RunEvidence,
     private readonly frames?: RunFrameHub,
@@ -81,8 +94,22 @@ class BrowserSession {
 
   private async initOnce(): Promise<Page> {
     let browser: Browser | undefined;
+    let fromPool = false;
     try {
-      browser = await chromium.launch({ headless: this.options.headless });
+      // T23: borrow a warm chromium from the pool when wired; fall back to a
+      // launch-per-run otherwise. A failed borrow launches fresh — the pool
+      // must never turn an idle-pop failure into a failed tool call.
+      const pool = this.options.pool;
+      if (pool) {
+        try {
+          browser = await pool.acquire();
+          fromPool = true;
+        } catch (err) {
+          console.error("[hpath-server] browser pool acquire failed, launching fresh:", err);
+          browser = undefined;
+        }
+      }
+      browser ??= await chromium.launch({ headless: this.options.headless });
       // Every run records video + trace (T8 evidence contract). Files are
       // finalized on context close and registered as pending artifacts there.
       const context = await browser.newContext({
@@ -92,6 +119,7 @@ class BrowserSession {
       const page = await context.newPage();
       page.setDefaultTimeout(this.options.actionTimeoutMs);
       this.browser = browser;
+      this.pooled = fromPool;
       this.context = context;
       this.page = page;
       // Live view (T21): best-effort — a screencast failure must never fail
@@ -109,7 +137,15 @@ class BrowserSession {
       this.init = undefined;
       try {
         await this.context?.close();
-        await browser?.close();
+        // A pooled borrow must go back through release (close would shrink
+        // the pool); an owned launch is simply closed. A context failure on
+        // a borrowed browser means the instance is suspect — closing it via
+        // the release path is correct either way.
+        if (browser && fromPool && this.options.pool) {
+          await this.options.pool.release(browser);
+        } else {
+          await browser?.close();
+        }
       } catch {
         // Swallowed: cleanup must not mask the original error.
       }
@@ -226,10 +262,19 @@ class BrowserSession {
     } catch {
       // Swallowed: disposal must never mask the run outcome.
     }
-    try {
-      await this.browser?.close();
-    } catch {
-      // Swallowed.
+    // T23: the context is closed (video/trace finalized), so the underlying
+    // browser can go back to the warm pool — or be closed outright when no
+    // pool is wired. A browser that died mid-run is discarded either way.
+    const browser = this.browser;
+    this.browser = undefined;
+    if (browser && this.pooled && this.options.pool) {
+      await this.options.pool.release(browser);
+    } else {
+      try {
+        await browser?.close();
+      } catch {
+        // Swallowed.
+      }
     }
     this.registerArtifacts(videoPath);
   }

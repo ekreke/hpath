@@ -26,6 +26,7 @@ import type { HpathDb } from "./index.js";
 import type { AssetInsert } from "./repositories/assets.js";
 import { withTransaction } from "./database.js";
 import { parseProtoBundle } from "../assets/proto-doc.js";
+import { ingestPrd, prdFormatFromFilename } from "../agents/prd.js";
 
 /** Everything the seed created, so tests and callers can reference the ids. */
 export interface SeedResult {
@@ -94,11 +95,13 @@ export function demoAppProtoPath(): string {
   return resolve("fixtures", "demo-app", "proto", "balance.proto");
 }
 
-function seedAssets(db: HpathDb, projectId: string, clock: SeedClock): Asset[] {
+function seedAssets(db: HpathDb, projectId: string, clock: SeedClock, texts: Map<string, string>): Asset[] {
   const assets: Asset[] = [];
   let index = 0;
 
-  // PRD fixtures (fixtures/prds/, one per PRD format).
+  // PRD fixtures (fixtures/prds/, one per PRD format). Text is pre-extracted
+  // before the transaction (see seedDatabase) so the asset detail preview
+  // works on first boot; a missing entry just means "no preview".
   const prdDir = prdFixturesDir();
   for (const fixture of PRD_FIXTURES) {
     const path = join(prdDir, fixture.filename);
@@ -120,6 +123,7 @@ function seedAssets(db: HpathDb, projectId: string, clock: SeedClock): Asset[] {
       contentRef: `fixtures/prds/${fixture.filename}`,
       apiDoc: "",
       fileCount: 0,
+      textContent: texts.get(fixture.filename) ?? "",
       storedFiles: [],
     };
     assets.push(db.assets.insert(record));
@@ -146,6 +150,7 @@ function seedAssets(db: HpathDb, projectId: string, clock: SeedClock): Asset[] {
           apiDoc: bundle.apiDoc,
           methodsJson: JSON.stringify(bundle.methods),
           fileCount: 0,
+          textContent: "",
           storedFiles: [{ filename: "balance.proto", key: "fixtures/demo-app/proto/balance.proto" }],
         }),
       );
@@ -527,12 +532,30 @@ function seedRuns(
 /**
  * Seed demo data into a fresh database. No-op (returns undefined) when the
  * database already contains projects, so reboots never duplicate the seed.
- * The whole seed runs in one transaction: a mid-way failure rolls everything
- * back, leaving the database empty so the next boot can re-seed cleanly.
+ * PRD preview texts are extracted BEFORE the (synchronous) transaction so
+ * docx/pdf ingest can await; the insert itself stays atomic — a mid-way
+ * failure rolls everything back, leaving the database empty so the next boot
+ * can re-seed cleanly.
  */
-export function seedDatabase(db: HpathDb): SeedResult | undefined {
+export async function seedDatabase(db: HpathDb): Promise<SeedResult | undefined> {
   if (db.projects.list().length > 0) {
     return undefined;
+  }
+  // Pre-extract the fixture PRD texts (async: docx/pdf parse). A failure only
+  // forfeits the detail preview, never the seed.
+  const texts = new Map<string, string>();
+  const prdDir = prdFixturesDir();
+  for (const fixture of PRD_FIXTURES) {
+    const path = join(prdDir, fixture.filename);
+    if (!existsSync(path)) continue;
+    try {
+      texts.set(
+        fixture.filename,
+        (await ingestPrd(readFileSync(path), prdFormatFromFilename(fixture.filename)!)).text,
+      );
+    } catch (err) {
+      console.warn(`[hpath-server] seed: PRD text extraction failed for ${fixture.filename}: ${(err as Error).message}`);
+    }
   }
   return withTransaction(db.database, () => {
     const base = new Date();
@@ -541,7 +564,7 @@ export function seedDatabase(db: HpathDb): SeedResult | undefined {
     const envs = seedEnvs(db, project);
     const cases = seedCases(db, project, clock);
     const runs = seedRuns(db, project, envs, cases, base);
-    const assets = seedAssets(db, project.id, clock);
+    const assets = seedAssets(db, project.id, clock, texts);
     return { project, envs, cases, runs, assets };
   });
 }

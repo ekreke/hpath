@@ -19,7 +19,8 @@ import { DatabaseSync } from "node:sqlite";
 import * as grpc from "@grpc/grpc-js";
 import protoLoader from "@grpc/proto-loader";
 import { AssetType, type Asset } from "@hpath/contract";
-import { HpathDb, MIGRATIONS } from "../src/db/index.js";
+import { HpathDb, MIGRATIONS, NotFoundError } from "../src/db/index.js";
+import { makeProject } from "./helpers.js";
 import {
   ProtoBundleError,
   materializeProtoFiles,
@@ -364,7 +365,6 @@ describe("api-docs provider (T22)", () => {
 });
 
 // ── migration 0007: prds -> assets ───────────────────────────────────────────
-
 describe("migration 0007_assets", () => {
   it("migrates legacy prds rows into prd-type assets and drops prds", () => {
     const db = new DatabaseSync(":memory:");
@@ -402,6 +402,104 @@ describe("migration 0007_assets", () => {
       assert.equal(migrated.content_ref, "artifacts/p/-/prd/x");
     } finally {
       db.close();
+    }
+  });
+});
+
+// ── migration 0008 + PRD text detail ─────────────────────────────────────────
+
+describe("asset text_content (T22 detail)", () => {
+  it("migration 0008 adds the text column and keeps legacy rows empty", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+      const insertApplied = db.prepare("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)");
+      for (const migration of MIGRATIONS.filter((m) => m.name < "0008_assets_text")) {
+        db.exec(migration.sql);
+        insertApplied.run(migration.name, new Date().toISOString());
+      }
+      db.prepare("INSERT INTO projects (id, name, repo_url, created_at) VALUES (?, ?, ?, ?)")
+        .run("p1", "legacy", "", "2026-01-01T00:00:00.000Z");
+      db.prepare(
+        "INSERT INTO assets (id, project_id, type, filename, size_bytes, created_at, content_ref) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run("a1", "p1", "prd", "old.md", 10, "2026-01-01T00:00:00.000Z", "");
+      for (const migration of MIGRATIONS.filter((m) => m.name >= "0008_assets_text")) {
+        db.exec(migration.sql);
+        insertApplied.run(migration.name, new Date().toISOString());
+      }
+      const row = db.prepare("SELECT text_content FROM assets WHERE id = 'a1'").get() as { text_content: string };
+      assert.equal(row.text_content, "");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("round-trips text_content and persists updateTextContent backfills", () => {
+    const db = HpathDb.inMemory();
+    try {
+      const project = makeProject();
+      db.projects.create(project);
+      db.assets.insert({
+        id: "prd-text",
+        projectId: project.id,
+        type: AssetType.ASSET_TYPE_PRD,
+        filename: "payment.md",
+        sizeBytes: 100,
+        createdAt: new Date().toISOString(),
+        contentRef: "",
+        apiDoc: "",
+        fileCount: 0,
+        textContent: "",
+        storedFiles: [],
+      });
+      assert.equal(db.assets.get("prd-text")?.textContent, "");
+      db.assets.updateTextContent("prd-text", "# Orders\n\nExtracted.");
+      assert.equal(db.assets.get("prd-text")?.textContent, "# Orders\n\nExtracted.");
+      assert.throws(() => db.assets.updateTextContent("missing", "x"), NotFoundError);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("real getAsset lazily backfills PRD text from the artifact store; list strips it", async () => {
+    const db = HpathDb.inMemory();
+    const dir = mkdtempSync(join(tmpdir(), "hpath-assets-text-"));
+    const store = new LocalArtifactStore(dir);
+    db.projects.create({ id: "p1", name: "proj", repoUrl: "", createdAt: new Date().toISOString() });
+    const deps = { db, artifactStore: store } as unknown as RunExecutionDeps;
+    try {
+      const md = "# Orders\n\nThe dashboard lists orders.\n";
+      const key = "artifacts/p1/-/prd/legacy/orders.md";
+      await store.putObject(key, Buffer.from(md, "utf8"));
+      db.assets.insert({
+        id: "prd-legacy",
+        projectId: "p1",
+        type: AssetType.ASSET_TYPE_PRD,
+        filename: "orders.md",
+        sizeBytes: md.length,
+        createdAt: new Date().toISOString(),
+        contentRef: key,
+        apiDoc: "",
+        fileCount: 0,
+        textContent: "",
+        storedFiles: [],
+      });
+
+      // List strips the text (light payload).
+      const listed = await callUnary<{ assets: Asset[] }>(createListAssetsHandler(deps), {
+        projectId: "p1",
+        type: AssetType.ASSET_TYPE_PRD,
+      });
+      assert.equal(listed.assets[0]!.textContent, "");
+
+      // First get: lazy ingest from the store + persisted backfill.
+      // ingestPrd trims trailing whitespace, so expect the trimmed text.
+      const got = await callUnary<Asset>(createGetAssetHandler(deps), { assetId: "prd-legacy" });
+      assert.equal(got.textContent, md.trim());
+      assert.equal(db.assets.get("prd-legacy")?.textContent, md.trim(), "backfill persisted");
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

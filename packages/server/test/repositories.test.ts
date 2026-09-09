@@ -123,6 +123,7 @@ describe("ProjectRepository", () => {
         createdAt: new Date().toISOString(),
         contentRef: "prds/payment.md",
         apiDoc: "",
+        textContent: "",
         fileCount: 0,
         storedFiles: [],
       });
@@ -869,6 +870,7 @@ describe("AssetRepository", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
         contentRef: "artifacts/p/prds/payment.md",
         apiDoc: "",
+        textContent: "",
         fileCount: 0,
         storedFiles: [{ filename: "payment.md", key: "artifacts/p/prds/payment.md" }],
       };
@@ -914,6 +916,7 @@ describe("AssetRepository", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
         contentRef: "artifacts/p/-/asset/proto-1/balance.proto",
         apiDoc: "# API surface",
+        textContent: "",
         fileCount: 0,
         methodsJson: JSON.stringify(methods),
         storedFiles: [{ filename: "balance.proto", key: "artifacts/p/-/asset/proto-1/balance.proto" }],
@@ -947,6 +950,7 @@ describe("AssetRepository", () => {
             createdAt: new Date().toISOString(),
             contentRef: "",
             apiDoc: "",
+            textContent: "",
             fileCount: 0,
             storedFiles: [],
           }),

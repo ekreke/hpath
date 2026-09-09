@@ -28,6 +28,7 @@ import {
 } from "./agents/model.js";
 import { ArtifactIndex } from "./artifacts/artifact-index.js";
 import { createArtifactStore } from "./artifacts/store.js";
+import { BrowserPool } from "./agents/providers/browser-pool.js";
 
 /** gRPC protos the grpc_call tool may resolve methods against. HPATH_GRPC_PROTOS
  * (colon-separated) wins; otherwise the repo's demo-app proto is probed at the
@@ -51,14 +52,23 @@ function resolveGrpcProtoPaths(): string[] {
 }
 
 /** Build the T8 execution deps: agent kernel (built-ins, settings-driven
- * model) + artifact store. Providers register settings providers on every
- * call so a settings update applies without a server restart. */
+ * model) + artifact store + the T23 warm browser pool. Providers register
+ * settings providers on every call so a settings update applies without a
+ * server restart; the pool resize happens in the UpdateSettings handler. */
 async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise<RealExecutionDeps> {
   const agents = new AgentRegistry();
   const toolProviders = new ToolProviderRegistry();
+  // T23: warm chromium pool sized from settings (0 disables it). Prewarm is
+  // best-effort and non-blocking for startup; acquire() launches on demand
+  // whenever the pool is empty.
+  const browserPool = new BrowserPool({ size: settings.browserPoolSize() });
+  void browserPool.prewarm().catch(() => {
+    // Logged inside fillIdle; startup must not depend on a warm browser.
+  });
   registerBuiltIns(agents, toolProviders, {
     ...agentModelOverrides(settings),
     grpc: { protoPaths: resolveGrpcProtoPaths() },
+    browser: { pool: browserPool },
   });
   const models = createDefaultModels();
   const kernel = new AgentKernel({
@@ -76,7 +86,8 @@ async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise
   const artifactStore = await createArtifactStore();
   const artifactIndex = new ArtifactIndex(db.artifacts);
   console.log(`[hpath-server] artifact store: ${artifactStore.backend}`);
-  return { kernel, artifactStore, artifactIndex };
+  console.log(`[hpath-server] browser pool: ${settings.browserPoolSize()} warm chromium instance(s)`);
+  return { kernel, artifactStore, artifactIndex, browserPool };
 }
 
 function parseArgs(argv: string[]): { mode: ServerMode; port: number; host: string } {
@@ -117,7 +128,7 @@ async function main(): Promise<void> {
     // Real mode: open (and migrate) the SQLite database, seeding demo data on
     // first boot. HPATH_DB_PATH overrides the default data/hpath.db.
     db = HpathDb.open();
-    if (seedDatabase(db)) {
+    if (await seedDatabase(db)) {
       console.log(`[hpath-server] seeded demo data into ${defaultDbPath()}`);
     }
     // One-shot repair: cases created before the alignment invariant could
@@ -154,8 +165,15 @@ async function main(): Promise<void> {
       .shutdown()
       .then(() => {
         clearTimeout(force);
-        db?.close();
-        process.exit(0);
+        // T23: release every pooled chromium so shutdown does not orphan
+        // browsers. Best-effort: a failure here must not block exit.
+        execution?.browserPool
+          ?.close()
+          .catch((err: unknown) => console.error("[hpath-server] browser pool close failed:", err))
+          .finally(() => {
+            db?.close();
+            process.exit(0);
+          });
       })
       .catch((err: unknown) => {
         console.error("[hpath-server] shutdown failed:", err);

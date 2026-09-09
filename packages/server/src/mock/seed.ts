@@ -221,6 +221,7 @@ function seedMockAssets(store: MockStore, projectId: string): void {
       contentRef: "",
       apiDoc: bundle.apiDoc,
       fileCount: bundle.fileCount,
+      textContent: "",
     };
     store.assets.set(asset.id, asset);
   } catch {

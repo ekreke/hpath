@@ -41,7 +41,7 @@ import {
 } from "@hpath/contract";
 import type { StoredFileRef } from "../db/repositories/assets.js";
 import { ANALYZE_AGENT_ID } from "../agents/analyze-agent.js";
-import { MAX_PRD_BYTES, prdFormatFromFilename, type PrdFormat as IngestFormat } from "../agents/prd.js";
+import { MAX_PRD_BYTES, ingestPrd, prdFormatFromFilename, type PrdFormat as IngestFormat } from "../agents/prd.js";
 import type { AgentRunEvent, EnvBinding } from "../agents/types.js";
 import type { RunExecutionDeps } from "./run-execution.js";
 import { grpcError, toGrpcError } from "./errors.js";
@@ -116,7 +116,7 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
         }
 
         // --- persist the asset (bytes -> store, metadata -> SQLite) ----
-        // Since T22 the asset library is the single storage table (type prd);
+        // Since T22 the asset library is the single storage shape (type prd);
         // the stream still carries the Prd message shape (contract parity).
         const now = new Date().toISOString();
         let contentRef = "";
@@ -132,8 +132,20 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
           // bytes lose their storage reference.
           console.error("[hpath-server] PRD upload failed, content_ref left empty:", err);
         }
+        // Extract the preview text for the asset detail view (same ingest the
+        // analyze flow uses). Best-effort: a parse failure only forfeits the
+        // preview, never the analysis.
+        let textContent = "";
+        try {
+          textContent = (await ingestPrd(body, format)).text;
+        } catch (err) {
+          console.error(`[hpath-server] PRD text extraction failed for "${req.filename}":`, err);
+        }
+        // The asset row and the streamed Prd message share one id, so
+        // clients can go straight from "prd registered" to the asset detail.
+        const assetId = randomUUID();
         deps.db.assets.insert({
-          id: randomUUID(),
+          id: assetId,
           projectId: req.projectId,
           type: AssetType.ASSET_TYPE_PRD,
           filename: req.filename,
@@ -142,10 +154,11 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
           contentRef,
           apiDoc: "",
           fileCount: 0,
+          textContent,
           storedFiles,
         });
         const prd: Prd = {
-          id: "", // stamped below after the insert (the repository owns the row)
+          id: assetId,
           projectId: req.projectId,
           filename: req.filename,
           format: protoFormat(format),

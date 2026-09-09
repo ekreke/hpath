@@ -802,6 +802,14 @@ export interface Asset {
   apiDoc: string;
   /** number of files in the upload (1 for PRDs) */
   fileCount: number;
+  /**
+   * Extracted plain text of a PRD asset (md/docx/pdf ingest), rendered by
+   * clients as the asset detail preview. Filled by GetAsset only — ListAssets
+   * leaves it empty to keep the list payload light; empty after GetAsset
+   * means the text is unavailable (unreadable bytes) and a re-upload restores
+   * the preview.
+   */
+  textContent: string;
 }
 
 /** One file of an UploadAsset request. */
@@ -1030,6 +1038,12 @@ export interface AppSettings {
   providerConfigJson: string;
   /** must reference a multimodal model in the config */
   defaultModel: string;
+  /**
+   * Warm chromium browser pool size (T23): 0 disables the pool (launch per
+   * run), the server caps the value at 4; default 1. Each pooled instance is
+   * ~0.6-1 GB RSS; every run still gets its own fresh BrowserContext.
+   */
+  browserPoolSize: number;
 }
 
 export interface ChatRequest {
@@ -4656,6 +4670,7 @@ function createBaseAsset(): Asset {
     contentRef: "",
     apiDoc: "",
     fileCount: 0,
+    textContent: "",
   };
 }
 
@@ -4687,6 +4702,9 @@ export const Asset: MessageFns<Asset> = {
     }
     if (message.fileCount !== 0) {
       writer.uint32(72).int32(message.fileCount);
+    }
+    if (message.textContent !== "") {
+      writer.uint32(82).string(message.textContent);
     }
     return writer;
   },
@@ -4776,6 +4794,14 @@ export const Asset: MessageFns<Asset> = {
             message.fileCount = reader.int32();
             continue;
           }
+          case 10: {
+            if (tag !== 82) {
+              break;
+            }
+
+            message.textContent = reader.string();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -4823,6 +4849,11 @@ export const Asset: MessageFns<Asset> = {
         : isSet(object.file_count)
         ? globalThis.Number(object.file_count)
         : 0,
+      textContent: isSet(object.textContent)
+        ? globalThis.String(object.textContent)
+        : isSet(object.text_content)
+        ? globalThis.String(object.text_content)
+        : "",
     };
   },
 
@@ -4855,6 +4886,9 @@ export const Asset: MessageFns<Asset> = {
     if (message.fileCount !== 0) {
       obj.fileCount = Math.round(message.fileCount);
     }
+    if (message.textContent !== "") {
+      obj.textContent = message.textContent;
+    }
     return obj;
   },
 
@@ -4872,6 +4906,7 @@ export const Asset: MessageFns<Asset> = {
     message.contentRef = object.contentRef ?? "";
     message.apiDoc = object.apiDoc ?? "";
     message.fileCount = object.fileCount ?? 0;
+    message.textContent = object.textContent ?? "";
     return message;
   },
 };
@@ -7854,7 +7889,7 @@ export const BytesChunk: MessageFns<BytesChunk> = {
 };
 
 function createBaseAppSettings(): AppSettings {
-  return { providerConfigJson: "", defaultModel: "" };
+  return { providerConfigJson: "", defaultModel: "", browserPoolSize: 0 };
 }
 
 export const AppSettings: MessageFns<AppSettings> = {
@@ -7864,6 +7899,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     }
     if (message.defaultModel !== "") {
       writer.uint32(18).string(message.defaultModel);
+    }
+    if (message.browserPoolSize !== 0) {
+      writer.uint32(24).uint32(message.browserPoolSize);
     }
     return writer;
   },
@@ -7897,6 +7935,14 @@ export const AppSettings: MessageFns<AppSettings> = {
             message.defaultModel = reader.string();
             continue;
           }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.browserPoolSize = reader.uint32();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -7921,6 +7967,11 @@ export const AppSettings: MessageFns<AppSettings> = {
         : isSet(object.default_model)
         ? globalThis.String(object.default_model)
         : "",
+      browserPoolSize: isSet(object.browserPoolSize)
+        ? globalThis.Number(object.browserPoolSize)
+        : isSet(object.browser_pool_size)
+        ? globalThis.Number(object.browser_pool_size)
+        : 0,
     };
   },
 
@@ -7932,6 +7983,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     if (message.defaultModel !== "") {
       obj.defaultModel = message.defaultModel;
     }
+    if (message.browserPoolSize !== 0) {
+      obj.browserPoolSize = Math.round(message.browserPoolSize);
+    }
     return obj;
   },
 
@@ -7942,6 +7996,7 @@ export const AppSettings: MessageFns<AppSettings> = {
     const message = createBaseAppSettings();
     message.providerConfigJson = object.providerConfigJson ?? "";
     message.defaultModel = object.defaultModel ?? "";
+    message.browserPoolSize = object.browserPoolSize ?? 0;
     return message;
   },
 };

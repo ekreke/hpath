@@ -15,7 +15,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T21 -> T22 -> T18.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T21 -> T22 -> T23 -> T18.**
 
 ---
 
@@ -130,6 +130,11 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   *Verify: `make test` covers multi-file import parsing (success / missing import / ambiguous entry), prds->assets migration, handler guards, and grpc_call rejection of an undefined method (asserting no network call); grpcurl smoke on all four new RPCs (mock + real); manual: upload balance.proto -> api_doc preview -> real-mode run shows the API surface in the prompt and describe_api works; `tauri dev` covers the upload modal, asset list, preview and delete flows.*
   Scope note (2026-09): implemented end to end. Green: server unit suite (22 new T22 tests: parser incl. base-name import matching + caps + duplicate detection, migration upgrade path, grpc_call allowlist rejection with no network I/O, real + mock handler round-trips, and RunCase injection of apiSurface/projectApi into the kernel run with protoDir cleanup), mock smoke extended with the asset section (upload/get/delete + PRD rejection), and an isolated real-mode smoke (seeded balance.proto with parsed api_doc, multi-file import upload, delete purge) against a fresh `--real` instance. Pending manual checks: a live real-mode RunCase (prompt surface + describe_api with an LLM key) and the `tauri dev` UI walk (upload modal / list / preview / delete — `cargo check` + `vite build` pass, commands registered).
 
+- [x] **T23 Browser pool (settings-configurable warm chromium pool)**
+  Contract extension: `AppSettings.browser_pool_size` (uint32; 0 = pool disabled, server-capped at 4 via `MAX_BROWSER_POOL`, default 1) + `make proto`. Server: new `BrowserPool` (agents/providers/browser-pool.ts) prewarms idle chromium processes; `BrowserSession` acquires from the pool (falls back to a fresh launch when the pool is empty/disabled or the pooled instance died — checked via isConnected) and releases the browser back after context close instead of killing it; every run still creates its own fresh BrowserContext (video/trace/screencast semantics unchanged) so per-run isolation holds at the context level; `resize()` is driven by UpdateSettings without a restart; server shutdown closes every pooled instance. Settings: `SettingsDoc.browserPool` validated as an integer in [0..4], seeded to 1, persisted in settings.json. Desktop: Settings → Models gains a numeric input (0–4) with an i18n hint on per-instance memory (~0.6–1 GB headless chromium; less in the playwright docker image); Rust `SettingsDto` + TS `AppSettings` type extended; mock parity (in-memory default 1). Concurrency beyond the pool size launches ephemeral browsers (current behavior) — no queuing.
+  *Verify: `make test` covers pool prewarm/acquire/release/resize, dead-instance eviction, disabled-pool passthrough, settings bounds (reject >4 / non-integer) and the t7b provider launch stubs; manual: `--real` runs two cases back to back — the second shows no chromium launch delay; changing the pool size in Settings applies without a restart; pool=0 restores launch-per-run.*
+  Scope note (2026-09): landed in one pass. Server: browser-pool.ts (prewarm/acquire/release/resize/close + lazy dead-instance eviction), BrowserSession pool borrow/return (context creation failure on a borrowed browser goes back through release; no pool wired = unchanged launch-per-run for tests), settings validation/seed/normalize, UpdateSettings-driven resize, boot prewarm + shutdown drain. Desktop: Settings numeric input (clamped 0-4 server- and client-side, error snaps back), i18n en/zh, Rust DTO + TS type. Gates: `make test` green (268 tests: 8 pool units, 5 new settings bounds, 2 t7b pool integration — reuse + no-pool regression; 263 pass / 5 skipped baseline) plus live `--real` smoke (boot prewarm 1 instance, resize 1→2→0 via UpdateSettings with process counts verified, >4 rejected with INVALID_ARGUMENT, pool=0 passthrough). Pending: the back-to-back RunCase pair against demo-app (needs an LLM key; the pool path itself is covered by the t7b integration test that asserts a second run reuses the same chromium launch).
+
 ## E. Wrap-up
 
 - [x] **T15 E2E demo script + README**
@@ -156,7 +161,7 @@ MCP facade, external MCP/skills ToolProviders, extra agents via registry, contai
 |-----------|--------------|
 | Docs (Phase 0) | Read-through, terminology consistency with this SPEC |
 | Contract/mock (T1) | pnpm build, grpcurl reflection, mock endpoint probes |
-| Desktop (T10-T14, T17, T21) | `tauri dev` smoke against mock + manual checklist per view |
+| Desktop (T10-T14, T17, T21, T23) | `tauri dev` smoke against mock + manual checklist per view |
 | Infra (T2, T4) | compose health checks, port probes, curl/grpcurl checks |
-| Server code (T5-T9, T19-T21) | pnpm build + unit/integration tests listed per task |
+| Server code (T5-T9, T19-T23) | pnpm build + unit/integration tests listed per task |
 | E2E (T15) | demo script green run |

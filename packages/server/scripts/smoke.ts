@@ -210,6 +210,16 @@ async function main(): Promise<void> {
   );
   const gotAsset = await unary<{ assetId: string }, Asset>("getAsset", { assetId: uploaded.id });
   assert(gotAsset.apiDoc === uploaded.apiDoc, "getAsset returns the stored api doc");
+  // ParsePRD rows land in the library with extracted preview text (0008).
+  const prdAssets = await unary<{ projectId: string; type: number }, { assets: Asset[] }>("listAssets", {
+    projectId: project.id,
+    type: AssetType.ASSET_TYPE_PRD,
+  });
+  assert(prdAssets.assets.length >= 1, "ParsePRD registered a prd-type asset");
+  const prdDetail = await unary<{ assetId: string }, Asset>("getAsset", {
+    assetId: prdAssets.assets[0]!.id,
+  });
+  assert(prdDetail.textContent.includes("balance"), "PRD asset detail carries the extracted text");
   const prdRejected = await unaryError<{
     projectId: string; type: number; files: { filename: string; content: Uint8Array }[]; entryFilename: string;
   }>("uploadAsset", {

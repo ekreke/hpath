@@ -384,7 +384,8 @@ export function createMockHandlers(store: MockStore): HpathServer {
             contentRef: "",
           };
           // The asset library (T22) is the single storage shape; the stream
-          // keeps carrying the Prd message (contract parity).
+          // keeps carrying the Prd message (contract parity). The md bytes
+          // double as the detail preview text.
           store.assets.set(prd.id, {
             id: prd.id,
             projectId: prd.projectId,
@@ -395,6 +396,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
             contentRef: "",
             apiDoc: "",
             fileCount: 1,
+            textContent: Buffer.from(req.content).toString("utf8"),
           });
           call.write({ prdRegistered: { prd } });
           await sleep(150);
@@ -480,6 +482,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
           contentRef: "",
           apiDoc: bundle.apiDoc,
           fileCount: bundle.fileCount,
+          textContent: "",
         };
         store.assets.set(asset.id, asset);
         callback(null, asset);
@@ -888,7 +891,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
       _call: ServerUnaryCall<Empty, AppSettings>,
       callback: sendUnaryData<AppSettings>,
     ) => {
-      callback(null, { ...store.settings });
+      callback(null, { browserPoolSize: 0, ...store.settings });
     },
 
     updateSettings: (
@@ -911,8 +914,14 @@ export function createMockHandlers(store: MockStore): HpathServer {
             `invalid settings: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
-        store.settings = { providerConfigJson: next.providerConfigJson, defaultModel: next.defaultModel };
-        callback(null, { ...store.settings });
+        // T23: mock parity for the browser pool size (no live pool to resize —
+        // mock mode never launches chromium; the value round-trips only).
+        store.settings = {
+          providerConfigJson: next.providerConfigJson,
+          defaultModel: next.defaultModel,
+          browserPoolSize: next.browserPoolSize,
+        };
+        callback(null, { browserPoolSize: 0, ...store.settings });
       } catch (err) {
         callback(err as ServiceError);
       }

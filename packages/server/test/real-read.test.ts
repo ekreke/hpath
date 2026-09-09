@@ -70,7 +70,7 @@ function streamError(method: string, request: unknown): Promise<{ code: number; 
 
 before(async () => {
   const db = HpathDb.inMemory();
-  const seed = seedDatabase(db);
+  const seed = await seedDatabase(db);
   assert.ok(seed, "seed must run before the server starts");
   projectId = seed!.project.id;
   pendingCaseId = seed!.cases.ordersDraft.id;
