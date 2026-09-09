@@ -73,6 +73,7 @@ function ProjectsView({ projects, onOpened, onCreated, onDeleted, onToast }: Pro
 
       <div className="filters">
         <input
+          className="inline-input"
           style={{ width: 280 }}
           value={query}
           placeholder={t('projects.search')}
