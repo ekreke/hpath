@@ -5,6 +5,21 @@
 
 export { createBrowserToolProvider } from "./browser.js";
 export type { BrowserToolProviderOptions } from "./browser.js";
+export { BrowserPool } from "./browser-pool.js";
+export type { BrowserPoolOptions, BrowserLauncher } from "./browser-pool.js";
+export {
+  createBrowserEngine,
+  ObscuraEngine,
+  PlaywrightEngine,
+  FULL_BROWSER_CAPABILITIES,
+  SCREENSHOT_ONLY_CAPABILITIES,
+} from "./browser-engine.js";
+export type {
+  BrowserCapabilities,
+  BrowserEngine,
+  BrowserEngineFactoryOptions,
+  ObscuraEngineOptions,
+} from "./browser-engine.js";
 export { createHttpToolProvider } from "./http.js";
 export type { HttpToolProviderOptions } from "./http.js";
 export { createGrpcToolProvider } from "./grpc.js";

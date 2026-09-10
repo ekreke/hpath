@@ -64,7 +64,7 @@ guidance only.
 - Every run = a fresh pi Agent session. No cross-run or cross-env memory.
 - Env binding: system prompt + tool config contain only the current env's targets/variables. Other envs are invisible.
 - Storage namespace: runs / events / artifacts keyed by `(project, env, run)`.
-- Execution isolation: one Playwright chromium **BrowserContext** per run; `recordVideo` + `tracing.start(screenshots, snapshots, sources)` + per-step screenshots. The chromium process may be shared (see the browser pool below) — contexts are what carry the per-run state.
+- Execution isolation: one browser **BrowserContext** per run; `recordVideo` + `tracing.start(screenshots, snapshots, sources)` + per-step screenshots when the selected engine supports them (see the browser engine section below). The browser process may be shared (see the browser pool below) — contexts are what carry the per-run state.
 
 ## Browser Pool (T23)
 
@@ -94,6 +94,41 @@ per run:
   GPU/network service). Playwright BrowserContexts isolate cookies, storage
   and cache partitions, which is what the tests observe. A browser that
   dies mid-run is discarded on release and replaced on the next acquire.
+
+## Browser Engine Selection (T24)
+
+The pool is backed by exactly one **engine** at a time, chosen in settings
+(`AppSettings.browser_engine`, Settings → Models in the desktop):
+
+- `playwright` (default) — the bundled Playwright chromium. Full evidence:
+  `recordVideo` + tracing + screenshots + live frames.
+- `obscura` — the [Obscura](https://github.com/h4ckf0r0day/obscura) Rust
+  headless engine, run as a local `obscura serve` CDP endpoint and attached
+  with `chromium.connectOverCDP`. Obscura does not implement Playwright
+  `page.video()` or tracing artifacts, so runs degrade to per-step screenshots
+  + live CDP frames (the engine advertises this via
+  `BrowserCapabilities`, and `BrowserSession` skips the unsupported evidence).
+  The `serve` process is started with `--allow-private-network` so the local
+  SUT is reachable (Obscura blocks private IPs by default).
+
+Rules that hold for both engines:
+
+- **Mutually exclusive, no fallback.** A failed borrow only falls back to a
+  fresh Playwright launch when the active engine is Playwright; for any other
+  engine the failure surfaces. An engine that is not installed disables the
+  browser tools (they report a clear error) — the server never silently
+  switches to the other engine.
+- **Install-on-first-use.** `PlaywrightEngine.ensureInstalled()` checks the
+  bundled chromium; `ObscuraEngine.ensureInstalled()` downloads the platform
+  release archive into `data/browsers/obscura` (or uses `HPATH_OBSCURA_PATH`).
+  Failure leaves the engine selected but unavailable.
+- **Live hot-swap.** `UpdateSettings` calls `BrowserPool.setEngine()` when the
+  id changes: new acquires use the new engine immediately, the previous
+  engine's idle instances close at once, its leased ones close as their runs
+  release them, and its process is disposed only when the last in-flight run
+  drains — switching never kills a running case.
+- **Isolation limit.** Obscura pages share a single V8 isolate, so CPU-bound
+  JavaScript on one page blocks the others (unlike per-process chromium).
 
 ## Hard Limits
 

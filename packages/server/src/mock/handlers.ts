@@ -918,12 +918,17 @@ export function createMockHandlers(store: MockStore): HpathServer {
             `invalid settings: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
-        // T23: mock parity for the browser pool size (no live pool to resize —
-        // mock mode never launches chromium; the value round-trips only).
+        // T23/T24: mock parity for the browser pool size and engine (no live
+        // pool to resize — mock mode never launches a browser; the values
+        // round-trip only). The engine must be one of the supported ids.
+        if (next.browserEngine !== "" && next.browserEngine !== "playwright" && next.browserEngine !== "obscura") {
+          throw grpcError(status.INVALID_ARGUMENT, `invalid settings: browserEngine must be playwright or obscura`);
+        }
         store.settings = {
           providerConfigJson: next.providerConfigJson,
           defaultModel: next.defaultModel,
           browserPoolSize: next.browserPoolSize,
+          browserEngine: next.browserEngine || store.settings.browserEngine || "playwright",
         };
         callback(null, { browserPoolSize: 0, ...store.settings });
       } catch (err) {

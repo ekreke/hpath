@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Select } from '../components/Select';
-import { invokeGetSettings, invokeUpdateSettings, type AppSettings } from '../lib/ipc';
+import { invokeGetSettings, invokeUpdateSettings, type AppSettings, type BrowserEngineId } from '../lib/ipc';
 
 type SettingsViewProps = {
   onToast: (text: string, error?: boolean) => void;
@@ -56,6 +56,7 @@ function SettingsView({
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [defaultModel, setDefaultModel] = useState('');
   const [browserPool, setBrowserPool] = useState(1);
+  const [browserEngine, setBrowserEngine] = useState<BrowserEngineId>('playwright');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorText, setEditorText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,6 +67,7 @@ function SettingsView({
       setSettings(s);
       setDefaultModel(s.defaultModel);
       setBrowserPool(s.browserPoolSize);
+      setBrowserEngine(s.browserEngine);
     } catch (err) {
       onToast(String(err), true);
     }
@@ -101,6 +103,7 @@ function SettingsView({
         providerConfigJson: settings.providerConfigJson,
         defaultModel: modelId,
         browserPoolSize: browserPool,
+        browserEngine,
       });
       setSettings(saved);
       setDefaultModel(saved.defaultModel);
@@ -124,6 +127,7 @@ function SettingsView({
         providerConfigJson: settings.providerConfigJson,
         defaultModel,
         browserPoolSize: size,
+        browserEngine,
       });
       setSettings(saved);
       setBrowserPool(saved.browserPoolSize);
@@ -131,6 +135,30 @@ function SettingsView({
     } catch (err) {
       onToast(String(err), true);
       setBrowserPool(settings.browserPoolSize);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // T24: persist the browser engine. Mutually exclusive with the other engine;
+  // the server hot-swaps its pool (install is best-effort — an unavailable
+  // engine surfaces a clear browser-tool error rather than falling back).
+  const saveBrowserEngine = async (engine: BrowserEngineId) => {
+    if (!settings || engine === settings.browserEngine) return;
+    setBusy(true);
+    try {
+      const saved = await invokeUpdateSettings({
+        providerConfigJson: settings.providerConfigJson,
+        defaultModel,
+        browserPoolSize: browserPool,
+        browserEngine: engine,
+      });
+      setSettings(saved);
+      setBrowserEngine(saved.browserEngine);
+      onToast(t('settings.saved'));
+    } catch (err) {
+      onToast(String(err), true);
+      setBrowserEngine(settings.browserEngine);
     } finally {
       setBusy(false);
     }
@@ -156,6 +184,7 @@ function SettingsView({
         providerConfigJson: editorText,
         defaultModel,
         browserPoolSize: browserPool,
+        browserEngine,
       });
       setSettings(saved);
       setDefaultModel(saved.defaultModel);
@@ -241,6 +270,29 @@ function SettingsView({
               }}
             />
             <div className="hint">{t('settings.browserPoolHint')}</div>
+          </div>
+
+          <div className="field" style={{ maxWidth: 480 }}>
+            <label>{t('settings.browserEngine')}</label>
+            <Select
+              value={browserEngine}
+              ariaLabel={t('settings.browserEngine')}
+              disabled={busy}
+              options={[
+                { value: 'playwright', label: t('settings.browserEnginePlaywright') },
+                { value: 'obscura', label: t('settings.browserEngineObscura') },
+              ]}
+              onChange={(v) => {
+                const engine = v as BrowserEngineId;
+                setBrowserEngine(engine);
+                void saveBrowserEngine(engine);
+              }}
+            />
+            <div className="hint">
+              {browserEngine === 'obscura'
+                ? t('settings.browserEngineObscuraHint')
+                : t('settings.browserEngineHint')}
+            </div>
           </div>
 
           <div className="kv" style={{ gridTemplateColumns: '140px 1fr', gap: '6px 12px' }}>

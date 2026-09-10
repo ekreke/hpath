@@ -596,6 +596,11 @@ message AppSettings {
   // run), the server caps the value at 4; default 1. Each pooled instance is
   // ~0.6-1 GB RSS; every run still gets its own fresh BrowserContext.
   uint32 browser_pool_size = 3;
+  // Browser engine backing the browser tool provider (T24): "playwright"
+  // (bundled chromium, default) or "obscura" (a CDP server the server
+  // auto-downloads). Exactly one engine is active; the other is never used as
+  // a fallback. An unavailable engine disables the browser tools for a run.
+  string browser_engine = 4;
 }
 
 message ChatRequest {

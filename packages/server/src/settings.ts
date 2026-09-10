@@ -46,10 +46,16 @@ export interface SettingsDoc {
   providers: Record<string, ProviderConfig>;
   defaultModel: string;
   /**
-   * Warm chromium browser pool size (T23): 0 disables the pool (launch per
-   * run, current pre-T23 behavior); capped at MAX_BROWSER_POOL. Default 1.
+   * Warm browser pool size (T23/T24): 0 disables the pool (launch per run,
+   * current pre-T23 behavior); capped at MAX_BROWSER_POOL. Default 1.
    */
   browserPool: number;
+  /**
+   * Browser engine backing the browser tool provider (T24): exactly one of
+   * BROWSER_ENGINES. An engine that is not installed is never silently
+   * replaced by the other one — the browser tools are disabled instead.
+   */
+  browserEngine: BrowserEngineId;
 }
 
 /** Hard cap for SettingsDoc.browserPool — each pooled chromium is ~0.6-1 GB RSS. */
@@ -57,6 +63,19 @@ export const MAX_BROWSER_POOL = 4;
 
 /** Default warm-browser pool size when the document omits browserPool. */
 export const DEFAULT_BROWSER_POOL = 1;
+
+/** Selectable browser engines (mutually exclusive). */
+export const BROWSER_ENGINES = ["playwright", "obscura"] as const;
+
+export type BrowserEngineId = (typeof BROWSER_ENGINES)[number];
+
+/** Default browser engine when the document omits browserEngine. */
+export const DEFAULT_BROWSER_ENGINE: BrowserEngineId = "playwright";
+
+/** Type guard for a valid browser engine id. */
+export function isBrowserEngineId(value: unknown): value is BrowserEngineId {
+  return typeof value === "string" && (BROWSER_ENGINES as readonly string[]).includes(value);
+}
 
 /** Thrown for structurally invalid settings; maps to INVALID_ARGUMENT. */
 export class InvalidSettingsError extends Error {}
@@ -95,6 +114,7 @@ export function seedSettings(): SettingsDoc {
     },
     defaultModel: "glm-5.3-flash",
     browserPool: DEFAULT_BROWSER_POOL,
+    browserEngine: DEFAULT_BROWSER_ENGINE,
   };
 }
 
@@ -179,6 +199,13 @@ export function validateSettings(value: unknown): SettingsDoc {
     }
   }
   (value as SettingsDoc).browserPool = normalizeBrowserPool(rawPool);
+  const rawEngine = (value as Record<string, unknown>).browserEngine;
+  if (rawEngine !== undefined && !isBrowserEngineId(rawEngine)) {
+    throw new InvalidSettingsError(
+      `browserEngine must be one of ${BROWSER_ENGINES.join(", ")} (got ${JSON.stringify(rawEngine)})`,
+    );
+  }
+  (value as SettingsDoc).browserEngine = normalizeBrowserEngine(rawEngine);
   return value as SettingsDoc;
 }
 
@@ -192,6 +219,15 @@ export function normalizeBrowserPool(value: unknown): number {
     return value;
   }
   return DEFAULT_BROWSER_POOL;
+}
+
+/**
+ * Clamp browserEngine to a valid id; absent or invalid values fall back to the
+ * default. Non-throwing: stored documents skip validation on load, so a
+ * hand-edit must not brick browser startup.
+ */
+export function normalizeBrowserEngine(value: unknown): BrowserEngineId {
+  return isBrowserEngineId(value) ? value : DEFAULT_BROWSER_ENGINE;
 }
 
 /** Locate a model id across providers; returns its multimodal flag when found. */
@@ -214,14 +250,16 @@ function findModel(
 
 /**
  * Parse + validate a settings JSON string (the wire format of AppSettings).
- * `defaultModelOverride` replaces the document's embedded defaultModel and
- * `browserPoolOverride` its browserPool before validation, so the wire's
- * explicit fields win.
+ * `defaultModelOverride`, `browserPoolOverride` and `browserEngineOverride`
+ * replace the document's embedded values before validation, so the wire's
+ * explicit fields win. An empty `browserEngineOverride` (proto3's default for
+ * an omitted string field) is treated as "not provided".
  */
 export function parseSettingsJson(
   json: string,
   defaultModelOverride?: string,
   browserPoolOverride?: number,
+  browserEngineOverride?: string,
 ): SettingsDoc {
   let parsed: unknown;
   try {
@@ -235,6 +273,12 @@ export function parseSettingsJson(
   }
   if (browserPoolOverride !== undefined) {
     doc.browserPool = browserPoolOverride;
+  }
+  // proto3 strings default to "" when the caller omits the field; treat that
+  // as "not provided" so an omitted browser_engine keeps the embedded/default
+  // value instead of failing validation.
+  if (browserEngineOverride !== undefined && browserEngineOverride !== "") {
+    doc.browserEngine = browserEngineOverride as BrowserEngineId;
   }
   return validateSettings(doc);
 }
@@ -270,9 +314,11 @@ export class SettingsStore {
     }
     // Stored docs skip validation: they were validated when written, and a
     // hand-edit that breaks invariants should not brick server startup. The
-    // browser pool size is normalized best-effort (pre-T23 docs lack it).
+    // browser pool size/engine are normalized best-effort (pre-T23/T24 docs
+    // lack them).
     const stored = parsed as SettingsDoc;
     stored.browserPool = normalizeBrowserPool(stored.browserPool);
+    stored.browserEngine = normalizeBrowserEngine(stored.browserEngine);
     return new SettingsStore(path, stored);
   }
 
@@ -283,6 +329,11 @@ export class SettingsStore {
   /** Current warm browser pool size (normalized; 0 = pool disabled). */
   browserPoolSize(): number {
     return normalizeBrowserPool(this.doc.browserPool);
+  }
+
+  /** Current browser engine (normalized; always a valid id). */
+  browserEngine(): BrowserEngineId {
+    return normalizeBrowserEngine(this.doc.browserEngine);
   }
 
   /** Validate + persist a new document atomically (validated on the way in). */

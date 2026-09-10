@@ -29,6 +29,7 @@ import {
 import { ArtifactIndex } from "./artifacts/artifact-index.js";
 import { createArtifactStore } from "./artifacts/store.js";
 import { BrowserPool } from "./agents/providers/browser-pool.js";
+import { createBrowserEngine } from "./agents/providers/browser-engine.js";
 
 /** gRPC protos the grpc_call tool may resolve methods against. HPATH_GRPC_PROTOS
  * (colon-separated) wins; otherwise the repo's demo-app proto is probed at the
@@ -58,13 +59,27 @@ function resolveGrpcProtoPaths(): string[] {
 async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise<RealExecutionDeps> {
   const agents = new AgentRegistry();
   const toolProviders = new ToolProviderRegistry();
-  // T23: warm chromium pool sized from settings (0 disables it). Prewarm is
-  // best-effort and non-blocking for startup; acquire() launches on demand
-  // whenever the pool is empty.
-  const browserPool = new BrowserPool({ size: settings.browserPoolSize() });
-  void browserPool.prewarm().catch(() => {
-    // Logged inside fillIdle; startup must not depend on a warm browser.
+  // T23/T24: warm browser pool backed by the settings-selected engine (0
+  // disables it). The engine is mutually exclusive: when it is not installed
+  // the browser tools surface a clear error instead of falling back to the
+  // other engine. Prewarm is best-effort and non-blocking for startup.
+  const browserEngineId = settings.browserEngine();
+  const browserEngine = createBrowserEngine(browserEngineId);
+  const engineAvailable = await browserEngine.ensureInstalled();
+  if (!engineAvailable) {
+    console.error(
+      `[hpath-server] browser engine "${browserEngineId}" is unavailable — browser tools will fail until it is installed`,
+    );
+  }
+  const browserPool = new BrowserPool({
+    size: engineAvailable ? settings.browserPoolSize() : 0,
+    engine: browserEngine,
   });
+  if (engineAvailable) {
+    void browserPool.prewarm().catch(() => {
+      // Logged inside fillIdle; startup must not depend on a warm browser.
+    });
+  }
   registerBuiltIns(agents, toolProviders, {
     ...agentModelOverrides(settings),
     grpc: { protoPaths: resolveGrpcProtoPaths() },
@@ -86,7 +101,10 @@ async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise
   const artifactStore = await createArtifactStore();
   const artifactIndex = new ArtifactIndex(db.artifacts);
   console.log(`[hpath-server] artifact store: ${artifactStore.backend}`);
-  console.log(`[hpath-server] browser pool: ${settings.browserPoolSize()} warm chromium instance(s)`);
+  console.log(
+    `[hpath-server] browser engine: ${browserEngineId} (${engineAvailable ? "available" : "UNAVAILABLE"}), `
+      + `pool: ${settings.browserPoolSize()} warm instance(s)`,
+  );
   return { kernel, artifactStore, artifactIndex, browserPool };
 }
 

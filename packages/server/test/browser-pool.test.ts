@@ -7,6 +7,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Browser } from "playwright";
 import { BrowserPool } from "../src/agents/providers/browser-pool.js";
+import {
+  FULL_BROWSER_CAPABILITIES,
+  SCREENSHOT_ONLY_CAPABILITIES,
+} from "../src/agents/providers/browser-engine.js";
+import type { BrowserEngine } from "../src/agents/providers/browser-engine.js";
 
 /** Minimal Browser stub: healthy by default, closable, killable. */
 function stubBrowser(healthy = true): Browser & { kill: () => void } {
@@ -193,5 +198,73 @@ test("size 0 disables pooling: acquire launches, release closes", async () => {
   assert.equal(launches, 1);
   await pool.release(b);
   assert.equal(closes, 1, "release with no room must close the browser");
+  await pool.close();
+});
+
+/** Stub BrowserEngine that hands out stub browsers and tracks disposal. */
+function stubEngine(
+  id: BrowserEngine["id"],
+  capabilities = FULL_BROWSER_CAPABILITIES,
+  onDispose?: () => void,
+): BrowserEngine {
+  return {
+    id,
+    capabilities,
+    ensureInstalled: async () => true,
+    launch: async () => stubBrowser(),
+    dispose: async () => {
+      onDispose?.();
+    },
+  };
+}
+
+test("capabilities come from the current engine", async () => {
+  const engine = stubEngine("obscura", SCREENSHOT_ONLY_CAPABILITIES);
+  const pool = new BrowserPool({ size: 0, engine });
+  assert.deepEqual(pool.capabilities, SCREENSHOT_ONLY_CAPABILITIES);
+  assert.equal(pool.engineId, "obscura");
+  await pool.close();
+});
+
+test("setEngine closes the previous idle browsers and disposes it", async () => {
+  let disposed = 0;
+  const first = stubEngine("playwright", FULL_BROWSER_CAPABILITIES, () => {
+    disposed += 1;
+  });
+  const second = stubEngine("obscura", SCREENSHOT_ONLY_CAPABILITIES);
+  const pool = new BrowserPool({ size: 2, engine: first });
+  await pool.prewarm();
+  assert.equal(pool.idleCount, 2);
+  await pool.setEngine(second);
+  assert.equal(pool.engineId, "obscura");
+  assert.equal(disposed, 1, "the replaced engine is disposed once its idle set closes");
+  assert.equal(pool.idleCount, 2, "the new engine is prewarmed");
+  await pool.close();
+});
+
+test("setEngine defers disposal until a leased browser returns, then closes it", async () => {
+  let disposed = 0;
+  let closes = 0;
+  const first = stubEngine("playwright", FULL_BROWSER_CAPABILITIES, () => {
+    disposed += 1;
+  });
+  // Replace the stubbed launch so we can count the leased browser's close().
+  (first as { launch: () => Promise<Browser> }).launch = async () => {
+    const b = stubBrowser();
+    const originalClose = b.close.bind(b);
+    (b as { close: () => Promise<void> }).close = async () => {
+      closes += 1;
+      await originalClose();
+    };
+    return b;
+  };
+  const second = stubEngine("obscura", SCREENSHOT_ONLY_CAPABILITIES);
+  const pool = new BrowserPool({ size: 1, engine: first });
+  const leased = await pool.acquire();
+  await pool.setEngine(second);
+  assert.equal(disposed, 0, "an engine with an in-flight lease must not be disposed yet");
+  await pool.release(leased);
+  assert.equal(closes, 1, "the retired engine's leased browser is closed on release");
+  assert.equal(disposed, 1, "the retired engine disposes once its last lease drains");
   await pool.close();
 });

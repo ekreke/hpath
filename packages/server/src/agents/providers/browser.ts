@@ -26,6 +26,7 @@ import type { ToolContext, ToolProvider } from "../tools.js";
 import type { RunEvidence } from "../evidence.js";
 import type { RunFrameHub } from "../frames.js";
 import type { BrowserPool } from "./browser-pool.js";
+import { FULL_BROWSER_CAPABILITIES } from "./browser-engine.js";
 
 export interface BrowserToolProviderOptions {
   /** Run headless (default true; server deployments have no display). */
@@ -65,6 +66,12 @@ class BrowserSession {
   private cdp?: CDPSession;
   /** Whether the current browser was borrowed from the pool (release vs close). */
   private pooled = false;
+  /**
+   * Evidence capabilities of the engine that served this run (T24). Defaults to
+   * the pre-T24 behavior (full: video + tracing) when no pool/engine is wired.
+   */
+  private videoEnabled = true;
+  private tracingEnabled = true;
   private readonly screencastListener = (event: { data: string; sessionId: number }): void => {
     void this.ackAndPublish(event);
   };
@@ -95,27 +102,42 @@ class BrowserSession {
   private async initOnce(): Promise<Page> {
     let browser: Browser | undefined;
     let fromPool = false;
+    // T24: evidence is engine-dependent (obscura has no video/tracing); pin the
+    // capabilities for this run before any context is created.
+    const capabilities = this.options.pool?.capabilities ?? FULL_BROWSER_CAPABILITIES;
+    this.videoEnabled = capabilities.video;
+    this.tracingEnabled = capabilities.tracing;
     try {
-      // T23: borrow a warm chromium from the pool when wired; fall back to a
-      // launch-per-run otherwise. A failed borrow launches fresh — the pool
-      // must never turn an idle-pop failure into a failed tool call.
+      // T23/T24: borrow a warm browser from the pool when wired; fall back to a
+      // launch-per-run only for the playwright engine (an idle-pop failure must
+      // not fail a tool call). A non-playwright engine is exclusive — a failed
+      // borrow surfaces instead of silently switching browsers.
       const pool = this.options.pool;
       if (pool) {
         try {
           browser = await pool.acquire();
           fromPool = true;
         } catch (err) {
+          if (pool.engineId !== "playwright") {
+            throw new Error(`browser engine "${pool.engineId}" is unavailable: ${(err as Error).message}`);
+          }
           console.error("[hpath-server] browser pool acquire failed, launching fresh:", err);
           browser = undefined;
         }
       }
       browser ??= await chromium.launch({ headless: this.options.headless });
-      // Every run records video + trace (T8 evidence contract). Files are
-      // finalized on context close and registered as pending artifacts there.
-      const context = await browser.newContext({
-        recordVideo: { dir: this.artifactsDir, size: { width: 800, height: 600 } },
-      });
-      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      // Every run records video + trace (T8 evidence contract) when the engine
+      // supports them (T24: obscura degrades to screenshots + live frames).
+      // Files are finalized on context close and registered as pending
+      // artifacts there.
+      const context = await browser.newContext(
+        this.videoEnabled
+          ? { recordVideo: { dir: this.artifactsDir, size: { width: 800, height: 600 } } }
+          : {},
+      );
+      if (this.tracingEnabled) {
+        await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      }
       const page = await context.newPage();
       page.setDefaultTimeout(this.options.actionTimeoutMs);
       this.browser = browser;
@@ -149,9 +171,12 @@ class BrowserSession {
       } catch {
         // Swallowed: cleanup must not mask the original error.
       }
+      const engineId = this.options.pool?.engineId ?? "playwright";
       throw new Error(
-        "could not launch chromium — install the browser once with "
-        + "`pnpm exec playwright install chromium`: " + (err as Error).message,
+        engineId === "playwright"
+          ? "could not launch chromium — install the browser once with "
+            + "`pnpm exec playwright install chromium`: " + (err as Error).message
+          : `could not start the "${engineId}" browser engine: ` + (err as Error).message,
       );
     }
   }
@@ -244,18 +269,23 @@ class BrowserSession {
     }
     // Finalize the trace BEFORE the context closes; the video file completes
     // on context close. Both land in the session's temp dir and are handed to
-    // the evidence registry as pending artifacts for post-run upload.
-    try {
-      await this.context?.tracing.stop({ path: join(this.artifactsDir, "trace.zip") });
-    } catch {
-      // Tracing may never have started (failed init); not fatal.
+    // the evidence registry as pending artifacts for post-run upload. An engine
+    // without these capabilities (T24) simply skips them.
+    if (this.tracingEnabled) {
+      try {
+        await this.context?.tracing.stop({ path: join(this.artifactsDir, "trace.zip") });
+      } catch {
+        // Tracing may never have started (failed init); not fatal.
+      }
     }
     let videoPath: string | undefined;
-    try {
-      const video = this.page?.video();
-      videoPath = video ? await video.path() : undefined;
-    } catch {
-      // Video path resolution is best-effort evidence.
+    if (this.videoEnabled) {
+      try {
+        const video = this.page?.video();
+        videoPath = video ? await video.path() : undefined;
+      } catch {
+        // Video path resolution is best-effort evidence.
+      }
     }
     try {
       await this.context?.close();
@@ -285,7 +315,7 @@ class BrowserSession {
   private registerArtifacts(videoPath: string | undefined): void {
     if (this.artifactsRegistered) return;
     this.artifactsRegistered = true;
-    if (videoPath) {
+    if (this.videoEnabled && videoPath) {
       this.evidence.registerArtifact({
         path: videoPath,
         kind: 1, // ArtifactKind.ARTIFACT_KIND_VIDEO
@@ -293,12 +323,14 @@ class BrowserSession {
         cleanupDir: this.artifactsDir,
       });
     }
-    this.evidence.registerArtifact({
-      path: join(this.artifactsDir, "trace.zip"),
-      kind: 2, // ArtifactKind.ARTIFACT_KIND_TRACE
-      name: "trace.zip",
-      cleanupDir: this.artifactsDir,
-    });
+    if (this.tracingEnabled) {
+      this.evidence.registerArtifact({
+        path: join(this.artifactsDir, "trace.zip"),
+        kind: 2, // ArtifactKind.ARTIFACT_KIND_TRACE
+        name: "trace.zip",
+        cleanupDir: this.artifactsDir,
+      });
+    }
   }
 }
 

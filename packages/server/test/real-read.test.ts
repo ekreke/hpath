@@ -431,6 +431,61 @@ describe("real mode review workflow (ReviewCase)", () => {
   });
 });
 
+describe("real mode settings (Get/UpdateSettings)", () => {
+  it("defaults the browser engine and accepts an update that omits the field", async () => {
+    const got = await callUnary("getSettings", {});
+    assert.equal(got.err, null);
+    const current = got.res as {
+      providerConfigJson: string;
+      defaultModel: string;
+      browserPoolSize: number;
+      browserEngine: string;
+    };
+    assert.equal(current.browserEngine, "playwright");
+    assert.equal(current.browserPoolSize, 1);
+
+    // A pre-T24 client omits browser_engine, so the decoded wire value is ""
+    // — it must be treated as "not provided", not rejected as an unknown engine.
+    const omitted = await callUnary("updateSettings", {
+      providerConfigJson: current.providerConfigJson,
+      defaultModel: current.defaultModel,
+      browserPoolSize: current.browserPoolSize,
+      browserEngine: "",
+    });
+    assert.equal(omitted.err, null);
+    assert.equal((omitted.res as { browserEngine: string }).browserEngine, "playwright");
+
+    const switched = await callUnary("updateSettings", {
+      providerConfigJson: current.providerConfigJson,
+      defaultModel: current.defaultModel,
+      browserPoolSize: current.browserPoolSize,
+      browserEngine: "obscura",
+    });
+    assert.equal(switched.err, null);
+    assert.equal((switched.res as { browserEngine: string }).browserEngine, "obscura");
+
+    // Restore the shared store for the remainder of the suite.
+    await callUnary("updateSettings", {
+      providerConfigJson: current.providerConfigJson,
+      defaultModel: current.defaultModel,
+      browserPoolSize: current.browserPoolSize,
+      browserEngine: "playwright",
+    });
+  });
+
+  it("rejects an unknown browser engine with INVALID_ARGUMENT", async () => {
+    const got = await callUnary("getSettings", {});
+    const current = got.res as { providerConfigJson: string; defaultModel: string; browserPoolSize: number };
+    const bad = await callUnary("updateSettings", {
+      providerConfigJson: current.providerConfigJson,
+      defaultModel: current.defaultModel,
+      browserPoolSize: current.browserPoolSize,
+      browserEngine: "webkit",
+    });
+    assert.equal(bad.err?.code, status.INVALID_ARGUMENT);
+  });
+});
+
 describe("real mode wiring boundary (UNIMPLEMENTED)", () => {
   it("keeps RunCase and artifact serving UNIMPLEMENTED", async () => {
     const runErr = await streamError("runCase", {

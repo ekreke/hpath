@@ -87,6 +87,11 @@
     "browserPoolZero": "0 — 每次运行单独启动",
     "browserPoolDefault": "1（默认）",
     "browserPoolMax": "4（上限，约 2.4–4 GB 内存）",
+    "browserEngine": "浏览器引擎",
+    "browserEngineHint": "同时只启用一个引擎。Playwright 产出完整证据（录像 + trace）；未安装的引擎会禁用浏览器工具，服务端不会回退到另一个引擎。",
+    "browserEnginePlaywright": "Playwright（chromium）",
+    "browserEngineObscura": "Obscura（实验性）",
+    "browserEngineObscuraHint": "Obscura 首次使用时自动下载，通过 CDP 接入。当前限制：不产出录像/trace，运行只保留逐步截图与实时帧。",
     "multimodal": "支持图片输入（多模态）"
   },
   "status": {

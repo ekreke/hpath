@@ -1093,6 +1093,13 @@ export interface AppSettings {
    * ~0.6-1 GB RSS; every run still gets its own fresh BrowserContext.
    */
   browserPoolSize: number;
+  /**
+   * Browser engine backing the browser tool provider (T24): "playwright"
+   * (bundled chromium, default) or "obscura" (a CDP server the server
+   * auto-downloads). Exactly one engine is active; the other is never used as
+   * a fallback. An unavailable engine disables the browser tools for a run.
+   */
+  browserEngine: string;
 }
 
 export interface ChatRequest {
@@ -8400,7 +8407,7 @@ export const BytesChunk: MessageFns<BytesChunk> = {
 };
 
 function createBaseAppSettings(): AppSettings {
-  return { providerConfigJson: "", defaultModel: "", browserPoolSize: 0 };
+  return { providerConfigJson: "", defaultModel: "", browserPoolSize: 0, browserEngine: "" };
 }
 
 export const AppSettings: MessageFns<AppSettings> = {
@@ -8413,6 +8420,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     }
     if (message.browserPoolSize !== 0) {
       writer.uint32(24).uint32(message.browserPoolSize);
+    }
+    if (message.browserEngine !== "") {
+      writer.uint32(34).string(message.browserEngine);
     }
     return writer;
   },
@@ -8454,6 +8464,14 @@ export const AppSettings: MessageFns<AppSettings> = {
             message.browserPoolSize = reader.uint32();
             continue;
           }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.browserEngine = reader.string();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -8483,6 +8501,11 @@ export const AppSettings: MessageFns<AppSettings> = {
         : isSet(object.browser_pool_size)
         ? globalThis.Number(object.browser_pool_size)
         : 0,
+      browserEngine: isSet(object.browserEngine)
+        ? globalThis.String(object.browserEngine)
+        : isSet(object.browser_engine)
+        ? globalThis.String(object.browser_engine)
+        : "",
     };
   },
 
@@ -8497,6 +8520,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     if (message.browserPoolSize !== 0) {
       obj.browserPoolSize = Math.round(message.browserPoolSize);
     }
+    if (message.browserEngine !== "") {
+      obj.browserEngine = message.browserEngine;
+    }
     return obj;
   },
 
@@ -8508,6 +8534,7 @@ export const AppSettings: MessageFns<AppSettings> = {
     message.providerConfigJson = object.providerConfigJson ?? "";
     message.defaultModel = object.defaultModel ?? "";
     message.browserPoolSize = object.browserPoolSize ?? 0;
+    message.browserEngine = object.browserEngine ?? "";
     return message;
   },
 };

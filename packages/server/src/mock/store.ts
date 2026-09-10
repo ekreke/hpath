@@ -30,7 +30,7 @@ export interface MockStore {
   chatSessions: Map<string, ChatSession>;
   chatMessages: Map<string, ChatMessage>;
   /** Model provider settings (GetSettings/UpdateSettings); mock-only memory. */
-  settings: { providerConfigJson: string; defaultModel: string; browserPoolSize?: number };
+  settings: { providerConfigJson: string; defaultModel: string; browserPoolSize?: number; browserEngine: string };
 }
 
 export function createMockStore(): MockStore {
@@ -49,6 +49,7 @@ export function createMockStore(): MockStore {
       providerConfigJson: JSON.stringify(SEED_PROVIDER_JSON, null, 2),
       defaultModel: "glm-5.3-flash",
       browserPoolSize: 1,
+      browserEngine: "playwright",
     },
   };
 }

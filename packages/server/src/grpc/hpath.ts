@@ -54,6 +54,7 @@ import { createMockHandlers } from "../mock/handlers.js";
 import { ChatService } from "../chat.js";
 import { InvalidSettingsError, parseSettingsJson, type SettingsStore } from "../settings.js";
 import type { BrowserPool } from "../agents/providers/browser-pool.js";
+import { createBrowserEngine } from "../agents/providers/browser-engine.js";
 import type { HpathDb } from "../db/index.js";
 import type { AgentKernel } from "../agents/pipeline.js";
 import type { ArtifactStore } from "../artifacts/store.js";
@@ -85,7 +86,8 @@ export interface RealExecutionDeps {
   kernel?: AgentKernel;
   artifactStore?: ArtifactStore;
   artifactIndex?: ArtifactIndex;
-  /** Warm chromium pool (T23): UpdateSettings resizes it live. */
+  /** Warm browser pool (T23/T24): UpdateSettings resizes it live and
+   * hot-swaps its engine when the selected browser engine changes. */
   browserPool?: BrowserPool;
 }
 
@@ -270,6 +272,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         providerConfigJson: JSON.stringify(doc, null, 2),
         defaultModel: doc.defaultModel,
         browserPoolSize: settings.browserPoolSize(),
+        browserEngine: settings.browserEngine(),
       });
     },
 
@@ -279,15 +282,38 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
     ): void => {
       try {
         const saved = settings.update(
-          parseSettingsJson(call.request.providerConfigJson, call.request.defaultModel, call.request.browserPoolSize),
+          parseSettingsJson(
+            call.request.providerConfigJson,
+            call.request.defaultModel,
+            call.request.browserPoolSize,
+            call.request.browserEngine,
+          ),
         );
-        // T23: apply the new warm pool size live (grow prewarms, shrink closes
-        // surplus idle browsers; leased ones close on release).
-        void execution?.browserPool?.resize(saved.browserPool);
+        // T24: apply the engine live when it changed (hot-swap: new acquires
+        // use it immediately, in-flight runs drain on the old one). The engine
+        // is installed best-effort; when it is unavailable the pool still
+        // switches so browser calls surface a clear error instead of silently
+        // using the previous engine.
+        const pool = execution?.browserPool;
+        void (async () => {
+          if (pool && saved.browserEngine !== pool.engineId) {
+            const next = createBrowserEngine(saved.browserEngine);
+            if (!(await next.ensureInstalled())) {
+              console.error(
+                `[hpath-server] browser engine "${next.id}" is unavailable — browser tools will fail until it is installed`,
+              );
+            }
+            await pool.setEngine(next);
+          }
+          // T23: apply the new warm pool size live (grow prewarms, shrink closes
+          // surplus idle browsers; leased ones close on release).
+          await pool?.resize(saved.browserPool);
+        })();
         callback(null, {
           providerConfigJson: JSON.stringify(saved, null, 2),
           defaultModel: saved.defaultModel,
           browserPoolSize: saved.browserPool,
+          browserEngine: saved.browserEngine,
         });
       } catch (err) {
         if (err instanceof InvalidSettingsError) {

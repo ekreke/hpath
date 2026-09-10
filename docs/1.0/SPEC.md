@@ -15,7 +15,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress.
 
 Desktop work is prioritized. The gRPC contract (T1) is finalized once, up front. The server skeleton ships a `--mock` mode (in-memory seed data + scripted run event streams + synthetic artifacts) implementing the same contract. All desktop tasks (T10–T14) are built and verified against the mock. Later tasks (C/D sections) replace mock internals with real implementations behind the identical contract — zero client rework.
 
-Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T21 -> T22 -> T23 -> T18.**
+Iteration order: **T1 -> T10 -> T16 -> T11 -> T17 -> T12 -> T13 -> T14 -> T2 -> T4 -> T5 -> T6 -> T7a -> T7b -> T8 -> T9 -> T3 -> T15 -> T21 -> T22 -> T23 -> T18 -> T24.**
 
 ---
 
@@ -136,6 +136,11 @@ Both backends share the same key scheme: `artifacts/{project}/{env}/{run}/...`.
   *Verify: `make test` covers pool prewarm/acquire/release/resize, dead-instance eviction, disabled-pool passthrough, settings bounds (reject >4 / non-integer) and the t7b provider launch stubs; manual: `--real` runs two cases back to back — the second shows no chromium launch delay; changing the pool size in Settings applies without a restart; pool=0 restores launch-per-run.*
   Scope note (2026-09): landed in one pass. Server: browser-pool.ts (prewarm/acquire/release/resize/close + lazy dead-instance eviction), BrowserSession pool borrow/return (context creation failure on a borrowed browser goes back through release; no pool wired = unchanged launch-per-run for tests), settings validation/seed/normalize, UpdateSettings-driven resize, boot prewarm + shutdown drain. Desktop: Settings numeric input (clamped 0-4 server- and client-side, error snaps back), i18n en/zh, Rust DTO + TS type. Gates: `make test` green (268 tests: 8 pool units, 5 new settings bounds, 2 t7b pool integration — reuse + no-pool regression; 263 pass / 5 skipped baseline) plus live `--real` smoke (boot prewarm 1 instance, resize 1→2→0 via UpdateSettings with process counts verified, >4 rejected with INVALID_ARGUMENT, pool=0 passthrough). Pending: the back-to-back RunCase pair against demo-app (needs an LLM key; the pool path itself is covered by the t7b integration test that asserts a second run reuses the same chromium launch).
 
+- [x] **T24 Selectable browser engine (Playwright / Obscura)**
+  Settings gains a mutually-exclusive `AppSettings.browser_engine` (`"playwright"` default; `"obscura"`) + `make proto`. New `BrowserEngine` abstraction (agents/providers/browser-engine.ts): `PlaywrightEngine` (bundled chromium, full evidence) and `ObscuraEngine` (Rust CDP engine attached via `chromium.connectOverCDP`, started as a local `obscura serve --allow-private-network`, auto-downloaded from the GitHub release on first use into `data/browsers/obscura` unless `HPATH_OBSCURA_PATH` is set). `BrowserPool` is engine-backed with `setEngine()` hot-swap (old idle closes immediately, leased drains by refcount, engine disposed when the last run ends); `BrowserSession` reads engine `BrowserCapabilities` and skips video/tracing for obscura (per-step screenshots + live frames remain). No cross-engine fallback: an unavailable engine disables the browser tools instead. Desktop: Settings → Models engine Select + i18n; Rust `SettingsDto` + TS `AppSettings` extended; mock parity (engine round-trips, invalid ids rejected).
+  *Verify: `pnpm --filter @hpath/server build` + `test` cover settings engine validation/defaults/override, the engine factory + asset-name mapping + install detection (stubbed fetch/fs), and pool `setEngine` idle-close/deferred-dispose refcount; `vite build` + `cargo check` for the desktop; manual: switch engine in Settings without a restart and confirm browser runs use the new engine (obscura runs keep screenshots + live frames, no video/trace.zip).*
+  Scope note (2026-09): server + contract + desktop implemented and building (`@hpath/contract build`, `@hpath/server build`, new/updated unit tests green: 14 settings/pool/engine cases). Pending manual: a live obscura walk (auto-download + `connectOverCDP` against demo-app) and the desktop engine-switch UI smoke (needs `tauri dev`).
+
 ## E. Wrap-up
 
 - [x] **T15 E2E demo script + README**
@@ -162,7 +167,7 @@ MCP facade, external MCP/skills ToolProviders, extra agents via registry, contai
 |-----------|--------------|
 | Docs (Phase 0) | Read-through, terminology consistency with this SPEC |
 | Contract/mock (T1) | pnpm build, grpcurl reflection, mock endpoint probes |
-| Desktop (T10-T14, T17, T21, T23) | `tauri dev` smoke against mock + manual checklist per view |
+| Desktop (T10-T14, T17, T21, T23, T24) | `tauri dev` smoke against mock + manual checklist per view |
 | Infra (T2, T4) | compose health checks, port probes, curl/grpcurl checks |
-| Server code (T5-T9, T19-T23) | pnpm build + unit/integration tests listed per task |
+| Server code (T5-T9, T19-T24) | pnpm build + unit/integration tests listed per task |
 | E2E (T15) | demo script green run |

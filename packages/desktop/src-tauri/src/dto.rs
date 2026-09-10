@@ -684,8 +684,10 @@ impl From<&pb::Event> for RunEventDto {
 
 /// Model provider settings (Settings view): the provider document travels as
 /// an opaque JSON string; the server validates it and the default model.
-/// `browser_pool_size` is the warm chromium pool (T23): 0 disables the pool,
-/// the server caps the value at 4, default 1.
+/// `browser_pool_size` is the warm browser pool (T23): 0 disables the pool,
+/// the server caps the value at 4, default 1. `browser_engine` selects the
+/// mutually-exclusive backend: "playwright" (full evidence) or "obscura"
+/// (screenshots + live frames only). Empty means "leave the server default".
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
@@ -693,6 +695,8 @@ pub struct SettingsDto {
     pub default_model: String,
     #[serde(default)]
     pub browser_pool_size: u32,
+    #[serde(default)]
+    pub browser_engine: String,
 }
 
 impl From<&pb::AppSettings> for SettingsDto {
@@ -701,6 +705,7 @@ impl From<&pb::AppSettings> for SettingsDto {
             provider_config_json: s.provider_config_json.clone(),
             default_model: s.default_model.clone(),
             browser_pool_size: s.browser_pool_size,
+            browser_engine: s.browser_engine.clone(),
         }
     }
 }
@@ -711,6 +716,7 @@ impl From<SettingsDto> for pb::AppSettings {
             provider_config_json: s.provider_config_json,
             default_model: s.default_model,
             browser_pool_size: s.browser_pool_size,
+            browser_engine: s.browser_engine,
         }
     }
 }

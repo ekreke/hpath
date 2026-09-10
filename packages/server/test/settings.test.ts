@@ -89,6 +89,33 @@ describe("settings validation", () => {
       );
     }
   });
+
+  it("seed doc defaults the browser engine to playwright", () => {
+    const doc = validateSettings(seedSettings());
+    assert.equal(doc.browserEngine, "playwright");
+  });
+
+  it("defaults browserEngine to playwright when the document omits it", () => {
+    assert.equal(parseSettingsJson(VALID_JSON).browserEngine, "playwright");
+  });
+
+  it("lets the wire-level browserEngine override the embedded one", () => {
+    assert.equal(parseSettingsJson(VALID_JSON, undefined, undefined, "obscura").browserEngine, "obscura");
+    assert.equal(parseSettingsJson(VALID_JSON, undefined, undefined, "playwright").browserEngine, "playwright");
+  });
+
+  it("treats an empty wire-level browserEngine (omitted proto3 string) as unset", () => {
+    assert.equal(parseSettingsJson(VALID_JSON, undefined, undefined, "").browserEngine, "playwright");
+    const embeddedObscura = JSON.stringify({ ...JSON.parse(VALID_JSON), browserEngine: "obscura" });
+    assert.equal(parseSettingsJson(embeddedObscura, undefined, undefined, "").browserEngine, "obscura");
+  });
+
+  it("rejects an unknown browserEngine", () => {
+    assert.throws(
+      () => parseSettingsJson(VALID_JSON, undefined, undefined, "webkit"),
+      (err: unknown) => err instanceof InvalidSettingsError && /browserEngine must be one of/.test(err.message),
+    );
+  });
 });
 
 describe("chat service (stubbed model runtime)", () => {

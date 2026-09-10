@@ -87,6 +87,11 @@
     "browserPoolZero": "0 — launch per run",
     "browserPoolDefault": "1 (default)",
     "browserPoolMax": "4 (cap, ~2.4–4 GB memory)",
+    "browserEngine": "Browser engine",
+    "browserEngineHint": "Exactly one engine is active. Playwright records full evidence (video + trace). An engine that is not installed disables the browser tools — the server never falls back to the other one.",
+    "browserEnginePlaywright": "Playwright (chromium)",
+    "browserEngineObscura": "Obscura (experimental)",
+    "browserEngineObscuraHint": "Obscura is auto-downloaded on first use and runs over CDP. Current limitation: no video/trace evidence — runs keep per-step screenshots and live frames only.",
     "multimodal": "Image input supported (multimodal)"
   },
   "status": {

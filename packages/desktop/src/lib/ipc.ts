@@ -460,12 +460,16 @@ export function invokeShowTrace(artifactId: string, runId: string): Promise<stri
 // opencode-style provider document (baseUrl / apiKey / models with a
 // multimodal flag); the server validates the shape and that defaultModel is
 // multimodal-capable, failing with INVALID_ARGUMENT otherwise.
-// browserPoolSize is the warm chromium pool (T23): 0 disables the pool, the
-// server caps the value at 4, default 1.
+// browserPoolSize is the warm browser pool: 0 disables the pool, the server
+// caps the value at 4, default 1. browserEngine selects the mutually-exclusive
+// backend ("playwright" full evidence, or "obscura" screenshots + live frames).
+export type BrowserEngineId = 'playwright' | 'obscura';
+
 export type AppSettings = {
   providerConfigJson: string;
   defaultModel: string;
   browserPoolSize: number;
+  browserEngine: BrowserEngineId;
 };
 
 export function invokeGetSettings(): Promise<AppSettings> {
