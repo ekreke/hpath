@@ -134,9 +134,9 @@ function ApiView({ projectId, envs, selectedEnvId, onSelectEnv, onToast }: ApiVi
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>{t('api.colMethod')}</th>
-                    <th>{t('api.colRequest')}</th>
-                    <th>{t('api.colResponse')}</th>
+                    <th style={{ width: '18%' }}>{t('api.colMethod')}</th>
+                    <th className="col-2" style={{ width: '24%' }}>{t('api.colRequest')}</th>
+                    <th className="col-2" style={{ width: '20%' }}>{t('api.colResponse')}</th>
                     <th>{t('api.colComment')}</th>
                   </tr>
                 </thead>
@@ -199,11 +199,11 @@ function MethodRow({
   return (
     <>
       <tr className="clickable" onClick={onToggle}>
-        <td className="mono" style={{ color: 'var(--w)' }}>
+        <td className="mono ellip" style={{ color: 'var(--w)' }}>
           {open ? '▾' : '▸'} {method.method}
         </td>
-        <td className="mono dim">{method.request}</td>
-        <td className="mono dim">{method.response}</td>
+        <td className="mono dim col-2 ellip">{method.request}</td>
+        <td className="mono dim col-2 ellip">{method.response}</td>
         <td className="dim" style={{ whiteSpace: 'normal' }}>{method.comment || '—'}</td>
       </tr>
       {open && (

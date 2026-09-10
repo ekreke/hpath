@@ -313,15 +313,15 @@ function CasesView({
             </div>
           </div>
           <section className="sec">
-            <table>
+            <table className="tbl">
               <thead>
                 <tr>
                   <th>{t('cases.colCase')}</th>
-                  <th>{t('cases.colStatus')}</th>
-                  <th>{t('cases.colCreator')}</th>
-                  <th>{t('cases.colHealth')}</th>
-                  <th>{t('cases.colLastRun')}</th>
-                  <th className="num">{t('cases.colRuns')}</th>
+                  <th style={{ width: '14%' }}>{t('cases.colStatus')}</th>
+                  <th className="col-3" style={{ width: '18%' }}>{t('cases.colCreator')}</th>
+                  <th className="col-2" style={{ width: '16%' }}>{t('cases.colHealth')}</th>
+                  <th className="col-2" style={{ width: '16%' }}>{t('cases.colLastRun')}</th>
+                  <th className="num col-3" style={{ width: '8%' }}>{t('cases.colRuns')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -334,13 +334,13 @@ function CasesView({
                       <td>
                         <CaseStatusBadge status={kase.status} />
                       </td>
-                      <td className="dim">{creatorLabel(kase, t)}</td>
-                      <td>
+                      <td className="dim col-3">{creatorLabel(kase, t)}</td>
+                      <td className="col-2">
                         <HealthStrip results={sortRunsDesc(caseRuns)} />
                       </td>
-                      <td>
+                      <td className="col-2 ellip">
                         {lr ? (
-                          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
                             <RunStatusTag status={lr.status} />
                             <span className="dim num">{formatTime(lr.startedAt, t)}</span>
                           </span>
@@ -348,7 +348,7 @@ function CasesView({
                           <span className="dim">—</span>
                         )}
                       </td>
-                      <td className="num">{caseRuns.length || '—'}</td>
+                      <td className="num col-3">{caseRuns.length || '—'}</td>
                     </tr>
                   );
                 })}
@@ -454,19 +454,19 @@ function CasesView({
                       <h2>{t('cases.alignments')}</h2>
                       <span className="n">{detail.alignments.length}</span>
                     </div>
-                    <table>
+                    <table className="tbl">
                       <thead>
                         <tr>
                           <th>{t('cases.evApiPath')}</th>
-                          <th>{t('cases.evUiAnchor')}</th>
-                          <th>{t('cases.colRule')}</th>
+                          <th className="col-2" style={{ width: '34%' }}>{t('cases.evUiAnchor')}</th>
+                          <th style={{ width: '40%' }}>{t('cases.colRule')}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {detail.alignments.map((a, i) => (
                           <tr key={i}>
-                            <td className="mono">{a.apiPath}</td>
-                            <td className="dim">{a.uiAnchor}</td>
+                            <td className="mono ellip">{a.apiPath}</td>
+                            <td className="dim col-2 ellip">{a.uiAnchor}</td>
                             <td className="dim" style={{ whiteSpace: 'normal' }}>{a.rule}</td>
                           </tr>
                         ))}
@@ -484,15 +484,15 @@ function CasesView({
                       <h2>{t('cases.runHistory')}</h2>
                       <span className="n">{detailRuns.length}</span>
                     </div>
-                    <table>
+                    <table className="tbl">
                       <thead>
                         <tr>
-                          <th>{t('runs.colTime')}</th>
-                          <th>{t('runs.colEnv')}</th>
-                          <th>{t('runs.colResult')}</th>
-                          <th className="num">{t('runs.colDuration')}</th>
-                          <th className="num">{t('runs.colTokens')}</th>
-                          <th>{t('runs.colReplay')}</th>
+                          <th style={{ width: '18%' }}>{t('runs.colTime')}</th>
+                          <th className="col-2" style={{ width: '14%' }}>{t('runs.colEnv')}</th>
+                          <th style={{ width: '18%' }}>{t('runs.colResult')}</th>
+                          <th className="num col-2" style={{ width: '14%' }}>{t('runs.colDuration')}</th>
+                          <th className="num col-3" style={{ width: '12%' }}>{t('runs.colTokens')}</th>
+                          <th style={{ width: '24%' }}>{t('runs.colReplay')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -504,12 +504,12 @@ function CasesView({
                           return (
                             <tr key={r.id}>
                               <td className="dim num">{formatDateTime(r.startedAt)}</td>
-                              <td className="dim">{envs.find((e) => e.id === r.envId)?.name ?? r.envId.slice(0, 8)}</td>
+                              <td className="dim col-2 ellip">{envs.find((e) => e.id === r.envId)?.name ?? r.envId.slice(0, 8)}</td>
                               <td>
                                 <RunStatusTag status={r.status} />
                               </td>
-                              <td className="num">{formatDuration(r.durationMs)}</td>
-                              <td className="num">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
+                              <td className="num col-2">{formatDuration(r.durationMs)}</td>
+                              <td className="num col-3">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
                               <td>
                                 {finished ? (
                                   <button className="btn ghost sm" onClick={() => void openReplay(r)}>

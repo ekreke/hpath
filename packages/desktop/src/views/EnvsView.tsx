@@ -75,27 +75,27 @@ function EnvsView({ projectId, envs, onChanged, onToast }: EnvsViewProps) {
       </div>
 
       <section className="sec">
-        <table>
+        <table className="tbl">
           <thead>
             <tr>
-              <th>{t('envs.colName')}</th>
-              <th>{t('envs.colWeb')}</th>
-              <th>{t('envs.colGrpc')}</th>
-              <th className="num">{t('envs.colVars')}</th>
-              <th>{t('envs.colDefault')}</th>
-              <th />
+              <th className="ellip">{t('envs.colName')}</th>
+              <th className="col-3" style={{ width: '18%' }}>{t('envs.colWeb')}</th>
+              <th className="col-3" style={{ width: '18%' }}>{t('envs.colGrpc')}</th>
+              <th className="num col-2" style={{ width: '7%' }}>{t('envs.colVars')}</th>
+              <th className="col-2" style={{ width: '11%' }}>{t('envs.colDefault')}</th>
+              <th style={{ width: '22%' }} />
             </tr>
           </thead>
           <tbody>
             {envs.map((env) => (
               <tr key={env.id}>
-                <td className="mono">{env.name}</td>
-                <td className="mono dim">{env.webBaseUrl || '—'}</td>
-                <td className="mono dim">{env.grpcAddress || '—'}</td>
-                <td className="num">{Object.keys(env.vars ?? {}).length}</td>
-                <td>{env.isDefault ? <span className="pill">{t('envs.defaultMark')}</span> : ''}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <span style={{ display: 'inline-flex', gap: 8 }}>
+                <td className="mono ellip">{env.name}</td>
+                <td className="mono dim col-3 ellip">{env.webBaseUrl || '—'}</td>
+                <td className="mono dim col-3 ellip">{env.grpcAddress || '—'}</td>
+                <td className="num col-2">{Object.keys(env.vars ?? {}).length}</td>
+                <td className="col-2">{env.isDefault ? <span className="pill">{t('envs.defaultMark')}</span> : ''}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'normal' }}>
+                  <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     {!env.isDefault && (
                       <button className="btn sm ghost" disabled={busy} onClick={() => void setDefault(env)}>
                         {t('envs.setDefault')}

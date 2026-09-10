@@ -172,9 +172,9 @@ body {
 .seg button.on { background: #262626; color: var(--w); }
 
 /* ── page ───────────────────────────────── */
-.page { flex: 1; overflow-y: auto; }
+.page { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .page-inner { max-width: 1220px; margin: 0 auto; padding: 30px 26px 60px; }
-.ph { margin-bottom: 26px; display: flex; align-items: flex-start; gap: 20px; }
+.ph { margin-bottom: 26px; display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
 h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.03em; display: flex; align-items: center; gap: 12px; }
 h1 .pill {
   font-size: 11px;
@@ -914,4 +914,59 @@ td.num, th.num { text-align: right; color: var(--muted); }
 .dot.muted { background: var(--faint2); }
 /* Case title cell in the case list: shrink with an ellipsis so long titles
    never push the table wider than its container (no horizontal scrollbar). */
-.case-title { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── responsive adaptation ─────────────────
+   The desktop window can shrink to 960px. With the sidebar (236px) and the
+   workspace nav (180px), list pages then have as little as ~460px of content,
+   where wide tables used to overflow and force a horizontal scrollbar.
+   Strategy: list tables use a fixed layout so the table can never exceed its
+   container; long-text cells ellipsize; secondary columns (col-2 / col-3) are
+   dropped at narrower widths; and multi-column layouts collapse to one
+   column. Breakpoints are viewport-based but chosen from the content area of
+   the worst case (workspace pages: sidebar 236px + workspace nav 180px), so
+   they sit above the equivalent content width. */
+
+/* Fixed table layout = the table never grows past 100% width. Column widths
+   come from the <th> widths; the unspecified (long-text) column absorbs the
+   rest. */
+.tbl { table-layout: fixed; }
+.ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Column priority: col-3 drops first, then col-2; unmarked columns always
+   stay. */
+@media (max-width: 1200px) {
+  th.col-3, td.col-3 { display: none; }
+}
+@media (max-width: 1080px) {
+  th.col-2, td.col-2 { display: none; }
+  th, td { padding: 8px 10px; }
+  .page-inner, .workspace { padding: 24px 18px 48px; }
+  .settings-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .settings-grid .set-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .settings-grid .set-nav .itm { width: auto; }
+}
+
+/* The two-column detail layout only has room for the sidebar next to it on
+   wide windows; below that the aside drops under the main column so the
+   tables get the full content width. */
+.grid2 > * { min-width: 0; }
+@media (max-width: 1200px) {
+  .grid2 { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+}
+
+/* Inside the narrow detail column, drop the secondary run-history/alignment
+   columns earlier than list pages so the remaining columns stay readable. */
+@media (max-width: 1360px) {
+  .grid2 th.col-2, .grid2 td.col-2,
+  .grid2 th.col-3, .grid2 td.col-3 { display: none; }
+}
+
+/* Workspace nav (project tabs) collapses to a wrapping row on narrow windows. */
+@media (max-width: 1000px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 24px 18px 48px; }
+  .workspace .set-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .workspace .set-nav .itm { width: auto; }
+}
+
+.sec { min-width: 0; }

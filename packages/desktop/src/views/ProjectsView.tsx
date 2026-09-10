@@ -84,21 +84,21 @@ function ProjectsView({ projects, onOpened, onCreated, onDeleted, onToast }: Pro
       {filtered.length === 0 ? (
         <div className="empty">{projects.length === 0 ? t('projects.empty') : t('projects.noMatch')}</div>
       ) : (
-        <table>
+        <table className="tbl">
           <thead>
             <tr>
-              <th>{t('projects.colName')}</th>
-              <th>{t('projects.colRepo')}</th>
-              <th className="num">{t('projects.colCreated')}</th>
-              <th style={{ width: 60 }} aria-label={t('projects.deleteProject')} />
+              <th className="ellip">{t('projects.colName')}</th>
+              <th className="col-2" style={{ width: '36%' }}>{t('projects.colRepo')}</th>
+              <th className="num col-2" style={{ width: '16%' }}>{t('projects.colCreated')}</th>
+              <th style={{ width: 90 }} aria-label={t('projects.deleteProject')} />
             </tr>
           </thead>
           <tbody>
             {filtered.map((p) => (
               <tr key={p.id} className="clickable" onClick={() => onOpened(p.id)}>
-                <td>{p.name}</td>
-                <td className="dim mono">{p.repoUrl || '—'}</td>
-                <td className="num">
+                <td className="ellip">{p.name}</td>
+                <td className="dim mono col-2 ellip">{p.repoUrl || '—'}</td>
+                <td className="num col-2">
                   {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
                 </td>
                 <td className="num">

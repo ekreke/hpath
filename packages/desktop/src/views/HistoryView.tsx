@@ -197,16 +197,16 @@ function HistoryView({
           </label>
         </div>
 
-        <table>
+        <table className="tbl">
           <thead>
             <tr>
-              <th>{t('runs.colTime')}</th>
+              <th style={{ width: '16%' }}>{t('runs.colTime')}</th>
               <th>{t('cases.colCase')}</th>
-              <th>{t('runs.colEnv')}</th>
-              <th>{t('runs.colTrigger')}</th>
-              <th>{t('runs.colResult')}</th>
-              <th className="num">{t('runs.colDuration')}</th>
-              <th className="num">{t('runs.colTokens')}</th>
+              <th className="col-2" style={{ width: '12%' }}>{t('runs.colEnv')}</th>
+              <th className="col-3" style={{ width: '10%' }}>{t('runs.colTrigger')}</th>
+              <th style={{ width: '20%' }}>{t('runs.colResult')}</th>
+              <th className="num col-2" style={{ width: '12%' }}>{t('runs.colDuration')}</th>
+              <th className="num col-3" style={{ width: '8%' }}>{t('runs.colTokens')}</th>
             </tr>
           </thead>
           <tbody>
@@ -215,19 +215,17 @@ function HistoryView({
               return (
                 <tr key={r.id}>
                   <td className="dim num">{formatDateTime(r.startedAt)}</td>
-                  <td className="mono" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {caseTitle(r.caseId)}
-                  </td>
-                  <td className="dim">{envName(r.envId)}</td>
-                  <td className="dim">{tk ? t(tk) : '—'}</td>
-                  <td>
-                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                  <td className="mono ellip">{caseTitle(r.caseId)}</td>
+                  <td className="dim col-2 ellip">{envName(r.envId)}</td>
+                  <td className="dim col-3">{tk ? t(tk) : '—'}</td>
+                  <td className="ellip">
+                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
                       <RunStatusTag status={r.status} />
-                      {r.failReason && <span className="dim mono">{r.failReason}</span>}
+                      {r.failReason && <span className="dim mono ellip" style={{ minWidth: 0 }}>{r.failReason}</span>}
                     </span>
                   </td>
-                  <td className="num">{formatDuration(r.durationMs)}</td>
-                  <td className="num">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
+                  <td className="num col-2">{formatDuration(r.durationMs)}</td>
+                  <td className="num col-3">{r.tokenCost ? `${r.tokenCost}` : '—'}</td>
                 </tr>
               );
             })}

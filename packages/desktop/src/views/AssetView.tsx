@@ -249,7 +249,7 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th style={{ width: 34 }}>
+                  <th style={{ width: '5%' }}>
                     <input
                       type="checkbox"
                       aria-label={t('asset.selectAll')}
@@ -257,12 +257,12 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
                       onChange={toggleAll}
                     />
                   </th>
-                  <th>{t('asset.colType')}</th>
+                  <th style={{ width: '10%' }}>{t('asset.colType')}</th>
                   <th>{t('asset.colFile')}</th>
-                  <th>{t('asset.colFiles')}</th>
-                  <th>{t('asset.colSize')}</th>
-                  <th>{t('asset.colTime')}</th>
-                  <th />
+                  <th className="col-3" style={{ width: '8%' }}>{t('asset.colFiles')}</th>
+                  <th className="col-2" style={{ width: '9%' }}>{t('asset.colSize')}</th>
+                  <th className="col-2" style={{ width: '20%' }}>{t('asset.colTime')}</th>
+                  <th style={{ width: '15%' }} />
                 </tr>
               </thead>
               <tbody>
@@ -281,21 +281,23 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
                         {asset.type === ASSET_TYPE.PROTO ? t('asset.typeProto') : t('asset.typePrd')}
                       </span>
                     </td>
-                    <td className="mono" style={{ color: 'var(--w)' }}>{asset.filename}</td>
-                    <td>{asset.fileCount || 1}</td>
-                    <td>{formatBytes(asset.sizeBytes)}</td>
-                    <td>{new Date(asset.createdAt).toLocaleString(i18n.language)}</td>
-                    <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <button className="btn ghost sm" onClick={() => void openPreview(asset)}>
-                        {t('asset.view')}
-                      </button>
-                      <button
-                        className="btn ghost sm"
-                        style={confirmId === asset.id ? { color: 'var(--danger, #f66)' } : undefined}
-                        onClick={() => void remove(asset)}
-                      >
-                        {confirmId === asset.id ? t('asset.deleteConfirm') : t('common.delete')}
-                      </button>
+                    <td className="mono ellip" style={{ color: 'var(--w)' }}>{asset.filename}</td>
+                    <td className="col-3">{asset.fileCount || 1}</td>
+                    <td className="col-2">{formatBytes(asset.sizeBytes)}</td>
+                    <td className="col-2">{new Date(asset.createdAt).toLocaleString(i18n.language)}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'normal' }}>
+                      <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button className="btn ghost sm" onClick={() => void openPreview(asset)}>
+                          {t('asset.view')}
+                        </button>
+                        <button
+                          className="btn ghost sm"
+                          style={confirmId === asset.id ? { color: 'var(--danger, #f66)' } : undefined}
+                          onClick={() => void remove(asset)}
+                        >
+                          {confirmId === asset.id ? t('asset.deleteConfirm') : t('common.delete')}
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 ))}
