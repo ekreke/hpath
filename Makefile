@@ -9,7 +9,7 @@ COMPOSE_FILE ?= docker/compose.yaml
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc
+.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc browsers check-browsers
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -38,7 +38,13 @@ mock: ## Start mock server in background (log: $(LOG)), wait until healthy
 	[ $$ok -eq 1 ] && echo "healthy: reflection OK" \
 	  || (echo "FAILED to start, log tail:"; tail -5 $(LOG); exit 1)
 
-real: ## Start real-mode server in background (SQLite reads from T3; rest UNIMPLEMENTED until T8)
+browsers: ## Install the Playwright chromium headless shell (hard dependency of real mode)
+	pnpm --filter @hpath/server exec playwright install --only-shell chromium
+
+check-browsers: ## Fail if Playwright cannot launch chromium headless
+	@pnpm --filter @hpath/server exec node -e "const {chromium}=require('playwright');chromium.launch({headless:true}).then(b=>b.close()).then(()=>console.log('[hpath] chromium headless launch OK')).catch(e=>{console.error('[hpath] chromium headless launch failed: '+e.message+'; run: make browsers');process.exit(1)})"
+
+real: check-browsers ## Start real-mode server in background (SQLite + agent execution; requires chromium)
 	@$(MAKE) stop
 	@nohup node packages/server/dist/index.js --real --port $(PORT) > $(LOG) 2>&1 & \
 	 echo "real skeleton starting on 127.0.0.1:$(PORT) (log $(LOG))"

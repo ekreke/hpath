@@ -6,6 +6,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "postinstall": "pnpm --filter @hpath/server exec playwright install --only-shell chromium",
     "build": "pnpm -r build",
     "gen:proto": "./scripts/gen-proto.sh",
     "mock": "pnpm --filter @hpath/server dev",

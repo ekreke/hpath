@@ -1,10 +1,11 @@
 # HPath 1.0 compose topology (SPEC T2).
 #
 # Default stack (`docker compose up -d` / `make up`):
-#   hpath-server        mock mode, local artifact store (HPATH_ARTIFACT_STORE=local)
-#   demo-app-dev        three-way aligned SUT, seed ¥1,337.50  (http 8081 / grpc 9091)
-#   demo-app-staging    three-way aligned SUT, seed ¥238.00    (http 8082 / grpc 9092)
+#   hpath-server        real mode (agents + chromium), local artifact store
+#   demo-app-dev        three-way aligned SUT, seed ¥1,337.50  (host http 8081 / grpc 9091)
+#   demo-app-staging    three-way aligned SUT, seed ¥238.00    (host http 8082 / grpc 9092)
 #
+# Requires OPENAI_API_KEY in the environment (real-mode execute-agent).
 # Full topology adds SeaweedFS for the S3 artifact backend (T6):
 #   docker compose --profile s3 up -d
 
@@ -18,23 +19,28 @@ services:
     # Needed once the T7b Playwright base drives browsers (/dev/shm); harmless
     # for the slim mock-mode image.
     ipc: host
+    # Reap zombie processes; the official Playwright image recommends this.
+    init: true
     environment:
       HPATH_HOST: 0.0.0.0
       HPATH_PORT: 50051
       HPATH_ARTIFACT_STORE: local
       HPATH_ARTIFACT_DIR: /data/artifacts
-      # Persist the model provider settings across container restarts
+      # Persist the SQLite database and model provider settings across restarts
+      HPATH_DB_PATH: /data/db/hpath.db
       HPATH_SETTINGS_PATH: /data/settings/settings.json
-      # Forward-compatible endpoints for T6/T7 (unused by the mock server):
-      # SEAWEED_S3_ENDPOINT: http://seaweedfs:8333
-      # DEMO_APP_DEV_URL: http://demo-app-dev:8080
-      # DEMO_APP_STAGING_URL: http://demo-app-staging:8080
-      # DEMO_GRPC_DEV: demo-app-dev:9090
-      # DEMO_GRPC_STAGING: demo-app-staging:9090
-      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # SUT endpoints reachable from this container by service name. seed.ts
+      # uses these to override the localhost defaults baked for host runs.
+      DEMO_APP_DEV_URL: http://demo-app-dev:8080
+      DEMO_GRPC_DEV: demo-app-dev:9090
+      DEMO_APP_STAGING_URL: http://demo-app-staging:8080
+      DEMO_GRPC_STAGING: demo-app-staging:9090
+      # Real mode runs the execute-agent, which needs an LLM key.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for real mode}
     volumes:
       - hpath-artifacts:/data/artifacts
       - hpath-settings:/data/settings
+      - hpath-db:/data/db
     ports:
       - "${HPATH_PORT:-50051}:50051"
     healthcheck:
@@ -98,4 +104,5 @@ services:
 volumes:
   hpath-artifacts:
   hpath-settings:
+  hpath-db:
   seaweed-data:

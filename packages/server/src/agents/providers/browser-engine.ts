@@ -69,11 +69,15 @@ export class PlaywrightEngine implements BrowserEngine {
   constructor(private readonly options: { headless?: boolean } = {}) {}
 
   async ensureInstalled(): Promise<boolean> {
+    // chromium.executablePath() reports the full Chrome for Testing build,
+    // which is NOT what a headless launch uses (that resolves to the
+    // chromium-headless-shell binary). Checking that path would false-negative
+    // a shell-only install, so probe with an actual headless launch — the only
+    // authoritative check.
     try {
-      const path = chromium.executablePath();
-      // An empty path means Playwright resolves a system/channel browser at
-      // launch time; fall through and let launch() decide.
-      return !path || existsSync(path);
+      const browser = await chromium.launch({ headless: true });
+      await browser.close();
+      return true;
     } catch {
       return false;
     }

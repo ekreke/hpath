@@ -67,9 +67,21 @@ async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise
   const browserEngine = createBrowserEngine(browserEngineId);
   const engineAvailable = await browserEngine.ensureInstalled();
   if (!engineAvailable) {
-    console.error(
-      `[hpath-server] browser engine "${browserEngineId}" is unavailable — browser tools will fail until it is installed`,
-    );
+    // The browser engine is a hard dependency of real mode: fail fast at
+    // startup instead of surfacing a cryptic tool failure mid-run. Set
+    // HPATH_ALLOW_MISSING_BROWSER=1 to keep the server up for pure API work.
+    const allowMissing = process.env.HPATH_ALLOW_MISSING_BROWSER === "1";
+    const message =
+      `[hpath-server] browser engine "${browserEngineId}" is unavailable — `
+      + (browserEngineId === "playwright"
+        ? "install it with `pnpm exec playwright install --only-shell chromium` (or `make browsers`)"
+        : "check its installation/configuration");
+    if (allowMissing) {
+      console.error(`${message} (continuing: HPATH_ALLOW_MISSING_BROWSER=1)`);
+    } else {
+      console.error(`${message}; refusing to start (set HPATH_ALLOW_MISSING_BROWSER=1 to override)`);
+      process.exit(1);
+    }
   }
   const browserPool = new BrowserPool({
     size: engineAvailable ? settings.browserPoolSize() : 0,
@@ -103,7 +115,7 @@ async function buildExecutionDeps(db: HpathDb, settings: SettingsStore): Promise
   console.log(`[hpath-server] artifact store: ${artifactStore.backend}`);
   console.log(
     `[hpath-server] browser engine: ${browserEngineId} (${engineAvailable ? "available" : "UNAVAILABLE"}), `
-      + `pool: ${settings.browserPoolSize()} warm instance(s)`,
+      + `pool: ${engineAvailable ? settings.browserPoolSize() : 0} warm instance(s)`,
   );
   return { kernel, artifactStore, artifactIndex, browserPool };
 }

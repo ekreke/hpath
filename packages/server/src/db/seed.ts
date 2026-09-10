@@ -294,12 +294,15 @@ function seedProject(db: HpathDb, clock: SeedClock): Project {
 }
 
 function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
+  // Host runs reach the SUTs on published localhost ports; inside compose the
+  // containers are only reachable by service name, so compose overrides these
+  // via DEMO_* env vars. Defaults preserve the host behavior.
   const dev: Env = {
     id: randomUUID(),
     projectId: project.id,
     name: "dev",
-    webBaseUrl: "http://localhost:8081",
-    grpcAddress: "localhost:9091",
+    webBaseUrl: process.env.DEMO_APP_DEV_URL ?? "http://localhost:8081",
+    grpcAddress: process.env.DEMO_GRPC_DEV ?? "localhost:9091",
     vars: { region: "local" },
     // Credentials baked into the demo-app fixture (its login page displays
     // them). Wrong values here cost the agent real steps against the step
@@ -311,8 +314,8 @@ function seedEnvs(db: HpathDb, project: Project): { dev: Env; staging: Env } {
     id: randomUUID(),
     projectId: project.id,
     name: "staging",
-    webBaseUrl: "http://localhost:8082",
-    grpcAddress: "localhost:9092",
+    webBaseUrl: process.env.DEMO_APP_STAGING_URL ?? "http://localhost:8082",
+    grpcAddress: process.env.DEMO_GRPC_STAGING ?? "localhost:9092",
     vars: { region: "staging" },
     // Same demo-app credentials; the staging instance only differs in seed
     // balance. dev/staging share the login, not the data.
