@@ -2,13 +2,14 @@
 # Run `make` or `make help` to list targets.
 
 PORT ?= 50051
+DEV_PORT ?= 1420
 LOG  ?= /tmp/hpath-server.log
 COMPOSE_FILE ?= docker/compose.yaml
 # `make up PROFILE=s3` additionally starts the optional SeaweedFS service.
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop clean verify up down logs docker-clean cloc
+.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -53,8 +54,9 @@ run: ## Start real-mode server (bg, SQLite + LLM chat) + Tauri desktop dev (Ctrl
 		echo "building contract + server..."; \
 		pnpm --filter @hpath/contract build && pnpm --filter @hpath/server build; \
 	fi
+	@$(MAKE) stop-desktop
 	@$(MAKE) real
-	@trap '$(MAKE) -C $(CURDIR) stop' EXIT; cd packages/desktop && pnpm tauri dev
+	@trap '$(MAKE) -C $(CURDIR) stop; $(MAKE) -C $(CURDIR) stop-desktop' EXIT; cd packages/desktop && pnpm tauri dev
 
 smoke: ## Run the smoke client against a running server (default $(PORT))
 	pnpm --filter @hpath/server smoke
@@ -87,6 +89,16 @@ restart: ## Restart the background mock server
 stop: ## Stop any running hpath server on $(PORT)
 	@pids=$$(lsof -ti tcp:$(PORT) 2>/dev/null); \
 	if [ -n "$$pids" ]; then kill $$pids 2>/dev/null; echo "stopped: $$pids"; else echo "no server on $(PORT)"; fi
+
+stop-desktop: ## Stop stale desktop dev processes bound to $(DEV_PORT) (vite/tauri leftovers)
+	@pkill -f 'target/debug/hpath-desktop' 2>/dev/null; \
+	pids=$$(lsof -ti tcp:$(DEV_PORT) 2>/dev/null); \
+	if [ -n "$$pids" ]; then \
+	  echo "stopped desktop dev: $$pids"; \
+	  kill $$pids 2>/dev/null; sleep 0.5; \
+	  pids=$$(lsof -ti tcp:$(DEV_PORT) 2>/dev/null); \
+	  [ -n "$$pids" ] && kill -9 $$pids 2>/dev/null; \
+	else echo "no desktop dev on $(DEV_PORT)"; fi
 
 verify: build smoke ## Build + smoke against an already-running server
 
