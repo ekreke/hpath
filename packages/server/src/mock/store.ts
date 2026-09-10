@@ -47,7 +47,7 @@ export function createMockStore(): MockStore {
     chatMessages: new Map(),
     settings: {
       providerConfigJson: JSON.stringify(SEED_PROVIDER_JSON, null, 2),
-      defaultModel: "glm-5.3-flash",
+      defaultModel: "deepseek-v4.1-flash",
       browserPoolSize: 1,
       browserEngine: "playwright",
     },
@@ -66,15 +66,24 @@ export const SEED_PROVIDER_JSON = {
       baseUrl: "https://llm.ekreke.cn/v1",
       apiKey: "sk-mock",
       models: [
-        { id: "glm-5.3-flash", name: "GLM-5.3 Flash", multimodal: true },
         { id: "step-3.7-flash", name: "Step 3.7 Flash", multimodal: true },
         { id: "deepseek-v4-flash-vision-exp", name: "DeepSeek V4 Vision (exp)", multimodal: true },
         { id: "qwen-max", name: "Qwen Max", multimodal: true },
+        { id: "MiniMaxAI/MiniMax-M3", name: "MiniMax M3", multimodal: false },
+      ],
+    },
+    "ekreke-copy": {
+      name: "router (mock)",
+      baseUrl: "http://power.acme.red/v1",
+      apiKey: "sk-mock",
+      models: [
+        { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", multimodal: true },
+        { id: "glm-5.3-flash", name: "GLM-5.3 Flash", multimodal: true },
         { id: "glm-5.3", name: "GLM-5.3", multimodal: false },
       ],
     },
   },
-  defaultModel: "glm-5.3-flash",
+  defaultModel: "deepseek-v4.1-flash",
 };
 
 export function nowIso(): string {

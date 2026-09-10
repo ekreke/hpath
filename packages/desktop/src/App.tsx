@@ -49,19 +49,8 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(
-    () => localStorage.getItem('hpath.sidebarOpen') !== '0',
-  );
   const [projectTab, setProjectTab] = useState<ProjectTab>(initialProjectTab);
   const [projectsPage, setProjectsPage] = useState<'list' | 'workspace'>('list');
-
-  const toggleSidebar = useCallback(() => {
-    setSidebarOpen((open) => {
-      const next = !open;
-      localStorage.setItem('hpath.sidebarOpen', next ? '1' : '0');
-      return next;
-    });
-  }, []);
 
   const selectProjectTab = useCallback((tab: ProjectTab) => {
     setProjectTab(tab);
@@ -221,14 +210,12 @@ function App() {
       : [{ label: t(`sidebar.${view}`) }];
 
   return (
-    <div className={sidebarOpen ? 'shell' : 'shell sb-hidden'}>
+    <div className="shell">
       <Sidebar
         view={view}
         connectionStatus={connectionStatus}
         serverAddr={appliedServerAddr}
-        sidebarOpen={sidebarOpen}
         onSelectView={handleSelectView}
-        onToggleSidebar={toggleSidebar}
       />
       <div className="main">
         <TopBar segments={breadcrumb} />

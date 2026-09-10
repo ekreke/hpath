@@ -1,8 +1,8 @@
 // Model provider settings (chat + agent runtime): a JSON document persisted
 // at HPATH_SETTINGS_PATH (default data/settings.json, cwd-relative like the
-// SQLite db path). Seeded on first boot with the ekreke OpenAI-compatible
-// provider; the multimodal flags below were verified against the live
-// endpoint with an image-input probe (2026-09-03).
+// SQLite db path). Seeded on first boot with the OpenAI-compatible providers
+// from the user's opencode config; the multimodal flags below were verified
+// against the live endpoints with an image-input probe (2026-09-03).
 //
 // Document shape (kept intentionally small and hand-editable):
 // {
@@ -11,10 +11,10 @@
 //       "name": "ekreke",
 //       "baseUrl": "https://llm.ekreke.cn/v1",
 //       "apiKey": "sk-...",
-//       "models": [ { "id": "glm-5.3-flash", "name": "GLM-5.3 Flash", "multimodal": true } ]
+//       "models": [ { "id": "step-3.7-flash", "name": "Step 3.7 Flash", "multimodal": true } ]
 //     }
 //   },
-//   "defaultModel": "glm-5.3-flash",
+//   "defaultModel": "deepseek-v4.1-flash",
 //   "browserPool": 1
 // }
 //
@@ -89,11 +89,13 @@ export function defaultSettingsPath(): string {
 }
 
 /**
- * First-boot seed: the ekreke OpenAI-compatible endpoint (baseURL/apiKey from
- * the user's opencode config), with multimodal flags from the live probe:
- * glm-5.3-flash / step-3.7-flash / deepseek-v4-flash-vision-exp / qwen-max
- * accept image input; glm-5.3 is text-only. The apiKey resolves from the
- * EKREKE_API_KEY env var so no secret lands in the repository.
+ * First-boot seed: two OpenAI-compatible endpoints mirroring the user's
+ * opencode config. `ekreke` (llm.ekreke.cn) keeps the multimodal models
+ * step-3.7-flash / deepseek-v4-flash-vision-exp / qwen-max plus text-only
+ * MiniMax-M3. `ekreke-copy` ("router", power.acme.red) serves
+ * deepseek-v4.1-flash / glm-5.3-flash / glm-5.3 and is the default provider.
+ * Each apiKey resolves from an env var (EKREKE_API_KEY / HPATH_ROUTER_API_KEY)
+ * so no secret lands in the repository.
  */
 export function seedSettings(): SettingsDoc {
   return {
@@ -103,16 +105,24 @@ export function seedSettings(): SettingsDoc {
         baseUrl: "https://llm.ekreke.cn/v1",
         apiKey: process.env.EKREKE_API_KEY ?? "",
         models: [
-          { id: "glm-5.3-flash", name: "GLM-5.3 Flash", multimodal: true },
           { id: "step-3.7-flash", name: "Step 3.7 Flash", multimodal: true },
           { id: "deepseek-v4-flash-vision-exp", name: "DeepSeek V4 Vision (exp)", multimodal: true },
           { id: "qwen-max", name: "Qwen Max", multimodal: true },
-          { id: "glm-5.3", name: "GLM-5.3", multimodal: false },
           { id: "MiniMaxAI/MiniMax-M3", name: "MiniMax M3", multimodal: false },
         ],
       },
+      "ekreke-copy": {
+        name: "router",
+        baseUrl: "http://power.acme.red/v1",
+        apiKey: process.env.HPATH_ROUTER_API_KEY ?? "",
+        models: [
+          { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", multimodal: true },
+          { id: "glm-5.3-flash", name: "GLM-5.3 Flash", multimodal: true },
+          { id: "glm-5.3", name: "GLM-5.3", multimodal: false },
+        ],
+      },
     },
-    defaultModel: "glm-5.3-flash",
+    defaultModel: "deepseek-v4.1-flash",
     browserPool: DEFAULT_BROWSER_POOL,
     browserEngine: DEFAULT_BROWSER_ENGINE,
   };

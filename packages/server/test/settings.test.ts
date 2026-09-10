@@ -59,9 +59,9 @@ describe("settings validation", () => {
     );
   });
 
-  it("seed doc is valid and defaults to glm-5.3-flash", () => {
+  it("seed doc is valid and defaults to deepseek-v4.1-flash", () => {
     const doc = validateSettings(seedSettings());
-    assert.equal(doc.defaultModel, "glm-5.3-flash");
+    assert.equal(doc.defaultModel, "deepseek-v4.1-flash");
     assert.equal(doc.browserPool, 1, "seeded pool size is 1");
   });
 

@@ -1,7 +1,13 @@
-// Left sidebar: brand (with collapse toggle), the three top-level
-// destinations (chat / projects / settings), and the connection footer.
-// Project selection lives in the Projects page; env selection in the Cases
-// view run panel.
+// Left sidebar: brand (with hover-revealed collapse toggle), the three
+// top-level destinations (chat / projects / settings), and the connection
+// footer. Project selection lives in the Projects page; env selection in the
+// Cases view run panel.
+//
+// The sidebar is an icon rail by default (48px) and expands into an overlay
+// flyout on hover or keyboard focus (see .sb in global.css). The collapse
+// toggle is only visible while expanded; clicking it dismisses the flyout for
+// the rest of the current hover, and leaving the sidebar resets that.
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export type ViewId = 'chat' | 'projects' | 'settings';
@@ -10,9 +16,7 @@ type SidebarProps = {
   view: ViewId;
   connectionStatus: 'connected' | 'connecting' | 'offline';
   serverAddr: string;
-  sidebarOpen: boolean;
   onSelectView: (view: ViewId) => void;
-  onToggleSidebar: () => void;
 };
 
 function IconChat() {
@@ -73,50 +77,61 @@ function Sidebar({
   view,
   connectionStatus,
   serverAddr,
-  sidebarOpen,
   onSelectView,
-  onToggleSidebar,
 }: SidebarProps) {
   const { t } = useTranslation();
+  // After the toggle is clicked the flyout stays dismissed until the pointer
+  // leaves the sidebar; hover/focus alone drives expansion otherwise.
+  const [dismissed, setDismissed] = useState(false);
 
   return (
-    <aside className="sb">
+    <aside
+      className={dismissed ? 'sb dismissed' : 'sb'}
+      onMouseLeave={() => setDismissed(false)}
+    >
       <div className="brand">
+        <span className="brand-mark hc-1">H</span>
         <BrandRainbow />
         <button
           className="btn sm ghost brand-toggle"
-          aria-label={t(sidebarOpen ? 'sidebar.collapse' : 'sidebar.expand')}
-          title={t(sidebarOpen ? 'sidebar.collapse' : 'sidebar.expand')}
-          onClick={onToggleSidebar}
+          aria-label={t('sidebar.collapse')}
+          title={t('sidebar.collapse')}
+          onClick={() => setDismissed(true)}
         >
           <IconPanel />
         </button>
       </div>
 
       <nav className="nav">
-        <button className={view === 'chat' ? 'itm on' : 'itm'} onClick={() => onSelectView('chat')}>
+        <button
+          className={view === 'chat' ? 'itm on' : 'itm'}
+          title={t('sidebar.chat')}
+          onClick={() => onSelectView('chat')}
+        >
           <IconChat />
-          {t('sidebar.chat')}
+          <span className="lbl">{t('sidebar.chat')}</span>
         </button>
         <button
           className={view === 'projects' ? 'itm on' : 'itm'}
+          title={t('sidebar.projects')}
           onClick={() => onSelectView('projects')}
         >
           <IconProjects />
-          {t('sidebar.projects')}
+          <span className="lbl">{t('sidebar.projects')}</span>
         </button>
         <button
           className={view === 'settings' ? 'itm on' : 'itm'}
+          title={t('sidebar.settings')}
           onClick={() => onSelectView('settings')}
         >
           <IconSettings />
-          {t('sidebar.settings')}
+          <span className="lbl">{t('sidebar.settings')}</span>
         </button>
       </nav>
 
       <div className="sbfoot">
         <i className={connectionStatus === 'connected' ? 'ok' : connectionStatus === 'connecting' ? 'warn' : 'err'} />
-        {t(`topbar.${connectionStatus}`)} · {serverAddr}
+        <span className="lbl">{t(`topbar.${connectionStatus}`)} · {serverAddr}</span>
       </div>
     </aside>
   );

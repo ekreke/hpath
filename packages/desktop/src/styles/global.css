@@ -51,27 +51,78 @@ body {
 .num { font-variant-numeric: tabular-nums; }
 
 /* ── app shell ──────────────────────────── */
-.shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); height: 100vh; }
-.main { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* The sidebar is a rail that pushes the content: it sits in flow and its
+   width animates 48px -> 236px on hover / keyboard focus, so the main area
+   (including the always-visible chat session list) shifts right instead of
+   being overlapped. */
+.shell { display: flex; height: 100vh; }
+.main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ── sidebar ────────────────────────────── */
 .sb {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 100%;
   border-right: 1px solid var(--border);
   background: var(--sbg);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
   overflow-y: auto;
+  transition: width 0.16s ease;
 }
-.shell.sb-hidden { grid-template-columns: 48px minmax(0, 1fr); }
-.shell.sb-hidden .sb .brand-name,
-.shell.sb-hidden .sb .proj,
-.shell.sb-hidden .sb .nav,
-.shell.sb-hidden .sb .sb-settings,
-.shell.sb-hidden .sb .sbfoot { display: none; }
-.shell.sb-hidden .sb .brand { justify-content: center; padding-left: 0; padding-right: 0; }
-.shell.sb-hidden .sb .brand .brand-toggle { margin-left: 0; }
+/* Expanded: hover or keyboard focus grows the rail (unless the user just
+   collapsed it; dismissed resets when the pointer leaves). */
+.sb:hover:not(.dismissed),
+.sb:focus-within:not(.dismissed) {
+  width: 236px;
+}
+/* Rail (collapsed): labels/footer text hidden, brand + nav icons centered. */
+.sb .brand-name,
+.sb .sbfoot .lbl,
+.sb .nav .lbl { display: none; }
+/* Compact brand mark shown only in the rail (the full wordmark needs width). */
+.brand-mark { display: none; font-size: 18px; font-weight: 800; }
+.sb:not(:hover):not(:focus-within) .brand-mark,
+.sb.dismissed .brand-mark { display: inline-block; }
+.sb:not(:hover):not(:focus-within) .brand,
+.sb.dismissed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.sb:not(:hover):not(:focus-within) .itm,
+.sb.dismissed .itm { justify-content: center; }
+.sb:not(:hover):not(:focus-within) .nav,
+.sb.dismissed .nav { padding-left: 0; padding-right: 0; }
+.sb:not(:hover):not(:focus-within) .sbfoot,
+.sb.dismissed .sbfoot { justify-content: center; padding-left: 0; padding-right: 0; }
+/* The toggle only occupies space in the expanded flyout (it would otherwise
+   offset the centered brand mark). Focus reaches the nav items first. */
+.sb:not(:hover):not(:focus-within) .brand .brand-toggle,
+.sb.dismissed .brand .brand-toggle { display: none; }
+/* Expanded: reveal labels + footer text, align items to the start. */
+.sb:hover:not(.dismissed) .brand-name,
+.sb:focus-within:not(.dismissed) .brand-name {
+  display: inline;
+  white-space: nowrap;
+}
+.sb:hover:not(.dismissed) .sbfoot .lbl,
+.sb:focus-within:not(.dismissed) .sbfoot .lbl {
+  display: inline;
+  white-space: nowrap;
+}
+.sb:hover:not(.dismissed) .nav .lbl,
+.sb:focus-within:not(.dismissed) .nav .lbl {
+  display: inline;
+  white-space: nowrap;
+}
+.sb:hover:not(.dismissed) .brand,
+.sb:focus-within:not(.dismissed) .brand { justify-content: flex-start; padding-left: 18px; padding-right: 18px; }
+.sb:hover:not(.dismissed) .itm,
+.sb:focus-within:not(.dismissed) .itm { justify-content: flex-start; }
 .brand { display: flex; align-items: center; gap: 9px; padding: 18px 18px 14px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
-.brand .brand-toggle { margin-left: auto; flex: 0 0 auto; }
+/* Collapse toggle: only visible while the flyout is expanded. */
+.brand .brand-toggle { margin-left: auto; flex: 0 0 auto; opacity: 0; transition: opacity 0.12s ease; }
+.sb:hover:not(.dismissed) .brand .brand-toggle,
+.sb:focus-within:not(.dismissed) .brand .brand-toggle,
+.brand .brand-toggle:focus-visible { opacity: 1; }
 .brand .hc-1 { color: var(--hc-1); }
 .brand .hc-w { color: var(--w); }
 .brand .hc-5 { color: var(--hc-5); }
@@ -538,7 +589,7 @@ td.num, th.num { text-align: right; color: var(--muted); }
 .hint { color: var(--faint); font-size: 13px; }
 
 /* ── chat (T17) ──────────────────────────── */
-.chat { max-width: 880px; display: flex; flex-direction: column; height: 100%; padding-bottom: 40px; }
+.chat { max-width: 880px; flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; height: 100%; padding-bottom: 40px; }
 .chat .ph { flex: 0 0 auto; }
 .chat-thread {
   flex: 1;
@@ -632,38 +683,19 @@ td.num, th.num { text-align: right; color: var(--muted); }
 }
 .cursor { animation: chat-pulse 0.8s steps(2) infinite; }
 
-/* session rail: hover flyout on the chat area's left edge — a slim invisible
-   strip (with a grip hint) keeps a tiny footprint until hovered, then the
-   224px session panel slides in as an overlay without reflowing the chat. */
-.chatwrap { position: relative; height: 100%; }
-.railwrap { position: absolute; top: 0; bottom: 0; left: 0; width: 16px; z-index: 40; }
-.railgrip {
-  position: absolute;
-  left: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 56px;
-  border-radius: 1px;
-  background: var(--faint2);
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.railwrap:hover .railgrip { opacity: 0; }
+/* session rail: the past-conversation list is a permanent fixed column on the
+   chat area's left edge (no hover); the thread keeps its own scroll. */
+.chatwrap { position: relative; height: 100%; display: flex; min-height: 0; }
+.railwrap { position: relative; flex: 0 0 224px; width: 224px; height: 100%; z-index: 40; }
 .rail {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 224px;
+  position: relative;
+  width: 100%;
+  height: 100%;
   background: var(--sbg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  transform: translateX(-100%);
-  transition: transform 0.15s ease;
 }
-.railwrap:hover .rail { transform: translateX(0); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35); }
 .railh { display: flex; align-items: center; justify-content: space-between; padding: 18px 14px 10px; }
 .railh .g { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint2); }
 .railh button {

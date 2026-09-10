@@ -4,8 +4,8 @@
 // markdown into a bot bubble. While streaming, a status line under the input
 // shows live token metrics (model, up/down, elapsed) so the wait never looks
 // stuck; exact provider usage lands on the bubble once the stream ends.
-// Turns are persisted server-side per session: past conversations live in a
-// hover flyout rail on the left edge (hidden until hovered), the first
+// Turns are persisted server-side per session: past conversations live in an
+// always-visible list on the chat area's left edge, the first
 // question lazily creates a session, and deleting a session cascades
 // server-side. Nothing is sent to the LLM until the user asks — the landing
 // state is a plain welcome hint.
@@ -180,7 +180,7 @@ function ChatView({ onToast }: ChatViewProps) {
     }
   }, [onToast]);
 
-  // Delete by id from the flyout rail. When the active session is removed the
+  // Delete by id from the session list. When the active session is removed the
   // view falls back to the most recent remaining one; deleting a background
   // session keeps the current transcript untouched.
   const deleteSession = useCallback(
@@ -292,7 +292,6 @@ function ChatView({ onToast }: ChatViewProps) {
   return (
     <div className="chatwrap">
       <aside className="railwrap" aria-label={t('chat.sessionLabel')}>
-        <span className="railgrip" aria-hidden="true" />
         <nav className="rail">
           <div className="railh">
             <span className="g">{t('chat.historyRail')}</span>
