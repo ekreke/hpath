@@ -9,7 +9,7 @@ COMPOSE_FILE ?= docker/compose.yaml
 PROFILE ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help install proto build dist mock real dev run smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc browsers check-browsers
+.PHONY: help install proto build dist mock real dev run sut stop-sut smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc browsers check-browsers
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -55,14 +55,28 @@ dev: ## Run mock server in foreground with watch (tsx)
 	pnpm --filter @hpath/contract build
 	cd packages/server && npx tsx watch src/index.ts --mock --port $(PORT)
 
-run: ## Start real-mode server (bg, SQLite + LLM chat) + Tauri desktop dev (Ctrl+C stops both)
+run: ## Start demo-app SUT (docker) + real-mode server (bg) + Tauri desktop dev (Ctrl+C stops all)
 	@if [ ! -f packages/contract/dist/index.js ] || [ ! -f packages/server/dist/index.js ]; then \
 		echo "building contract + server..."; \
 		pnpm --filter @hpath/contract build && pnpm --filter @hpath/server build; \
 	fi
 	@$(MAKE) stop-desktop
+	@$(MAKE) sut
 	@$(MAKE) real
-	@trap '$(MAKE) -C $(CURDIR) stop; $(MAKE) -C $(CURDIR) stop-desktop' EXIT; cd packages/desktop && pnpm tauri dev
+	@trap '$(MAKE) -C $(CURDIR) stop; $(MAKE) -C $(CURDIR) stop-desktop; $(MAKE) -C $(CURDIR) stop-sut' EXIT; cd packages/desktop && pnpm tauri dev
+
+sut: ## Start the demo-app SUT containers (dev :8081/:9091, staging :8082/:9092) for host-side real runs
+	@docker compose -f $(COMPOSE_FILE) up -d demo-app-dev demo-app-staging
+	@ok=0; for i in $$(seq 1 60); do \
+	  if curl -sf http://localhost:8081/api/health > /dev/null 2>&1 \
+	     && curl -sf http://localhost:8082/api/health > /dev/null 2>&1; then ok=1; break; fi; \
+	  sleep 1; \
+	done; \
+	[ $$ok -eq 1 ] && echo "SUT healthy: demo-app dev (localhost:8081) + staging (localhost:8082)" \
+	  || { echo "SUT failed to become healthy, log tail:"; docker compose -f $(COMPOSE_FILE) logs --tail=30 demo-app-dev demo-app-staging; exit 1; }
+
+stop-sut: ## Stop the demo-app SUT containers
+	@docker compose -f $(COMPOSE_FILE) stop demo-app-dev demo-app-staging
 
 smoke: ## Run the smoke client against a running server (default $(PORT))
 	pnpm --filter @hpath/server smoke

@@ -5,7 +5,9 @@
 #   demo-app-dev        three-way aligned SUT, seed ¥1,337.50  (host http 8081 / grpc 9091)
 #   demo-app-staging    three-way aligned SUT, seed ¥238.00    (host http 8082 / grpc 9092)
 #
-# Requires OPENAI_API_KEY in the environment (real-mode execute-agent).
+# Real mode seeds settings.json (the ekreke + ekreke-copy providers) on first
+# boot, so the agent/chat default model (deepseek-v4.1-flash, ekreke-copy)
+# needs HPATH_ROUTER_API_KEY in the environment.
 # Full topology adds SeaweedFS for the S3 artifact backend (T6):
 #   docker compose --profile s3 up -d
 
@@ -35,8 +37,9 @@ services:
       DEMO_GRPC_DEV: demo-app-dev:9090
       DEMO_APP_STAGING_URL: http://demo-app-staging:8080
       DEMO_GRPC_STAGING: demo-app-staging:9090
-      # Real mode runs the execute-agent, which needs an LLM key.
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for real mode}
+      # Real mode runs chat + the agents against the settings.json providers.
+      EKREKE_API_KEY: ${EKREKE_API_KEY:-}
+      HPATH_ROUTER_API_KEY: ${HPATH_ROUTER_API_KEY:?HPATH_ROUTER_API_KEY is required for real mode (default model provider ekreke-copy)}
     volumes:
       - hpath-artifacts:/data/artifacts
       - hpath-settings:/data/settings
