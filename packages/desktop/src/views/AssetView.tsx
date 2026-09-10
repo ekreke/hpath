@@ -47,6 +47,21 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// Pasted text is UTF-8 encoded before base64 so non-ASCII content (e.g. CJK)
+// round-trips through the same bytes-only IPC channel as file uploads.
+function textToBase64(text: string): string {
+  return arrayBufferToBase64(new TextEncoder().encode(text).buffer);
+}
+
+function pastedFilename(extension: 'md' | 'proto'): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `pasted-${stamp}.${extension}`;
+}
+
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -63,7 +78,9 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
   // Upload modal state
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadType, setUploadType] = useState<'prd' | 'proto'>('proto');
+  const [uploadMode, setUploadMode] = useState<'file' | 'text'>('file');
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pastedText, setPastedText] = useState('');
   const [entryFile, setEntryFile] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -105,7 +122,9 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
       return;
     }
     setUploadType('proto');
+    setUploadMode('file');
     setPendingFiles([]);
+    setPastedText('');
     setEntryFile('');
     setUploadOpen(true);
   };
@@ -119,34 +138,53 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
   };
 
   const submitUpload = async () => {
-    if (!projectId || pendingFiles.length === 0) return;
+    const fromText = uploadMode === 'text';
+    if (!projectId) return;
+    if (fromText ? pastedText.trim().length === 0 : pendingFiles.length === 0) return;
     setUploading(true);
     try {
       if (uploadType === 'prd') {
         // PRD rides the ParsePRD analyze flow (streaming trace below).
-        const file = pendingFiles[0]!;
+        const filename = fromText ? pastedFilename('md') : pendingFiles[0]!.name;
+        const contentBase64 = fromText
+          ? textToBase64(pastedText)
+          : arrayBufferToBase64(await pendingFiles[0]!.arrayBuffer());
         setEvents([]);
         setResult(null);
         setUploadOpen(false);
-        const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
-        const res = await invokeParsePrd(projectId, file.name, detectFormat(file.name), contentBase64);
+        const res = await invokeParsePrd(
+          projectId,
+          filename,
+          fromText ? PRD_FORMAT.MD : detectFormat(filename),
+          contentBase64,
+        );
         setResult(res);
         onDraftsCreated();
         void refresh(projectId);
         onToast(t('prd.parsed', { count: res.drafts.length }));
       } else {
         // Proto bundle: deterministic server-side parse into the API surface.
-        if (!pendingFiles.every((file) => file.name.toLowerCase().endsWith('.proto'))) {
-          onToast(t('asset.protoOnly'), true);
-          return;
+        let files: AssetFileInput[];
+        let entry: string;
+        if (fromText) {
+          // Pasted proto is a single self-contained file; imports must be
+          // inlined by the user (the server rejects unresolved imports).
+          const filename = pastedFilename('proto');
+          files = [{ filename, contentBase64: textToBase64(pastedText) }];
+          entry = filename;
+        } else {
+          if (!pendingFiles.every((file) => file.name.toLowerCase().endsWith('.proto'))) {
+            onToast(t('asset.protoOnly'), true);
+            return;
+          }
+          files = await Promise.all(
+            pendingFiles.map(async (file) => ({
+              filename: file.name,
+              contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
+            })),
+          );
+          entry = pendingFiles.length > 1 ? entryFile : pendingFiles[0]?.name ?? '';
         }
-        const files: AssetFileInput[] = await Promise.all(
-          pendingFiles.map(async (file) => ({
-            filename: file.name,
-            contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
-          })),
-        );
-        const entry = pendingFiles.length > 1 ? entryFile : pendingFiles[0]?.name ?? '';
         const asset = await invokeUploadAsset(projectId, ASSET_TYPE.PROTO, files, entry);
         setUploadOpen(false);
         void refresh(projectId);
@@ -322,6 +360,7 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
                     onClick={() => {
                       setUploadType(option);
                       setPendingFiles([]);
+                      setPastedText('');
                       setEntryFile('');
                       if (fileRef.current) fileRef.current.value = '';
                     }}
@@ -332,17 +371,56 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
               </div>
             </div>
             <div className="field">
-              <label>{t('asset.chooseFiles')}</label>
-              <button className="btn ghost sm" onClick={() => fileRef.current?.click()}>
-                {pendingFiles.length === 0
-                  ? t('asset.pickFiles')
-                  : pendingFiles.map((file) => file.name).join(', ')}
-              </button>
-              <div className="hint" style={{ marginTop: 6 }}>
-                {uploadType === 'prd' ? t('asset.prdHint') : t('asset.protoHint')}
+              <label>{t('asset.inputMode')}</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['file', 'text'] as const).map((option) => (
+                  <button
+                    key={option}
+                    className={`btn sm ${uploadMode === option ? '' : 'ghost'}`}
+                    onClick={() => {
+                      setUploadMode(option);
+                      setPendingFiles([]);
+                      setPastedText('');
+                      setEntryFile('');
+                      if (fileRef.current) fileRef.current.value = '';
+                    }}
+                  >
+                    {option === 'file' ? t('asset.modeFile') : t('asset.modeText')}
+                  </button>
+                ))}
               </div>
             </div>
-            {uploadType === 'proto' && pendingFiles.length > 1 && (
+            {uploadMode === 'file' ? (
+              <div className="field">
+                <label>{t('asset.chooseFiles')}</label>
+                <button className="btn ghost sm" onClick={() => fileRef.current?.click()}>
+                  {pendingFiles.length === 0
+                    ? t('asset.pickFiles')
+                    : pendingFiles.map((file) => file.name).join(', ')}
+                </button>
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {uploadType === 'prd' ? t('asset.prdHint') : t('asset.protoHint')}
+                </div>
+              </div>
+            ) : (
+              <div className="field">
+                <label>{uploadType === 'prd' ? t('asset.pastePrdLabel') : t('asset.pasteProtoLabel')}</label>
+                <textarea
+                  rows={10}
+                  value={pastedText}
+                  placeholder={
+                    uploadType === 'prd'
+                      ? t('asset.pastePrdPlaceholder')
+                      : t('asset.pasteProtoPlaceholder')
+                  }
+                  onChange={(e) => setPastedText(e.target.value)}
+                />
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {uploadType === 'prd' ? t('asset.pastePrdHint') : t('asset.pasteProtoHint')}
+                </div>
+              </div>
+            )}
+            {uploadMode === 'file' && uploadType === 'proto' && pendingFiles.length > 1 && (
               <div className="field">
                 <label>{t('asset.entryFile')}</label>
                 {pendingFiles.map((file) => (
@@ -365,7 +443,13 @@ function AssetView({ projectId, onDraftsCreated, onToast }: AssetViewProps) {
               </button>
               <button
                 className="btn w"
-                disabled={uploading || pendingFiles.length === 0 || (uploadType === 'proto' && pendingFiles.length > 1 && !entryFile)}
+                disabled={
+                  uploading ||
+                  (uploadMode === 'file'
+                    ? pendingFiles.length === 0 ||
+                      (uploadType === 'proto' && pendingFiles.length > 1 && !entryFile)
+                    : pastedText.trim().length === 0)
+                }
                 onClick={() => void submitUpload()}
               >
                 {uploading
