@@ -64,12 +64,12 @@ make real        # real mode: SQLite persistence + the actual agent kernel (need
 ### Real-mode runs (live LLM + real system under test)
 
 ```bash
-export OPENAI_API_KEY=sk-...     # or any OpenAI-compatible gateway configured in Settings
+cp .env.example .env             # then fill in HPATH_ROUTER_API_KEY (and EKREKE_API_KEY)
 make up                          # demo-app dev/staging stay useful as the SUT
 make real                        # real-mode server with the execute/analyze agents
 ```
 
-In real mode the agent settings (provider baseUrl/apiKey/models) live in the desktop Settings view and persist server-side (`HPATH_SETTINGS_PATH`).
+The gitignored root `.env` holds the model-provider keys: `make` exports it to every target (host runs and `docker compose`), and direct dev starts (`pnpm --filter @hpath/server dev`, `node dist/index.js`) load it via `process.loadEnvFile`, so no manual `export` is needed. In real mode the agent settings (provider baseUrl/apiKey/models) live in the desktop Settings view and persist server-side (`HPATH_SETTINGS_PATH`); `.env` seeds them on first boot.
 
 ## Documentation
 
@@ -84,6 +84,8 @@ In real mode the agent settings (provider baseUrl/apiKey/models) live in the des
 | Variable | Default | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Model access for real-mode agent runs and status chat (mock mode ignores it) |
+| `HPATH_ROUTER_API_KEY` | — | apiKey for the default provider `ekreke-copy` (deepseek-v4.1-flash); seeds `data/settings.json` on first boot |
+| `EKREKE_API_KEY` | — | apiKey for the fallback provider `ekreke` |
 | `HPATH_HOST` / `HPATH_PORT` | `127.0.0.1` / `50051` | gRPC listen address |
 | `HPATH_ARTIFACT_STORE` | `local` | `local` filesystem store or `seaweedfs` (S3 API) |
 | `HPATH_ARTIFACT_DIR` | `data/artifacts` | Local artifact store directory |

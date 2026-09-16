@@ -8,6 +8,16 @@ COMPOSE_FILE ?= docker/compose.yaml
 # `make up PROFILE=s3` additionally starts the optional SeaweedFS service.
 PROFILE ?=
 
+# Local dev credentials from the gitignored root .env (see .env.example):
+# exported so host runs (node/tsx) and docker compose interpolation both see
+# them. Only the model-provider keys are re-exported to avoid leaking the
+# make-only variables above into child processes.
+ifneq (,$(wildcard .env))
+include .env
+export HPATH_ROUTER_API_KEY
+export EKREKE_API_KEY
+endif
+
 .DEFAULT_GOAL := help
 .PHONY: help install proto build dist mock real dev run sut stop-sut smoke demo test test-unit restart stop stop-desktop clean verify up down logs docker-clean cloc browsers check-browsers
 

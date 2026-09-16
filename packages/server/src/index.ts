@@ -31,6 +31,17 @@ import { createArtifactStore } from "./artifacts/store.js";
 import { BrowserPool } from "./agents/providers/browser-pool.js";
 import { createBrowserEngine } from "./agents/providers/browser-engine.js";
 
+// Load the gitignored root .env for direct dev starts (`pnpm dev`,
+// `node dist/index.js`) that bypass the Makefile (which exports the same file).
+// The URL resolves from both src/ and dist/ — each sits one level under
+// packages/server. A missing file is fine: env comes from the shell/compose,
+// and off-value overrides never clobber variables already set.
+try {
+  process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
+} catch {
+  // No local .env, or a runtime without process.loadEnvFile.
+}
+
 /** gRPC protos the grpc_call tool may resolve methods against. HPATH_GRPC_PROTOS
  * (colon-separated) wins; otherwise the repo's demo-app proto is probed at the
  * src/ and dist/ layouts. An empty list keeps grpc_call working for tools that
