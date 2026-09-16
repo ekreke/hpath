@@ -662,6 +662,8 @@ export interface Run {
   tokenCost: number;
   /** e.g. "limit:max_steps", empty when passed */
   failReason: string;
+  /** resolved model id actually used, empty for legacy runs */
+  model: string;
 }
 
 /** Recorded interaction evidence, e.g. one HTTP/gRPC exchange. */
@@ -1100,6 +1102,25 @@ export interface AppSettings {
    * a fallback. An unavailable engine disables the browser tools for a run.
    */
   browserEngine: string;
+  /**
+   * Per-agent defaults (model + prompt). The server fills `role` from its
+   * AgentRegistry so clients can render one block per registered agent without
+   * hardcoding ids. An empty model falls back to `default_model`; an empty
+   * prompt injects nothing.
+   */
+  agents: AgentSettings[];
+}
+
+/** Per-agent defaults owned by the Settings view. */
+export interface AgentSettings {
+  /** stable registry id, e.g. "execute-agent" */
+  agentId: string;
+  /** human-readable role, filled by the server */
+  role: string;
+  /** empty = use default_model */
+  model: string;
+  /** extra instructions appended to the system prompt */
+  prompt: string;
 }
 
 export interface ChatRequest {
@@ -2880,6 +2901,7 @@ function createBaseRun(): Run {
     durationMs: 0,
     tokenCost: 0,
     failReason: "",
+    model: "",
   };
 }
 
@@ -2920,6 +2942,9 @@ export const Run: MessageFns<Run> = {
     }
     if (message.failReason !== "") {
       writer.uint32(98).string(message.failReason);
+    }
+    if (message.model !== "") {
+      writer.uint32(106).string(message.model);
     }
     return writer;
   },
@@ -3033,6 +3058,14 @@ export const Run: MessageFns<Run> = {
             message.failReason = reader.string();
             continue;
           }
+          case 13: {
+            if (tag !== 106) {
+              break;
+            }
+
+            message.model = reader.string();
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -3091,6 +3124,7 @@ export const Run: MessageFns<Run> = {
         : isSet(object.fail_reason)
         ? globalThis.String(object.fail_reason)
         : "",
+      model: isSet(object.model) ? globalThis.String(object.model) : "",
     };
   },
 
@@ -3132,6 +3166,9 @@ export const Run: MessageFns<Run> = {
     if (message.failReason !== "") {
       obj.failReason = message.failReason;
     }
+    if (message.model !== "") {
+      obj.model = message.model;
+    }
     return obj;
   },
 
@@ -3154,6 +3191,7 @@ export const Run: MessageFns<Run> = {
     message.durationMs = object.durationMs ?? 0;
     message.tokenCost = object.tokenCost ?? 0;
     message.failReason = object.failReason ?? "";
+    message.model = object.model ?? "";
     return message;
   },
 };
@@ -8407,7 +8445,7 @@ export const BytesChunk: MessageFns<BytesChunk> = {
 };
 
 function createBaseAppSettings(): AppSettings {
-  return { providerConfigJson: "", defaultModel: "", browserPoolSize: 0, browserEngine: "" };
+  return { providerConfigJson: "", defaultModel: "", browserPoolSize: 0, browserEngine: "", agents: [] };
 }
 
 export const AppSettings: MessageFns<AppSettings> = {
@@ -8423,6 +8461,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     }
     if (message.browserEngine !== "") {
       writer.uint32(34).string(message.browserEngine);
+    }
+    for (const v of message.agents) {
+      AgentSettings.encode(v!, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -8472,6 +8513,14 @@ export const AppSettings: MessageFns<AppSettings> = {
             message.browserEngine = reader.string();
             continue;
           }
+          case 5: {
+            if (tag !== 42) {
+              break;
+            }
+
+            message.agents.push(AgentSettings.decode(reader, reader.uint32()));
+            continue;
+          }
         }
         if ((tag & 7) === 4 || tag === 0) {
           break;
@@ -8506,6 +8555,9 @@ export const AppSettings: MessageFns<AppSettings> = {
         : isSet(object.browser_engine)
         ? globalThis.String(object.browser_engine)
         : "",
+      agents: globalThis.Array.isArray(object?.agents)
+        ? object.agents.map((e: any) => AgentSettings.fromJSON(e))
+        : [],
     };
   },
 
@@ -8523,6 +8575,9 @@ export const AppSettings: MessageFns<AppSettings> = {
     if (message.browserEngine !== "") {
       obj.browserEngine = message.browserEngine;
     }
+    if (message.agents?.length) {
+      obj.agents = message.agents.map((e) => AgentSettings.toJSON(e));
+    }
     return obj;
   },
 
@@ -8535,6 +8590,128 @@ export const AppSettings: MessageFns<AppSettings> = {
     message.defaultModel = object.defaultModel ?? "";
     message.browserPoolSize = object.browserPoolSize ?? 0;
     message.browserEngine = object.browserEngine ?? "";
+    message.agents = object.agents?.map((e) => AgentSettings.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseAgentSettings(): AgentSettings {
+  return { agentId: "", role: "", model: "", prompt: "" };
+}
+
+export const AgentSettings: MessageFns<AgentSettings> = {
+  encode(message: AgentSettings, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.agentId !== "") {
+      writer.uint32(10).string(message.agentId);
+    }
+    if (message.role !== "") {
+      writer.uint32(18).string(message.role);
+    }
+    if (message.model !== "") {
+      writer.uint32(26).string(message.model);
+    }
+    if (message.prompt !== "") {
+      writer.uint32(34).string(message.prompt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AgentSettings {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseAgentSettings();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.agentId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.role = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.model = reader.string();
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.prompt = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): AgentSettings {
+    return {
+      agentId: isSet(object.agentId)
+        ? globalThis.String(object.agentId)
+        : isSet(object.agent_id)
+        ? globalThis.String(object.agent_id)
+        : "",
+      role: isSet(object.role) ? globalThis.String(object.role) : "",
+      model: isSet(object.model) ? globalThis.String(object.model) : "",
+      prompt: isSet(object.prompt) ? globalThis.String(object.prompt) : "",
+    };
+  },
+
+  toJSON(message: AgentSettings): unknown {
+    const obj: any = {};
+    if (message.agentId !== "") {
+      obj.agentId = message.agentId;
+    }
+    if (message.role !== "") {
+      obj.role = message.role;
+    }
+    if (message.model !== "") {
+      obj.model = message.model;
+    }
+    if (message.prompt !== "") {
+      obj.prompt = message.prompt;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AgentSettings>, I>>(base?: I): AgentSettings {
+    return AgentSettings.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AgentSettings>, I>>(object: I): AgentSettings {
+    const message = createBaseAgentSettings();
+    message.agentId = object.agentId ?? "";
+    message.role = object.role ?? "";
+    message.model = object.model ?? "";
+    message.prompt = object.prompt ?? "";
     return message;
   },
 };

@@ -45,6 +45,7 @@ Three blocks:
 - Runtime control: Pause (⏸) / Resume (▶) / Stop (■) buttons while a run is live. The live status pill follows the stream's `run_status` events (RUNNING ⇄ PAUSED → terminal); the elapsed clock skips paused spans.
 
 ### 5. Run Detail (replay, three layers)
+- **Header metrics** — result tag, step count, total duration, token cost and the **resolved model** the run actually used (`Run.model`, snapshotted server-side; legacy runs show no model).
 - **Watch** — inline webm video player + screenshot timeline + full agent transcript (thoughts and tool calls, step by step).
 - **Time travel** — download trace.zip and open with `npx playwright show-trace` (client offers a one-click action).
 - **Re-run** — trigger a new run of the same case on the same env; compare runs via history (agent is non-deterministic; evidence comparison is the source of truth).
@@ -54,6 +55,12 @@ Run list filterable by project/env/case/status/date; aggregate health per case (
 
 ### 7. Env Management
 Per project: list envs, create/edit (name, web URL, gRPC address, variables, credentials — plaintext in 1.0; optional agent-limit overrides: maxSteps, tokenBudget, timeout in **minutes**, capped at 1440), delete with run-existence guard.
+
+### 8. Settings
+Master-detail with three sections:
+- **Models** — default (multimodal) model, warm browser pool size, browser engine, provider JSON editor.
+- **Server** — gRPC server address (Apply reconnects; persisted client-side).
+- **General** — UI language plus **per-agent defaults**: one block per registered agent (role from the server) with a default-model Select (empty = use the default model) and an extra-prompt textarea appended to that agent's system prompt. Saved via `UpdateSettings`; applies to the next run without a restart.
 
 ## Tauri IPC Surface (mirror of gRPC)
 

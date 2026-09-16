@@ -465,11 +465,22 @@ export function invokeShowTrace(artifactId: string, runId: string): Promise<stri
 // backend ("playwright" full evidence, or "obscura" screenshots + live frames).
 export type BrowserEngineId = 'playwright' | 'obscura';
 
+// One agent's defaults (Settings > General): `role` is server-provided for
+// display, empty `model` falls back to defaultModel, empty `prompt` injects
+// nothing into the agent's system prompt.
+export type AgentSettings = {
+  agentId: string;
+  role: string;
+  model: string;
+  prompt: string;
+};
+
 export type AppSettings = {
   providerConfigJson: string;
   defaultModel: string;
   browserPoolSize: number;
   browserEngine: BrowserEngineId;
+  agents: AgentSettings[];
 };
 
 export function invokeGetSettings(): Promise<AppSettings> {

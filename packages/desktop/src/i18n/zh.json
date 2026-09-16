@@ -92,7 +92,14 @@
     "browserEnginePlaywright": "Playwright（仅 Chromium）",
     "browserEngineObscura": "Obscura（实验性）",
     "browserEngineObscuraHint": "Obscura 首次使用时自动下载，通过 CDP 接入。当前限制：不产出录像/trace，运行只保留逐步截图与实时帧。",
-    "multimodal": "支持图片输入（多模态）"
+    "multimodal": "支持图片输入（多模态）",
+    "agents": "Agent 默认设置",
+    "agentsHint": "为每个 agent 单独设置默认模型与附加 prompt。模型留空时回退到默认模型；prompt 会追加到该 agent 的系统提示词末尾。修改即时生效，无需重启。",
+    "agentModel": "默认模型",
+    "agentModelDefault": "使用默认模型",
+    "agentPrompt": "附加 Prompt",
+    "agentPromptHint": "追加在该 agent 内置系统提示词之后，用于补充项目级约定、术语或约束。留空表示不追加。",
+    "agentPromptPlaceholder": "例如：本项目金额一律使用 CNY；登录后必须先切换环境……"
   },
   "status": {
     "unspecified": "未知",
@@ -221,6 +228,7 @@
     "elapsed": "已用时",
     "duration": "总时长",
     "tokens": "Tokens",
+    "model": "模型",
     "events": "事件",
     "transcript": "Agent 记录",
     "searchPlaceholder": "搜索这次运行…",

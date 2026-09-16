@@ -1,8 +1,17 @@
 # TODO — Current Iteration
 
-Iteration target: **T18 Desktop dogfooding** (implemented; SPEC `[~]` — two manual checks pending)
+Iteration target: **T25 Per-agent model/prompt defaults + per-run model in the replay header** (implemented; manual real-mode/UI walk pending)
 
 ## Working notes
+
+- T25 Per-agent model/prompt defaults + per-run model (2026-09-16; SPEC checkbox ticked):
+  - Contract: `Run.model` (proto3 field 13, string; empty for legacy rows) + `AppSettings.agents` (repeated `AgentSettings { agent_id, role, model, prompt }`, field 5); descriptor + TS regenerated; Rust `RunDto.model` + `AgentSettingsDto`/`SettingsDto.agents`.
+  - `settings.ts`: `SettingsDoc.agents: Record<agentId, {model?, prompt?}>`, seeded `{execute-agent:{}, analyze-agent:{}}`; `validateSettings` (model must reference a configured model, prompt trimmed + capped at `MAX_AGENT_PROMPT_CHARS=20_000`, empty entries normalized to `{}`); stored docs normalize missing `agents` to `{}` on load; `parseSettingsJson` gained the 5th wire override param; new `SettingsStore.agentSettings(agentId)`; `agentModelOverrides` now per-agent with `defaultModel` fallback.
+  - Kernel: `RunAgentInput.modelOverride`/`promptOverride`; the pipeline computes `modelId` early (override wins over the definition model), appends the prompt as a `--- Agent instructions (configured in Settings) ---` block after the rendered system prompt, and returns `AgentRunResult.model`.
+  - Run path: `RunExecutionDeps.settings`; RunCase + ParsePRD read `settings.agentSettings(agentId)` at run start, snapshot the resolved model on the run row (migration `0009_runs_model`, `runs.model`, `RunFinishPatch.model` via `COALESCE`), and pass both overrides to the kernel; `GetSettings` fills `agents` from `execution.kernel.agents.list()` (roles from the registry, no hardcoded ids); mock round-trips `agents` and stamps a model on scripted runs; seeded history carries the seed default model.
+  - Desktop: Settings → General gains a per-agent block (model Select with a "use default" sentinel option, extra-prompt textarea, per-agent save); `RunPanel` replay header shows `finalRun.model`; all save paths now submit the full settings document so one section can't wipe another.
+  - Tests: `agent-run-overrides.test.ts` (override + prompt injection, default fallback), settings per-agent validation/override (+4), and updated run/watch/real-read/prd-analysis fixtures; server suite 297 tests / 292 pass / 0 fail (5 skipped). `vite build` + `cargo check` green.
+  - PENDING manual: real-mode run with an LLM key confirming the replay header model + prompt injection in the transcript; `tauri dev` walk of the per-agent Settings block.
 
 - T24 Selectable browser engine (2026-09-10; implemented, SPEC checkbox ticked):
   - Contract: `AppSettings.browser_engine` (proto3 field 4, string; `"playwright"` default / `"obscura"`); descriptor + TS regenerated. Desktop Rust `SettingsDto.browser_engine` + TS `AppSettings.browserEngine`.

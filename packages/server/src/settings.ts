@@ -15,7 +15,8 @@
 //     }
 //   },
 //   "defaultModel": "deepseek-v4.1-flash",
-//   "browserPool": 1
+//   "browserPool": 1,
+//   "agents": { "execute-agent": { "model": "", "prompt": "" } }
 // }
 //
 // Invariants enforced by validateSettings():
@@ -24,6 +25,8 @@
 //   - defaultModel references an existing model marked multimodal: the chat
 //     page and the agents must be able to send screenshots
 //   - browserPool is an integer in [0, MAX_BROWSER_POOL] (0 = pool disabled)
+//   - agents[*].model (when set) references an existing model; prompts are
+//     trimmed and capped at MAX_AGENT_PROMPT_CHARS
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -42,6 +45,16 @@ export interface ProviderConfig {
   models: ProviderModelConfig[];
 }
 
+/**
+ * Per-agent defaults (Settings view). `model` empty falls back to
+ * SettingsDoc.defaultModel; `prompt` empty injects nothing. Keys are stable
+ * agent registry ids ("execute-agent", "analyze-agent").
+ */
+export interface AgentSettings {
+  model?: string;
+  prompt?: string;
+}
+
 export interface SettingsDoc {
   providers: Record<string, ProviderConfig>;
   defaultModel: string;
@@ -56,7 +69,16 @@ export interface SettingsDoc {
    * replaced by the other one — the browser tools are disabled instead.
    */
   browserEngine: BrowserEngineId;
+  /**
+   * Per-agent default model + prompt, keyed by agent id. Agents without an
+   * entry (or with an empty model) use `defaultModel`; an absent/empty prompt
+   * leaves the agent's built-in system prompt unchanged.
+   */
+  agents: Record<string, AgentSettings>;
 }
+
+/** Hard cap for a per-agent prompt (SettingsDoc.agents[*].prompt). */
+export const MAX_AGENT_PROMPT_CHARS = 20_000;
 
 /** Hard cap for SettingsDoc.browserPool — each pooled chromium is ~0.6-1 GB RSS. */
 export const MAX_BROWSER_POOL = 4;
@@ -125,6 +147,10 @@ export function seedSettings(): SettingsDoc {
     defaultModel: "deepseek-v4.1-flash",
     browserPool: DEFAULT_BROWSER_POOL,
     browserEngine: DEFAULT_BROWSER_ENGINE,
+    agents: {
+      "execute-agent": {},
+      "analyze-agent": {},
+    },
   };
 }
 
@@ -200,6 +226,42 @@ export function validateSettings(value: unknown): SettingsDoc {
       `defaultModel "${defaultModel}" is not multimodal — the chat page and the agents need image input (screenshots)`,
     );
   }
+  // Per-agent defaults: each model (when non-empty) must reference a
+  // configured model; the prompt is trimmed and length-capped.
+  const rawAgents = (value as Record<string, unknown>).agents;
+  if (rawAgents !== undefined && (typeof rawAgents !== "object" || rawAgents === null || Array.isArray(rawAgents))) {
+    throw new InvalidSettingsError("agents must be an object keyed by agent id");
+  }
+  const agents: Record<string, AgentSettings> = {};
+  for (const [agentId, rawAgent] of Object.entries((rawAgents as Record<string, unknown>) ?? {})) {
+    if (typeof agentId !== "string" || !agentId.trim()) {
+      throw new InvalidSettingsError("agent ids must be non-empty strings");
+    }
+    if (typeof rawAgent !== "object" || rawAgent === null) {
+      throw new InvalidSettingsError(`agent "${agentId}" must be an object`);
+    }
+    const { model, prompt } = rawAgent as Record<string, unknown>;
+    if (model !== undefined && typeof model !== "string") {
+      throw new InvalidSettingsError(`agent "${agentId}": model must be a string`);
+    }
+    if (typeof model === "string" && model.trim() !== "" && !allModels.has(model)) {
+      throw new InvalidSettingsError(`agent "${agentId}": model "${model}" does not reference a configured model`);
+    }
+    if (prompt !== undefined && typeof prompt !== "string") {
+      throw new InvalidSettingsError(`agent "${agentId}": prompt must be a string`);
+    }
+    const trimmedPrompt = typeof prompt === "string" ? prompt.trim() : "";
+    if (trimmedPrompt.length > MAX_AGENT_PROMPT_CHARS) {
+      throw new InvalidSettingsError(
+        `agent "${agentId}": prompt exceeds ${MAX_AGENT_PROMPT_CHARS} characters`,
+      );
+    }
+    const entry: AgentSettings = {};
+    if (typeof model === "string" && model.trim() !== "") entry.model = model.trim();
+    if (trimmedPrompt !== "") entry.prompt = trimmedPrompt;
+    agents[agentId] = entry;
+  }
+  (value as SettingsDoc).agents = agents;
   const rawPool = (value as Record<string, unknown>).browserPool;
   if (rawPool !== undefined) {
     if (typeof rawPool !== "number" || !Number.isInteger(rawPool) || rawPool < 0 || rawPool > MAX_BROWSER_POOL) {
@@ -270,6 +332,7 @@ export function parseSettingsJson(
   defaultModelOverride?: string,
   browserPoolOverride?: number,
   browserEngineOverride?: string,
+  agentsOverride?: { agentId: string; model?: string; prompt?: string }[],
 ): SettingsDoc {
   let parsed: unknown;
   try {
@@ -289,6 +352,19 @@ export function parseSettingsJson(
   // value instead of failing validation.
   if (browserEngineOverride !== undefined && browserEngineOverride !== "") {
     doc.browserEngine = browserEngineOverride as BrowserEngineId;
+  }
+  // Per-agent overrides replace the document's entries for the same agent id;
+  // an entry with both fields empty means "use the defaults".
+  if (agentsOverride !== undefined) {
+    const agents: Record<string, AgentSettings> = {};
+    for (const entry of agentsOverride) {
+      if (!entry.agentId) continue;
+      const next: AgentSettings = {};
+      if (entry.model && entry.model.trim() !== "") next.model = entry.model.trim();
+      if (entry.prompt && entry.prompt.trim() !== "") next.prompt = entry.prompt.trim();
+      agents[entry.agentId] = next;
+    }
+    doc.agents = agents;
   }
   return validateSettings(doc);
 }
@@ -329,6 +405,11 @@ export class SettingsStore {
     const stored = parsed as SettingsDoc;
     stored.browserPool = normalizeBrowserPool(stored.browserPool);
     stored.browserEngine = normalizeBrowserEngine(stored.browserEngine);
+    // Pre-agents documents lack the field; an empty map keeps the fallback
+    // (defaultModel / no prompt) without bricking startup.
+    if (typeof stored.agents !== "object" || stored.agents === null || Array.isArray(stored.agents)) {
+      stored.agents = {};
+    }
     return new SettingsStore(path, stored);
   }
 
@@ -344,6 +425,12 @@ export class SettingsStore {
   /** Current browser engine (normalized; always a valid id). */
   browserEngine(): BrowserEngineId {
     return normalizeBrowserEngine(this.doc.browserEngine);
+  }
+
+  /** Per-agent defaults for one agent id; empty when unset. */
+  agentSettings(agentId: string): AgentSettings {
+    const entry = this.doc.agents?.[agentId];
+    return entry && typeof entry === "object" ? entry : {};
   }
 
   /** Validate + persist a new document atomically (validated on the way in). */
@@ -375,10 +462,13 @@ export class SettingsStore {
 /**
  * Model override for the built-in agent definitions, wired from settings so
  * kernel construction (registerBuiltIns call sites, T8 run creation) prefers
- * the configured default model over the per-agent hardcode. Exported as a
- * ready-made BuiltInOptions fragment.
+ * the configured per-agent model over the per-agent hardcode, falling back to
+ * `defaultModel`. Exported as a ready-made BuiltInOptions fragment.
  */
 export function agentModelOverrides(settings: SettingsStore): { executeAgent: { model: string }; analyzeAgent: { model: string } } {
-  const model = settings.get().defaultModel;
-  return { executeAgent: { model }, analyzeAgent: { model } };
+  const fallback = settings.get().defaultModel;
+  return {
+    executeAgent: { model: settings.agentSettings("execute-agent").model ?? fallback },
+    analyzeAgent: { model: settings.agentSettings("analyze-agent").model ?? fallback },
+  };
 }

@@ -116,6 +116,41 @@ describe("settings validation", () => {
       (err: unknown) => err instanceof InvalidSettingsError && /browserEngine must be one of/.test(err.message),
     );
   });
+
+  it("seeds per-agent defaults for the built-in agents", () => {
+    const doc = validateSettings(seedSettings());
+    assert.deepEqual(doc.agents["execute-agent"], {});
+    assert.deepEqual(doc.agents["analyze-agent"], {});
+  });
+
+  it("accepts per-agent model + prompt via the wire override", () => {
+    const doc = parseSettingsJson(VALID_JSON, undefined, undefined, undefined, [
+      { agentId: "execute-agent", model: "glm-5.3-flash", prompt: "  Use CNY.  " },
+      { agentId: "analyze-agent", model: "", prompt: "" },
+    ]);
+    assert.deepEqual(doc.agents["execute-agent"], { model: "glm-5.3-flash", prompt: "Use CNY." });
+    assert.deepEqual(doc.agents["analyze-agent"], {});
+  });
+
+  it("rejects a per-agent model that does not reference a configured model", () => {
+    assert.throws(
+      () =>
+        parseSettingsJson(VALID_JSON, undefined, undefined, undefined, [
+          { agentId: "execute-agent", model: "no-such-model" },
+        ]),
+      (err: unknown) => err instanceof InvalidSettingsError && /does not reference/.test(err.message),
+    );
+  });
+
+  it("rejects a per-agent prompt over the length cap", () => {
+    assert.throws(
+      () =>
+        parseSettingsJson(VALID_JSON, undefined, undefined, undefined, [
+          { agentId: "execute-agent", prompt: "x".repeat(20_001) },
+        ]),
+      (err: unknown) => err instanceof InvalidSettingsError && /exceeds/.test(err.message),
+    );
+  });
 });
 
 describe("chat service (stubbed model runtime)", () => {

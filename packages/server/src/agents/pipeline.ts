@@ -59,6 +59,17 @@ export interface RunAgentInput {
   projectApi?: ProjectApiSurface;
   /** Optional externally assigned run id (defaults to a fresh UUID). */
   runId?: string;
+  /**
+   * Per-agent model override from settings. Empty/absent falls back to the
+   * AgentDefinition's own `model`, so registration defaults still apply.
+   */
+  modelOverride?: string;
+  /**
+   * Per-agent extra instructions from settings (Settings view). When
+   * non-empty they are appended to the rendered system prompt as a distinct
+   * block, leaving the built-in role prompt intact.
+   */
+  promptOverride?: string;
   /** Optional sink; defaults to an in-memory sink scoped to this run. */
   sink?: AgentEventSink;
   /**
@@ -140,6 +151,9 @@ export class AgentKernel {
     const runId = options.runId ?? crypto.randomUUID();
     const sink = options.sink ?? new InMemoryEventSink({ runId, now: this.now });
     const startedAt = this.now();
+    // Effective model: the settings-provided per-agent override wins, else the
+    // definition's registered default.
+    const modelId = options.modelOverride?.trim() || definition.model;
 
     // Effective hard limits: the definition's defaults, overridden field by
     // field by the bound env's "agent limits" (0/absent = keep the default).
@@ -196,6 +210,7 @@ export class AgentKernel {
       return {
         runId,
         agentId: definition.id,
+        model: modelId,
         status,
         verdict,
         failReason: reason,
@@ -225,6 +240,12 @@ export class AgentKernel {
         env: options.env,
         input: options.input,
       });
+      // Per-agent instructions from Settings: appended as a distinct block so
+      // the built-in role prompt stays authoritative.
+      const extra = options.promptOverride?.trim();
+      if (extra) {
+        systemPrompt += `\n\n--- Agent instructions (configured in Settings) ---\n${extra}`;
+      }
     } catch (err) {
       sink.append({ kind: "error", errorKind: "template", message: (err as Error).message });
       return settle("template");
@@ -233,7 +254,7 @@ export class AgentKernel {
     // 3. Model resolution.
     let model;
     try {
-      model = this.resolveModel(definition.model);
+      model = this.resolveModel(modelId);
     } catch (err) {
       sink.append({ kind: "error", errorKind: "model", message: (err as Error).message });
       return settle("agent_error");

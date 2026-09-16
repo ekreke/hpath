@@ -81,6 +81,7 @@ export function makeRun(
     durationMs: 0,
     tokenCost: 0,
     failReason: "",
+    model: "gpt-4.1-mini",
     ...overrides,
   };
 }

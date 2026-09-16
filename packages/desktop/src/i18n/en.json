@@ -92,7 +92,14 @@
     "browserEnginePlaywright": "Playwright (Chromium only)",
     "browserEngineObscura": "Obscura (experimental)",
     "browserEngineObscuraHint": "Obscura is auto-downloaded on first use and runs over CDP. Current limitation: no video/trace evidence — runs keep per-step screenshots and live frames only.",
-    "multimodal": "Image input supported (multimodal)"
+    "multimodal": "Image input supported (multimodal)",
+    "agents": "Agent defaults",
+    "agentsHint": "Set a default model and extra prompt per agent. An empty model falls back to the default model; the prompt is appended to that agent's system prompt. Changes apply live — no restart.",
+    "agentModel": "Default model",
+    "agentModelDefault": "Use default model",
+    "agentPrompt": "Extra prompt",
+    "agentPromptHint": "Appended after the agent's built-in system prompt — use it for project-level conventions, terminology or constraints. Empty means nothing is appended.",
+    "agentPromptPlaceholder": "e.g. Amounts are always in CNY; switch the env right after login…"
   },
   "status": {
     "unspecified": "unknown",
@@ -221,6 +228,7 @@
     "elapsed": "Elapsed",
     "duration": "Total",
     "tokens": "Tokens",
+    "model": "Model",
     "events": "Events",
     "transcript": "Agent transcript",
     "searchPlaceholder": "Search this run…",

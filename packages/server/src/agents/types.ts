@@ -155,6 +155,8 @@ export interface AgentRunEvent {
 export interface AgentRunResult {
   runId: string;
   agentId: string;
+  /** Resolved model id actually used for this run (post-override). */
+  model: string;
   /** PASSED only when a schema-valid verdict was recorded, else FAILED. */
   status: RunStatus;
   /** The structured verdict, when one was recorded. */

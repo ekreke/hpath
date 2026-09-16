@@ -185,6 +185,8 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
           baseUrl: "",
           variables: {},
         };
+        const agentDefaults = deps.settings.agentSettings(ANALYZE_AGENT_ID);
+        const effectiveModel = agentDefaults.model ?? deps.settings.get().defaultModel;
         const result = await deps.kernel.run({
           agentId: ANALYZE_AGENT_ID,
           input: {
@@ -195,6 +197,8 @@ export function createParsePrdHandler(deps: RunExecutionDeps) {
             existingCases,
           },
           env,
+          modelOverride: effectiveModel,
+          promptOverride: agentDefaults.prompt,
         });
 
         // --- map kernel events -> ParseEvents (live, unpersisted) ----

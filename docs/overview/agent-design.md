@@ -24,6 +24,10 @@ ToolProviderRegistry (tool-level extension entry)
 
 The server kernel only knows `AgentDefinition`. Adding an agent = registering a definition; orchestration (triggering, event streaming, evidence recording, hard limits) is shared and unchanged.
 
+### Per-agent defaults (Settings)
+
+Each agent's `model` and an optional extra `prompt` are overridable per agent from Settings → General (`AppSettings.agents`, keyed by agent id; the client renders one block per registered agent using the server-filled `role`). The run path resolves `SettingsStore.agentSettings(agentId)` at run start: the override wins over the definition's registered default and falls back to `defaultModel`; the effective model is snapshotted on the run row (`Run.model`) and shown in the replay header. A non-empty prompt is appended to the rendered system prompt as a distinct `--- Agent instructions (configured in Settings) ---` block (the built-in role prompt stays authoritative). Changes apply to the next run — no restart.
+
 ## Built-in Agents (1.0)
 
 ### analyze-agent (PRD -> case drafts)

@@ -20,6 +20,7 @@ interface RunRow {
   duration_ms: number;
   token_cost: number;
   fail_reason: string;
+  model: string;
 }
 
 function toRun(row: RunRow): Run {
@@ -38,6 +39,7 @@ function toRun(row: RunRow): Run {
     durationMs: row.duration_ms,
     tokenCost: row.token_cost,
     failReason: row.fail_reason,
+    model: row.model,
   };
 }
 
@@ -61,6 +63,8 @@ export interface RunFinishPatch {
   durationMs: number;
   tokenCost: number;
   failReason?: string;
+  /** Resolved model id; omitted keeps the value written at create time. */
+  model?: string;
 }
 
 export class RunRepository {
@@ -75,8 +79,8 @@ export class RunRepository {
       this.db
         .prepare(
           `INSERT INTO runs (id, project_id, env_id, case_id, status, trigger_kind,
-                             verdict_json, started_at, finished_at, duration_ms, token_cost, fail_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             verdict_json, started_at, finished_at, duration_ms, token_cost, fail_reason, model)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           run.id,
@@ -91,6 +95,7 @@ export class RunRepository {
           run.durationMs,
           run.tokenCost,
           run.failReason,
+          run.model ?? "",
         );
     } catch (err) {
       throw translateConstraintError(err, `create run ${run.id}`);
@@ -119,7 +124,8 @@ export class RunRepository {
     const info = this.db
       .prepare(
         `UPDATE runs
-         SET status = ?, verdict_json = ?, finished_at = ?, duration_ms = ?, token_cost = ?, fail_reason = ?
+         SET status = ?, verdict_json = ?, finished_at = ?, duration_ms = ?, token_cost = ?, fail_reason = ?,
+             model = COALESCE(?, model)
          WHERE id = ?`,
       )
       .run(
@@ -129,6 +135,7 @@ export class RunRepository {
         patch.durationMs,
         patch.tokenCost,
         patch.failReason ?? "",
+        patch.model ?? null,
         id,
       );
     if (Number(info.changes) === 0) {

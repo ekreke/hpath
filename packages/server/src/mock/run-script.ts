@@ -87,6 +87,7 @@ export async function simulateRun(options: SimulateRunOptions): Promise<Run> {
     durationMs: 0,
     tokenCost: 0,
     failReason: "",
+    model: store.settings.agents?.["execute-agent"]?.model || store.settings.defaultModel,
   };
   store.runs.set(run.id, run);
 

@@ -76,6 +76,7 @@ import { readAll } from "../artifacts/stream.js";
 import type { ArtifactIndex } from "../artifacts/artifact-index.js";
 import type { ArtifactStore } from "../artifacts/store.js";
 import type { HpathDb } from "../db/index.js";
+import type { SettingsStore } from "../settings.js";
 import { grpcError, toGrpcError } from "./errors.js";
 
 const CHUNK_SIZE = 64 * 1024;
@@ -268,6 +269,8 @@ export interface RunExecutionDeps {
   kernel: AgentKernel;
   artifactStore: ArtifactStore;
   artifactIndex: ArtifactIndex;
+  /** Settings source for per-agent model/prompt defaults (read per run). */
+  settings: SettingsStore;
   /** Live-view frame hubs of in-flight runs (T21): RunCase creates the hub
    * for its run, WatchRun consumes from it. */
   frameHubs: RunFrameHubRegistry;
@@ -509,6 +512,12 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
           throw grpcError(status.FAILED_PRECONDITION, "only APPROVED cases can run");
         }
 
+        // Per-agent defaults (Settings view): resolved once at run start so the
+        // run snapshots the model it actually used and gets the configured
+        // extra instructions. Empty model falls back to the default model.
+        const agentDefaults = deps.settings.agentSettings(EXECUTE_AGENT_ID);
+        const effectiveModel = agentDefaults.model ?? deps.settings.get().defaultModel;
+
         run = {
           id: randomUUID(),
           projectId: req.projectId,
@@ -524,6 +533,7 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
           durationMs: 0,
           tokenCost: 0,
           failReason: "",
+          model: effectiveModel,
         };
         deps.db.runs.create(run);
 
@@ -545,6 +555,8 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
             projectApi,
             sink: bridge.createSink(),
             frames: frameHub,
+            modelOverride: effectiveModel,
+            promptOverride: agentDefaults.prompt,
           });
         } finally {
           bridge.settle();
@@ -568,6 +580,7 @@ export function createRunCaseHandler(deps: RunExecutionDeps) {
           durationMs: result.durationMs,
           tokenCost: result.tokenCost,
           failReason: result.failReason,
+          model: result.model,
         });
         if (!call.cancelled) call.end();
       } catch (err) {

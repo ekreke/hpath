@@ -17,6 +17,7 @@ import type {
   ServiceError,
 } from "@grpc/grpc-js";
 import type {
+  AgentSettings,
   AppSettings,
   Case,
   ChatRequest,
@@ -153,6 +154,29 @@ function createUnimplementedHandlers(): HpathServer {
 }
 
 /**
+ * Per-agent settings for the client: every registered agent (from the kernel
+ * registry) plus any agent ids already present in the settings document, with
+ * the configured model/prompt and the registry role for display. Falling back
+ * to document keys keeps entries visible before/without a kernel.
+ */
+function collectAgentSettings(kernel: AgentKernel | undefined, settings: SettingsStore): AgentSettings[] {
+  const doc = settings.get();
+  const roles = new Map<string, string>();
+  for (const definition of kernel?.agents.list() ?? []) {
+    roles.set(definition.id, definition.role);
+  }
+  for (const agentId of Object.keys(doc.agents ?? {})) {
+    if (!roles.has(agentId)) roles.set(agentId, "");
+  }
+  return [...roles.entries()].map(([agentId, role]) => ({
+    agentId,
+    role,
+    model: doc.agents?.[agentId]?.model ?? "",
+    prompt: doc.agents?.[agentId]?.prompt ?? "",
+  }));
+}
+
+/**
  * Real-mode handlers: the SQLite read path, CreateProject, settings, status
  * chat + chat sessions, the T8 run execution path (RunCase through the
  * AgentKernel, GetRun, DownloadArtifact through the artifact store) and the
@@ -171,6 +195,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         kernel: execution.kernel,
         artifactStore: execution.artifactStore,
         artifactIndex: execution.artifactIndex,
+        settings,
         frameHubs,
       }
       : undefined;
@@ -273,6 +298,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
         defaultModel: doc.defaultModel,
         browserPoolSize: settings.browserPoolSize(),
         browserEngine: settings.browserEngine(),
+        agents: collectAgentSettings(execution?.kernel, settings),
       });
     },
 
@@ -287,6 +313,11 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
             call.request.defaultModel,
             call.request.browserPoolSize,
             call.request.browserEngine,
+            (call.request.agents ?? []).map((agent) => ({
+              agentId: agent.agentId,
+              model: agent.model,
+              prompt: agent.prompt,
+            })),
           ),
         );
         // T24: apply the engine live when it changed (hot-swap: new acquires
@@ -314,6 +345,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
           defaultModel: saved.defaultModel,
           browserPoolSize: saved.browserPool,
           browserEngine: saved.browserEngine,
+          agents: collectAgentSettings(execution?.kernel, settings),
         });
       } catch (err) {
         if (err instanceof InvalidSettingsError) {

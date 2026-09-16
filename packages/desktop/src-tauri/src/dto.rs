@@ -261,6 +261,7 @@ pub struct RunDto {
     pub duration_ms: i32,
     pub token_cost: i32,
     pub fail_reason: String,
+    pub model: String,
 }
 
 impl From<&pb::Run> for RunDto {
@@ -278,6 +279,7 @@ impl From<&pb::Run> for RunDto {
             duration_ms: r.duration_ms,
             token_cost: r.token_cost,
             fail_reason: r.fail_reason.clone(),
+            model: r.model.clone(),
         }
     }
 }
@@ -697,6 +699,25 @@ pub struct SettingsDto {
     pub browser_pool_size: u32,
     #[serde(default)]
     pub browser_engine: String,
+    /// Per-agent defaults (Settings view): one entry per registered agent,
+    /// each with its display role and optional model/prompt.
+    #[serde(default)]
+    pub agents: Vec<AgentSettingsDto>,
+}
+
+/// One agent's defaults crossing the IPC boundary. `role` is server-provided;
+/// empty `model` falls back to `default_model`, empty `prompt` injects nothing.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSettingsDto {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub prompt: String,
 }
 
 impl From<&pb::AppSettings> for SettingsDto {
@@ -706,6 +727,18 @@ impl From<&pb::AppSettings> for SettingsDto {
             default_model: s.default_model.clone(),
             browser_pool_size: s.browser_pool_size,
             browser_engine: s.browser_engine.clone(),
+            agents: s.agents.iter().map(AgentSettingsDto::from).collect(),
+        }
+    }
+}
+
+impl From<&pb::AgentSettings> for AgentSettingsDto {
+    fn from(a: &pb::AgentSettings) -> Self {
+        AgentSettingsDto {
+            agent_id: a.agent_id.clone(),
+            role: a.role.clone(),
+            model: a.model.clone(),
+            prompt: a.prompt.clone(),
         }
     }
 }
@@ -717,6 +750,16 @@ impl From<SettingsDto> for pb::AppSettings {
             default_model: s.default_model,
             browser_pool_size: s.browser_pool_size,
             browser_engine: s.browser_engine,
+            agents: s
+                .agents
+                .into_iter()
+                .map(|a| pb::AgentSettings {
+                    agent_id: a.agent_id,
+                    role: a.role,
+                    model: a.model,
+                    prompt: a.prompt,
+                })
+                .collect(),
         }
     }
 }

@@ -151,6 +151,28 @@ function outcomeForTitle(title: string): RunOutcome {
 
 const CHUNK_SIZE = 64 * 1024;
 
+// Registered built-in agents (mock has no kernel registry): id -> display role.
+// Kept in sync with the real registry's roles (agents/*-agent.ts).
+const MOCK_AGENT_ROLES: Record<string, string> = {
+  "execute-agent": "autonomous case executor",
+  "analyze-agent": "PRD analyst producing pending case drafts",
+};
+
+/** Per-agent settings list for the mock Settings round-trip (mirrors the real
+ * collectAgentSettings shape: registered agents + doc keys). */
+function mockAgentSettings(settings: MockStore["settings"]): AppSettings["agents"] {
+  const roles = new Map(Object.entries(MOCK_AGENT_ROLES));
+  for (const agentId of Object.keys(settings.agents ?? {})) {
+    if (!roles.has(agentId)) roles.set(agentId, "");
+  }
+  return [...roles.entries()].map(([agentId, role]) => ({
+    agentId,
+    role,
+    model: settings.agents?.[agentId]?.model ?? "",
+    prompt: settings.agents?.[agentId]?.prompt ?? "",
+  }));
+}
+
 /** Shared implementation of PauseRun/ResumeRun/CancelRun for mock mode:
  * same state-machine semantics as the real handler — NOT_FOUND for unknown
  * runs, FAILED_PRECONDITION for runs that are not in flight or for invalid
@@ -895,7 +917,7 @@ export function createMockHandlers(store: MockStore): HpathServer {
       _call: ServerUnaryCall<Empty, AppSettings>,
       callback: sendUnaryData<AppSettings>,
     ) => {
-      callback(null, { browserPoolSize: 0, ...store.settings });
+      callback(null, { browserPoolSize: 0, ...store.settings, agents: mockAgentSettings(store.settings) });
     },
 
     updateSettings: (
@@ -924,13 +946,23 @@ export function createMockHandlers(store: MockStore): HpathServer {
         if (next.browserEngine !== "" && next.browserEngine !== "playwright" && next.browserEngine !== "obscura") {
           throw grpcError(status.INVALID_ARGUMENT, `invalid settings: browserEngine must be playwright or obscura`);
         }
+        // Per-agent defaults round-trip (mock has no agent runtime).
+        const agents: Record<string, { model?: string; prompt?: string }> = {};
+        for (const agent of next.agents ?? []) {
+          if (!agent.agentId) continue;
+          const entry: { model?: string; prompt?: string } = {};
+          if (agent.model.trim() !== "") entry.model = agent.model.trim();
+          if (agent.prompt.trim() !== "") entry.prompt = agent.prompt.trim();
+          agents[agent.agentId] = entry;
+        }
         store.settings = {
           providerConfigJson: next.providerConfigJson,
           defaultModel: next.defaultModel,
           browserPoolSize: next.browserPoolSize,
           browserEngine: next.browserEngine || store.settings.browserEngine || "playwright",
+          agents,
         };
-        callback(null, { browserPoolSize: 0, ...store.settings });
+        callback(null, { browserPoolSize: 0, ...store.settings, agents: mockAgentSettings(store.settings) });
       } catch (err) {
         callback(err as ServiceError);
       }

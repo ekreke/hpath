@@ -30,7 +30,14 @@ export interface MockStore {
   chatSessions: Map<string, ChatSession>;
   chatMessages: Map<string, ChatMessage>;
   /** Model provider settings (GetSettings/UpdateSettings); mock-only memory. */
-  settings: { providerConfigJson: string; defaultModel: string; browserPoolSize?: number; browserEngine: string };
+  settings: {
+    providerConfigJson: string;
+    defaultModel: string;
+    browserPoolSize?: number;
+    browserEngine: string;
+    /** Per-agent defaults keyed by agent id (model + prompt). */
+    agents?: Record<string, { model?: string; prompt?: string }>;
+  };
 }
 
 export function createMockStore(): MockStore {
@@ -50,6 +57,7 @@ export function createMockStore(): MockStore {
       defaultModel: "deepseek-v4.1-flash",
       browserPoolSize: 1,
       browserEngine: "playwright",
+      agents: { "execute-agent": {}, "analyze-agent": {} },
     },
   };
 }

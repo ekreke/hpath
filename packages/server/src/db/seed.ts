@@ -600,6 +600,9 @@ function seedRun(
     // Mirrors the mock script's accounting: 320 base + 40 per event.
     tokenCost: 320 + 40 * events.length,
     failReason: outcome === "pass" ? "" : "alignment mismatch",
+    // Seeded history predates per-agent model settings; record the seed
+    // default so the replay header shows a model.
+    model: "deepseek-v4.1-flash",
   };
   db.runs.create(run);
   for (const event of events) {

@@ -270,6 +270,15 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE assets ADD COLUMN text_content TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    name: "0009_runs_model",
+    sql: `
+      -- Resolved model id actually used by the run (per-agent model from
+      -- settings, falling back to the definition default). Empty for rows
+      -- created before this migration; the replay header only shows it when set.
+      ALTER TABLE runs ADD COLUMN model TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 function nowIso(): string {

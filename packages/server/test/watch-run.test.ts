@@ -28,6 +28,7 @@ import { LocalArtifactStore } from "../src/artifacts/store.js";
 import { ArtifactIndex } from "../src/artifacts/artifact-index.js";
 import { RunFrameHubRegistry } from "../src/agents/frames.js";
 import type { AgentKernel } from "../src/agents/pipeline.js";
+import type { SettingsStore } from "../src/settings.js";
 import {
   createRunCaseHandler,
   createWatchRunHandler,
@@ -112,6 +113,10 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
       kernel,
       artifactStore: new LocalArtifactStore(dir),
       artifactIndex: new ArtifactIndex(db.artifacts),
+      settings: {
+        get: () => ({ defaultModel: "gpt-4.1-mini" }),
+        agentSettings: () => ({}),
+      } as unknown as SettingsStore,
       frameHubs: new RunFrameHubRegistry(),
     },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
@@ -134,6 +139,7 @@ test("real watchRun: mid-run subscriber receives frames; the stream ends when th
       return {
         runId: runOptions.runId,
         agentId: runOptions.agentId,
+        model: "gpt-4.1-mini",
         status: RunStatus.RUN_STATUS_PASSED,
         verdict: { status: "pass", summary: "ok", alignments: [] },
         failReason: "",
@@ -210,6 +216,7 @@ test("real watchRun: a run without an active hub ends the stream empty", async (
     durationMs: 5,
     tokenCost: 0,
     failReason: "",
+    model: "",
   };
   db.runs.create(run);
   const { deps, cleanup } = makeDeps(db, {} as AgentKernel);
@@ -239,6 +246,7 @@ test("mock watchRun: synthetic frames until the run settles; unknown run NOT_FOU
     durationMs: 0,
     tokenCost: 0,
     failReason: "",
+    model: "",
   };
   store.runs.set(run.id, run);
   const handlers = createMockHandlers(store);

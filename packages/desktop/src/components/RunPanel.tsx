@@ -872,6 +872,11 @@ function RunPanel({
               <span>
                 {t('runPanel.tokens')}: <b className="num">{finalRun.tokenCost}</b>
               </span>
+              {finalRun.model && (
+                <span>
+                  {t('runPanel.model')}: <b className="mono">{finalRun.model}</b>
+                </span>
+              )}
             </>
           )}
       </div>

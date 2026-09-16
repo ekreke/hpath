@@ -230,6 +230,7 @@ message Run {
   int32 duration_ms = 10;
   int32 token_cost = 11;
   string fail_reason = 12; // e.g. "limit:max_steps", empty when passed
+  string model = 13;       // resolved model id actually used, empty for legacy runs
 }
 
 // Recorded interaction evidence, e.g. one HTTP/gRPC exchange.
@@ -601,6 +602,19 @@ message AppSettings {
   // auto-downloads). Exactly one engine is active; the other is never used as
   // a fallback. An unavailable engine disables the browser tools for a run.
   string browser_engine = 4;
+  // Per-agent defaults (model + prompt). The server fills `role` from its
+  // AgentRegistry so clients can render one block per registered agent without
+  // hardcoding ids. An empty model falls back to `default_model`; an empty
+  // prompt injects nothing.
+  repeated AgentSettings agents = 5;
+}
+
+// Per-agent defaults owned by the Settings view.
+message AgentSettings {
+  string agent_id = 1; // stable registry id, e.g. "execute-agent"
+  string role = 2;     // human-readable role, filled by the server
+  string model = 3;    // empty = use default_model
+  string prompt = 4;   // extra instructions appended to the system prompt
 }
 
 message ChatRequest {

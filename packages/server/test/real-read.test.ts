@@ -450,6 +450,7 @@ describe("real mode settings (Get/UpdateSettings)", () => {
       providerConfigJson: current.providerConfigJson,
       defaultModel: current.defaultModel,
       browserPoolSize: current.browserPoolSize,
+      agents: [],
       browserEngine: "",
     });
     assert.equal(omitted.err, null);
@@ -459,6 +460,7 @@ describe("real mode settings (Get/UpdateSettings)", () => {
       providerConfigJson: current.providerConfigJson,
       defaultModel: current.defaultModel,
       browserPoolSize: current.browserPoolSize,
+      agents: [],
       browserEngine: "obscura",
     });
     assert.equal(switched.err, null);
@@ -469,6 +471,7 @@ describe("real mode settings (Get/UpdateSettings)", () => {
       providerConfigJson: current.providerConfigJson,
       defaultModel: current.defaultModel,
       browserPoolSize: current.browserPoolSize,
+      agents: [],
       browserEngine: "playwright",
     });
   });
@@ -480,6 +483,7 @@ describe("real mode settings (Get/UpdateSettings)", () => {
       providerConfigJson: current.providerConfigJson,
       defaultModel: current.defaultModel,
       browserPoolSize: current.browserPoolSize,
+      agents: [],
       browserEngine: "webkit",
     });
     assert.equal(bad.err?.code, status.INVALID_ARGUMENT);

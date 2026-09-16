@@ -27,6 +27,7 @@ import {
 import { InMemoryEventSink } from "../src/agents/events.js";
 import type { AgentEventSink } from "../src/agents/events.js";
 import { RunFrameHubRegistry } from "../src/agents/frames.js";
+import type { SettingsStore } from "../src/settings.js";
 import type { AgentKernel } from "../src/agents/pipeline.js";
 import type {
   AgentRunEventPayload,
@@ -101,6 +102,7 @@ function stubKernel(options: ScriptedKernelOptions): AgentKernel {
         verdict: { summary: "ok", drafts: [] },
         failReason: "",
         tokenCost: 42,
+        model: "gpt-4.1-mini",
         startedAt: "2026-01-01T00:00:00.000Z",
         finishedAt: "2026-01-01T00:00:01.000Z",
         durationMs: 1000,
@@ -120,6 +122,10 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
       kernel,
       artifactStore: new LocalArtifactStore(dir),
       artifactIndex: new ArtifactIndex(db.artifacts),
+      settings: {
+        get: () => ({ defaultModel: "gpt-4.1-mini" }),
+        agentSettings: () => ({}),
+      } as unknown as SettingsStore,
       frameHubs: new RunFrameHubRegistry(),
     },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
@@ -316,6 +322,7 @@ describe("real parsePrd handler — analyze run", () => {
           },
           failReason: "",
           tokenCost: 42,
+          model: "gpt-4.1-mini",
           startedAt: "2026-01-01T00:00:00.000Z",
           finishedAt: "2026-01-01T00:00:01.000Z",
           durationMs: 1000,

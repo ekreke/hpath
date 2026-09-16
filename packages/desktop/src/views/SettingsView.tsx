@@ -9,11 +9,12 @@
 //     field on the wire (0 = disabled, server-capped at 4).
 //   - Server: gRPC server address (moved here from the top bar); applying
 //     persists to localStorage and re-connects in App.
-//   - General: UI language toggle (moved here from the top bar).
+//   - General: UI language toggle plus per-agent defaults (model + extra
+//     prompt), one block per registered agent as reported by the server.
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Select } from '../components/Select';
-import { invokeGetSettings, invokeUpdateSettings, type AppSettings, type BrowserEngineId } from '../lib/ipc';
+import { invokeGetSettings, invokeUpdateSettings, type AgentSettings, type AppSettings, type BrowserEngineId } from '../lib/ipc';
 
 type SettingsViewProps = {
   onToast: (text: string, error?: boolean) => void;
@@ -24,6 +25,10 @@ type SettingsViewProps = {
 };
 
 type SettingsTab = 'models' | 'server' | 'general';
+
+// Radix Select forbids empty-string item values; this sentinel maps to "use
+// the default model" for a per-agent model override.
+const AGENT_MODEL_DEFAULT = '__default__';
 
 type ProviderModel = {
   id: string;
@@ -57,21 +62,27 @@ function SettingsView({
   const [defaultModel, setDefaultModel] = useState('');
   const [browserPool, setBrowserPool] = useState(1);
   const [browserEngine, setBrowserEngine] = useState<BrowserEngineId>('playwright');
+  const [agents, setAgents] = useState<AgentSettings[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorText, setEditorText] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const applySaved = useCallback((saved: AppSettings) => {
+    setSettings(saved);
+    setDefaultModel(saved.defaultModel);
+    setBrowserPool(saved.browserPoolSize);
+    setBrowserEngine(saved.browserEngine);
+    setAgents(saved.agents ?? []);
+    return saved;
+  }, []);
+
   const reload = useCallback(async () => {
     try {
-      const s = await invokeGetSettings();
-      setSettings(s);
-      setDefaultModel(s.defaultModel);
-      setBrowserPool(s.browserPoolSize);
-      setBrowserEngine(s.browserEngine);
+      applySaved(await invokeGetSettings());
     } catch (err) {
       onToast(String(err), true);
     }
-  }, [onToast]);
+  }, [onToast, applySaved]);
 
   useEffect(() => {
     void reload();
@@ -95,73 +106,68 @@ function SettingsView({
     }
   }
 
-  const saveDefaultModel = async (modelId: string) => {
-    if (!settings || modelId === defaultModel) return;
+  // Every save submits the FULL settings document (including the per-agent
+  // defaults) so a change in one section never wipes another.
+  const saveSettings = async (patch: Partial<AppSettings>): Promise<AppSettings | null> => {
+    if (!settings) return null;
     setBusy(true);
     try {
       const saved = await invokeUpdateSettings({
-        providerConfigJson: settings.providerConfigJson,
-        defaultModel: modelId,
-        browserPoolSize: browserPool,
-        browserEngine,
+        providerConfigJson: patch.providerConfigJson ?? settings.providerConfigJson,
+        defaultModel: patch.defaultModel ?? defaultModel,
+        browserPoolSize: patch.browserPoolSize ?? browserPool,
+        browserEngine: patch.browserEngine ?? browserEngine,
+        agents: patch.agents ?? agents,
       });
-      setSettings(saved);
-      setDefaultModel(saved.defaultModel);
+      applySaved(saved);
       onToast(t('settings.saved'));
+      return saved;
     } catch (err) {
       onToast(String(err), true);
-      setDefaultModel(settings.defaultModel);
+      // Snap back to the stored document on failure.
+      void reload();
+      return null;
     } finally {
       setBusy(false);
     }
+  };
+
+  const saveDefaultModel = (modelId: string) => {
+    if (modelId === defaultModel) return;
+    setDefaultModel(modelId);
+    void saveSettings({ defaultModel: modelId });
   };
 
   // T23: persist the warm browser pool size. The server clamps/validates the
   // value (integer 0-4) and resizes its pool live; on failure the input
   // snaps back to the stored value.
-  const saveBrowserPool = async (size: number) => {
-    if (!settings || size === settings.browserPoolSize) return;
-    setBusy(true);
-    try {
-      const saved = await invokeUpdateSettings({
-        providerConfigJson: settings.providerConfigJson,
-        defaultModel,
-        browserPoolSize: size,
-        browserEngine,
-      });
-      setSettings(saved);
-      setBrowserPool(saved.browserPoolSize);
-      onToast(t('settings.saved'));
-    } catch (err) {
-      onToast(String(err), true);
-      setBrowserPool(settings.browserPoolSize);
-    } finally {
-      setBusy(false);
-    }
+  const saveBrowserPool = (size: number) => {
+    if (settings && size === settings.browserPoolSize) return;
+    setBrowserPool(size);
+    void saveSettings({ browserPoolSize: size });
   };
 
   // T24: persist the browser engine. Mutually exclusive with the other engine;
   // the server hot-swaps its pool (install is best-effort — an unavailable
   // engine surfaces a clear browser-tool error rather than falling back).
-  const saveBrowserEngine = async (engine: BrowserEngineId) => {
-    if (!settings || engine === settings.browserEngine) return;
-    setBusy(true);
-    try {
-      const saved = await invokeUpdateSettings({
-        providerConfigJson: settings.providerConfigJson,
-        defaultModel,
-        browserPoolSize: browserPool,
-        browserEngine: engine,
-      });
-      setSettings(saved);
-      setBrowserEngine(saved.browserEngine);
-      onToast(t('settings.saved'));
-    } catch (err) {
-      onToast(String(err), true);
-      setBrowserEngine(settings.browserEngine);
-    } finally {
-      setBusy(false);
-    }
+  const saveBrowserEngine = (engine: BrowserEngineId) => {
+    if (settings && engine === settings.browserEngine) return;
+    setBrowserEngine(engine);
+    void saveSettings({ browserEngine: engine });
+  };
+
+  const updateAgent = (agentId: string, patch: Partial<AgentSettings>) => {
+    setAgents((prev) => prev.map((a) => (a.agentId === agentId ? { ...a, ...patch } : a)));
+  };
+
+  const saveAgentModel = (agentId: string, model: string) => {
+    const next = agents.map((a) => (a.agentId === agentId ? { ...a, model } : a));
+    setAgents(next);
+    void saveSettings({ agents: next });
+  };
+
+  const saveAgentPrompt = () => {
+    void saveSettings({ agents });
   };
 
   const openEditor = () => {
@@ -178,23 +184,8 @@ function SettingsView({
       onToast(t('settings.invalidJson', { reason: err instanceof Error ? err.message : String(err) }), true);
       return;
     }
-    setBusy(true);
-    try {
-      const saved = await invokeUpdateSettings({
-        providerConfigJson: editorText,
-        defaultModel,
-        browserPoolSize: browserPool,
-        browserEngine,
-      });
-      setSettings(saved);
-      setDefaultModel(saved.defaultModel);
-      setEditorOpen(false);
-      onToast(t('settings.saved'));
-    } catch (err) {
-      onToast(String(err), true);
-    } finally {
-      setBusy(false);
-    }
+    const saved = await saveSettings({ providerConfigJson: editorText });
+    if (saved) setEditorOpen(false);
   };
 
   const changeLanguage = (lang: string) => {
@@ -375,6 +366,44 @@ function SettingsView({
               onChange={changeLanguage}
             />
           </div>
+
+          <div className="field" style={{ maxWidth: 560, marginTop: 18 }}>
+            <label>{t('settings.agents')}</label>
+            <div className="hint">{t('settings.agentsHint')}</div>
+          </div>
+          {agents.map((agent) => (
+            <div className="field" key={agent.agentId} style={{ maxWidth: 560 }}>
+              <label>{agent.role || agent.agentId}</label>
+              <Select
+                value={agent.model || AGENT_MODEL_DEFAULT}
+                ariaLabel={`${agent.agentId} ${t('settings.agentModel')}`}
+                disabled={busy}
+                options={[
+                  { value: AGENT_MODEL_DEFAULT, label: `${t('settings.agentModelDefault')} (${defaultModel})` },
+                  ...models.map(({ model }) => ({
+                    value: model.id,
+                    label:
+                      (model.name ?? model.id) + (!model.multimodal ? ` — ${t('settings.notMultimodal')}` : ''),
+                  })),
+                ]}
+                onChange={(v) => saveAgentModel(agent.agentId, v === AGENT_MODEL_DEFAULT ? '' : v)}
+              />
+              <label style={{ marginTop: 10 }}>{t('settings.agentPrompt')}</label>
+              <textarea
+                rows={3}
+                value={agent.prompt}
+                spellCheck={false}
+                placeholder={t('settings.agentPromptPlaceholder')}
+                onChange={(e) => updateAgent(agent.agentId, { prompt: e.target.value })}
+              />
+              <div className="hint">{t('settings.agentPromptHint')}</div>
+              <div className="btns" style={{ marginTop: 8 }}>
+                <button className="btn w" disabled={busy} onClick={() => saveAgentPrompt()}>
+                  {t('common.save')}
+                </button>
+              </div>
+            </div>
+          ))}
         </section>
       )}
         </div>

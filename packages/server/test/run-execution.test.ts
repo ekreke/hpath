@@ -36,6 +36,7 @@ import { readAll } from "../src/artifacts/store.js";
 import { ArtifactIndex } from "../src/artifacts/artifact-index.js";
 import { HpathDb } from "../src/db/index.js";
 import { RunFrameHubRegistry } from "../src/agents/frames.js";
+import type { SettingsStore } from "../src/settings.js";
 import {
   buildEnvBinding,
   buildProjectApiSurface,
@@ -225,6 +226,7 @@ function stubKernel(options: ScriptedKernelOptions): AgentKernel {
       return {
         runId: runOptions.runId,
         agentId: runOptions.agentId,
+        model: "gpt-4.1-mini",
         status: RunStatus.RUN_STATUS_PASSED,
         verdict: { status: "pass", summary: "ok", alignments: [] },
         failReason: "",
@@ -284,6 +286,10 @@ function makeDeps(db: HpathDb, kernel: AgentKernel): { deps: RunExecutionDeps; c
       kernel,
       artifactStore: new LocalArtifactStore(dir),
       artifactIndex: new ArtifactIndex(db.artifacts),
+      settings: {
+        get: () => ({ defaultModel: "gpt-4.1-mini" }),
+        agentSettings: () => ({}),
+      } as unknown as SettingsStore,
       frameHubs: new RunFrameHubRegistry(),
     },
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
@@ -755,6 +761,7 @@ describe("real run control handlers", () => {
         durationMs: 0,
         tokenCost: 0,
         failReason: "",
+        model: "",
       });
       deps.kernel = {
         runControl: {
@@ -810,6 +817,7 @@ describe("real run control handlers", () => {
         durationMs: 1,
         tokenCost: 1,
         failReason: "",
+        model: "",
       });
       const inactive = await invokeControl(deps, "cancel", settled.id);
       assert.equal(inactive.code, status.FAILED_PRECONDITION);
@@ -836,6 +844,7 @@ describe("real run control handlers", () => {
         durationMs: 0,
         tokenCost: 0,
         failReason: "",
+        model: "",
       });
       deps.kernel = {
         runControl: {
