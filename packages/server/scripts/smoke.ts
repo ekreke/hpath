@@ -14,6 +14,8 @@ import {
 } from "@hpath/contract";
 import type {
   Asset,
+  BatchEvent,
+  BatchRunCaseRequest,
   Case,
   Event,
   ListCasesResponse,
@@ -143,6 +145,34 @@ async function main(): Promise<void> {
   assert(verdictEvent?.verdict?.status === VerdictStatus.VERDICT_STATUS_PASSED, "run verdict PASSED");
   const lastStatus = events.filter((event) => event.runStatus).at(-1)?.runStatus?.status;
   assert(lastStatus === RunStatus.RUN_STATUS_PASSED, "final run status PASSED");
+
+  // 7b. BatchRunCase runs multiple cases and multiplexes their events
+  const secondApproved = cases.cases.find(
+    (kase: Case) => kase.status === CaseStatus.CASE_STATUS_APPROVED && kase.id !== approvedCase.id,
+  )!;
+  assert(secondApproved !== undefined, "a second approved case exists");
+  const batchReq: BatchRunCaseRequest = {
+    projectId: project.id,
+    envId: dev.id,
+    caseIds: [approvedCase.id, secondApproved.id],
+    trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+    concurrency: 2,
+  };
+  const batchEvents = await stream<BatchRunCaseRequest, BatchEvent>("batchRunCase", batchReq);
+  const started = batchEvents.filter((event) => event.started);
+  const finished = batchEvents.filter((event) => event.finished);
+  const done = batchEvents.find((event) => event.done)?.done;
+  assert(started.length === 2, `batchRunCase started ${started.length} runs`);
+  assert(finished.length === 2, `batchRunCase finished ${finished.length} runs`);
+  assert(done !== undefined, "batchRunCase emitted the final tally");
+  const batchRunIds = new Set(started.map((event) => event.started!.runId));
+  const childEvents = batchEvents.filter((event) => event.event);
+  assert(childEvents.length >= 10, `batchRunCase streamed ${childEvents.length} child events`);
+  assert(
+    childEvents.every((event) => batchRunIds.has(event.event!.runId)),
+    "every child event is attributed to an announced run",
+  );
+  console.log("ok: batchRunCase multi-case stream + tally");
 
   // 8. GetRun returns full transcript + artifacts
   const runId = events[0]!.runId;

@@ -45,6 +45,9 @@ export interface SimulateRunOptions {
   delayMs: number;
   /** called for every event while streaming live runs */
   onEvent?: (event: Event) => void;
+  /** called once the run row exists, before any event streams; lets batch
+   * callers announce the case_id -> run_id binding up front. */
+  onRunCreated?: (run: Run) => void;
   /** when set, the controller is registered here before execution and
    * removed after settle, so PauseRun/ResumeRun/CancelRun can steer the
    * scripted run; seed mode (delayMs = 0) never registers. */
@@ -90,6 +93,7 @@ export async function simulateRun(options: SimulateRunOptions): Promise<Run> {
     model: store.settings.agents?.["execute-agent"]?.model || store.settings.defaultModel,
   };
   store.runs.set(run.id, run);
+  options.onRunCreated?.(run);
 
   // Run-control machinery (mirrors the real kernel): pause suspends the
   // scripted progression at the next inter-event boundary (the wall clock

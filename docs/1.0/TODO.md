@@ -1,8 +1,17 @@
 # TODO — Current Iteration
 
-Iteration target: **T25 Per-agent model/prompt defaults + per-run model in the replay header** (implemented; manual real-mode/UI walk pending)
+Iteration target: **T26 Batch case execution (list multi-select)** (implemented; manual `tauri dev` walk pending)
 
 ## Working notes
+
+- T26 Batch case execution / list multi-select (2026-09-16; SPEC checkbox ticked):
+  - Contract: `BatchRunCaseRequest { project_id, env_id, case_ids, trigger, concurrency }` + `BatchRunStarted`/`BatchRunFinished`/`BatchDone`/`BatchEvent` (oneof `started | event | finished | done`) + `rpc BatchRunCase(...) returns (stream BatchEvent)`; descriptor + TS regenerated.
+  - Server: `run-execution.ts` refactored — `resolveRunTarget` (ownership + APPROVED) and `startRun` (create PENDING row, frame hub, bridge, kernel, finish) back both the single-run handler and the new `createBatchRunCaseHandler`; `RunEventBridge` now writes through a `RunEventWriter` abstraction. Batch validates all targets before starting, runs with `runWithConcurrency` (default 2 / cap 4), writes `started`/child events/`finished`/`done`; child runs persist and continue on client disconnect.
+  - Mock: `simulateRun` gained `onRunCreated`; `batchRunCase` runs the scripted streams concurrently with the same BatchEvent shape.
+  - Desktop: Rust `batch_run_cases` command + `BatchEventDto` (tagged) on the `batch-run-event` channel; `ipc.ts` `invokeBatchRunCases` + `BatchRunEvent`; `CasesView` checkbox column (APPROVED only, header indeterminate), batch bar (count/env/concurrency/run/stop/tally), per-row live status, mid-batch live `RunPanel`.
+  - Tests/gates: `real batchRunCase handler (T26)` (5: up-front validation + no run rows, runId multiplexing + tally, concurrency cap, failing child isolation + tally, duplicate-id dedupe), mock smoke extended (`batchRunCase` started/finished/done + attribution); `make test` 302 tests / 297 pass / 5 skipped; `vite build` + `tsc --noEmit` + `cargo check` green.
+  - Review follow-up: fixed 3 Major findings — Stop now cancels queued children on their `started` event (stoppingRef + one retry for the startRun->kernel registration window); the tally is visible (batch bar now also rendered in the detail view and kept while a summary exists); per-row batch state is cleared on settle (no stale "running" tag shadowing the refreshed last-run). Also aligned the mock empty-list validation order with real and deduped `case_ids` server-side.
+  - PENDING manual: `tauri dev` list walk (select -> run -> per-row status -> open mid-batch live panel -> stop) and a real-mode batch against demo-app (LLM key required).
 
 - T25 Per-agent model/prompt defaults + per-run model (2026-09-16; SPEC checkbox ticked):
   - Contract: `Run.model` (proto3 field 13, string; empty for legacy rows) + `AppSettings.agents` (repeated `AgentSettings { agent_id, role, model, prompt }`, field 5); descriptor + TS regenerated; Rust `RunDto.model` + `AgentSettingsDto`/`SettingsDto.agents`.

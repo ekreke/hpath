@@ -70,6 +70,7 @@ import {
 } from "./assets.js";
 import { createInvokeMethodHandler } from "./invoke-method.js";
 import {
+  createBatchRunCaseHandler,
   createDownloadArtifactHandler,
   createGetRunHandler,
   createRunCaseHandler,
@@ -95,7 +96,7 @@ export interface RealExecutionDeps {
 function unimplemented(): ServiceError {
   return grpcError(
     status.UNIMPLEMENTED,
-    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/PauseRun/ResumeRun/CancelRun/WatchRun/GetRun/DownloadArtifact/ParsePRD/UploadAsset/ListAssets/GetAsset/DeleteAsset/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
+    "not wired in real mode yet; served today: ListProjects/CreateProject/UpdateProject/DeleteProject/ListEnvs/ListCases/CreateCase/UpdateCase/DeleteCase/GetCase/ReviewCase/ListRuns/RunCase/BatchRunCase/PauseRun/ResumeRun/CancelRun/WatchRun/GetRun/DownloadArtifact/ParsePRD/UploadAsset/ListAssets/GetAsset/DeleteAsset/GetSettings/UpdateSettings/Chat + chat session bookkeeping — start with --mock for the full contract",
   );
 }
 
@@ -142,6 +143,7 @@ function createUnimplementedHandlers(): HpathServer {
     getCase: unary,
     reviewCase: unary,
     runCase: streaming,
+    batchRunCase: streaming,
     pauseRun: unary,
     resumeRun: unary,
     cancelRun: unary,
@@ -205,6 +207,7 @@ function createRealHandlers(db: HpathDb, settings: SettingsStore, execution?: Re
     ...(runDeps
       ? {
         runCase: createRunCaseHandler(runDeps),
+        batchRunCase: createBatchRunCaseHandler(runDeps),
         pauseRun: createRunControlHandler(runDeps, "pause"),
         resumeRun: createRunControlHandler(runDeps, "resume"),
         cancelRun: createRunControlHandler(runDeps, "cancel"),

@@ -17,9 +17,10 @@ use std::sync::Arc;
 use debug_bridge::BridgeState;
 
 use dto::{
-    ArtifactDto, ArtifactProgressDto, AssetDto, CaseDto, ChatEventDto, ChatMessageDto,
-    ChatSessionDto, EnvDto, InvokeMethodResultDto, ParseEventDto, ParsePrdResultDto, ProjectDto,
-    RunDetailDto, RunDto, RunEventDto, RunFrameDto, RunResultDto, SettingsDto, VerdictDto,
+    ArtifactDto, ArtifactProgressDto, AssetDto, BatchEventDto, BatchRunResultDto, CaseDto,
+    ChatEventDto, ChatMessageDto, ChatSessionDto, EnvDto, InvokeMethodResultDto, ParseEventDto,
+    ParsePrdResultDto, ProjectDto, RunDetailDto, RunDto, RunEventDto, RunFrameDto, RunResultDto,
+    SettingsDto, VerdictDto,
 };
 
 /// Server address held Rust-side. The UI sets it once per apply via
@@ -687,6 +688,51 @@ async fn run_case(
     Ok(result)
 }
 
+/// Batch run trigger (list multi-select): forwards every BatchEvent to the
+/// webview on the `batch-run-event` channel (started / interleaved child
+/// events / finished per case / final done) while streaming, and resolves with
+/// the final tally when the batch stream ends.
+#[tauri::command]
+async fn batch_run_cases(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    env_id: String,
+    case_ids: Vec<String>,
+    concurrency: Option<u32>,
+) -> Result<BatchRunResultDto, String> {
+    let mut client = crate::grpc::client::build_client(current_addr(&state)?)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut stream = client
+        .batch_run_case(Request::new(hpath::BatchRunCaseRequest {
+            project_id,
+            env_id,
+            case_ids,
+            trigger: hpath::RunTrigger::Manual as i32,
+            concurrency: concurrency.unwrap_or(0),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+
+    let mut result = BatchRunResultDto::default();
+    while let Some(event) = stream.message().await.map_err(|e| e.to_string())? {
+        let dto = BatchEventDto::from(&event);
+        let _ = app.emit("batch-run-event", &dto);
+        if let Some(hpath::batch_event::Payload::Done(done)) = &event.payload {
+            result = BatchRunResultDto {
+                passed: done.passed,
+                failed: done.failed,
+                cancelled: done.cancelled,
+            };
+        }
+    }
+
+    Ok(result)
+}
+
 /// Live browser view (T21): forwards each ephemeral screencast frame of an
 /// in-flight run to the webview through the `onFrame` channel. The command
 /// resolves when the run settles (the server ends the frame stream); a run
@@ -999,6 +1045,7 @@ pub fn run() {
             delete_asset,
             invoke_method,
             run_case,
+            batch_run_cases,
             control_run,
             watch_run,
             download_artifact,

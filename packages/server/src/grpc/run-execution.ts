@@ -41,6 +41,8 @@ import {
   RunTrigger,
   VerdictStatus,
   type Artifact,
+  type BatchEvent,
+  type BatchRunCaseRequest,
   type BytesChunk,
   type Case,
   type DownloadArtifactRequest,
@@ -277,6 +279,17 @@ export interface RunExecutionDeps {
 }
 
 /**
+ * Client-facing event sink, abstracted so one execution core (startRun) can
+ * feed both the single-run Event stream and the multiplexed BatchEvent stream.
+ * `cancelled` mirrors the gRPC call: when true the writer drops writes but the
+ * SQLite/evidence side keeps consuming (client disconnects never abort a run).
+ */
+export interface RunEventWriter {
+  write(event: Event): void;
+  readonly cancelled: boolean;
+}
+
+/**
  * Streams kernel events to the client and SQLite while the run executes, and
  * redirects binary evidence (screenshots now, video/trace after settle) to
  * the artifact store. The gRPC write side stops on client cancel; the SQLite
@@ -291,7 +304,7 @@ class RunEventBridge {
   constructor(
     private readonly deps: RunExecutionDeps,
     private readonly run: Run,
-    private readonly call: ServerWritableStream<RunCaseRequest, Event>,
+    private readonly writer: RunEventWriter,
   ) {}
 
   /** The sink handed to the kernel: in-memory collection (the pipeline reads
@@ -361,8 +374,8 @@ class RunEventBridge {
         // the client still sees the event and the run continues.
         console.error("[hpath-server] event append failed:", err);
       }
-      if (!this.call.cancelled) {
-        this.call.write(protoEvent);
+      if (!this.writer.cancelled) {
+        this.writer.write(protoEvent);
       }
     }
   }
@@ -488,6 +501,152 @@ class RunEventBridge {
   }
 }
 
+/** Validated execution target shared by the single-run and batch handlers. */
+export interface RunTarget {
+  projectId: string;
+  env: Env;
+  kase: Case;
+  trigger: RunTrigger;
+}
+
+/**
+ * Resolve + validate one run target: project/env/case ownership and the
+ * APPROVED precondition, throwing the same gRPC errors the single-run path has
+ * always used. Batch validation runs this for every listed case before the
+ * first child run starts, so a bad input fails the whole batch up front.
+ */
+export function resolveRunTarget(
+  deps: RunExecutionDeps,
+  params: { projectId: string; envId: string; caseId: string; trigger: RunTrigger },
+): RunTarget {
+  deps.db.projects.getRequired(params.projectId);
+  const env = deps.db.envs.get(params.envId);
+  if (!env || env.projectId !== params.projectId) {
+    throw grpcError(status.NOT_FOUND, `env not found in project: ${params.envId}`);
+  }
+  const kase = deps.db.cases.get(params.caseId);
+  if (!kase || kase.projectId !== params.projectId) {
+    throw grpcError(status.NOT_FOUND, `case not found in project: ${params.caseId}`);
+  }
+  if (kase.status !== CaseStatus.CASE_STATUS_APPROVED) {
+    throw grpcError(status.FAILED_PRECONDITION, "only APPROVED cases can run");
+  }
+  return {
+    projectId: params.projectId,
+    env,
+    kase,
+    trigger:
+      params.trigger === RunTrigger.RUN_TRIGGER_UNSPECIFIED
+        ? RunTrigger.RUN_TRIGGER_MANUAL
+        : params.trigger,
+  };
+}
+
+/** A run row created for a target, plus the promise that settles it. */
+export interface StartedRun {
+  run: Run;
+  /** Resolves with the settled run; rejects after settling it FAILED. */
+  done: Promise<Run>;
+}
+
+/**
+ * Create the run row (PENDING) and execute it through the kernel against the
+ * writer. Returns synchronously so batch callers can announce the run id
+ * before any event flows; `done` settles with the finished row. Per-run
+ * isolation holds: fresh kernel session, own frame hub, own storage namespace.
+ */
+export function startRun(
+  deps: RunExecutionDeps,
+  target: RunTarget,
+  writer: RunEventWriter,
+): StartedRun {
+  // Per-agent defaults (Settings view): resolved once at run start so the run
+  // snapshots the model it actually used and gets the configured extra
+  // instructions. Empty model falls back to the default model.
+  const agentDefaults = deps.settings.agentSettings(EXECUTE_AGENT_ID);
+  const effectiveModel = agentDefaults.model ?? deps.settings.get().defaultModel;
+
+  const run: Run = {
+    id: randomUUID(),
+    projectId: target.projectId,
+    envId: target.env.id,
+    caseId: target.kase.id,
+    status: RunStatus.RUN_STATUS_PENDING,
+    trigger: target.trigger,
+    startedAt: new Date().toISOString(),
+    finishedAt: "",
+    durationMs: 0,
+    tokenCost: 0,
+    failReason: "",
+    model: effectiveModel,
+  };
+  deps.db.runs.create(run);
+
+  const done = (async (): Promise<Run> => {
+    // Live view (T21): the hub dies with the run — closed and unregistered in
+    // the finally below, so WatchRun streams end once the run settles.
+    const frameHub = deps.frameHubs.create(run.id);
+    const bridge = new RunEventBridge(deps, run, writer);
+    const drainPromise = bridge.drain();
+    // Project API surface (T22): proto assets parsed + materialized for this
+    // run; the temp dir dies with the run (finally below).
+    const projectApi = await buildProjectApiSurface(deps.db, deps.artifactStore, run.projectId);
+    let result: AgentRunResult;
+    try {
+      result = await deps.kernel.run({
+        agentId: EXECUTE_AGENT_ID,
+        runId: run.id,
+        input: buildRunInput(target.kase, projectApi?.summary ?? NO_API_SURFACE),
+        env: buildEnvBinding(target.env),
+        projectApi,
+        sink: bridge.createSink(),
+        frames: frameHub,
+        modelOverride: effectiveModel,
+        promptOverride: agentDefaults.prompt,
+      });
+    } finally {
+      bridge.settle();
+      frameHub.close();
+      deps.frameHubs.remove(run.id);
+      if (projectApi?.protoDir) {
+        try {
+          rmSync(projectApi.protoDir, { recursive: true, force: true });
+        } catch {
+          // A leftover temp dir is a cosmetic leak, not a run failure.
+        }
+      }
+    }
+    await drainPromise;
+    await bridge.uploadPendingArtifacts(result);
+    return deps.db.runs.finish(run.id, {
+      status: result.status,
+      verdict: result.verdict ? mapKernelVerdict(result.verdict) : undefined,
+      finishedAt: result.finishedAt,
+      durationMs: result.durationMs,
+      tokenCost: result.tokenCost,
+      failReason: result.failReason,
+      model: result.model,
+    });
+  })().catch((err: unknown) => {
+    // A hard failure after the run row was created must not strand a RUNNING
+    // run: settle it as failed so history stays queryable, then rethrow.
+    try {
+      deps.db.runs.finish(run.id, {
+        status: RunStatus.RUN_STATUS_FAILED,
+        finishedAt: new Date().toISOString(),
+        durationMs: 0,
+        tokenCost: 0,
+        failReason: "agent_error",
+      });
+    } catch {
+      // Swallowed: the original error is reported to the caller.
+    }
+    throw err;
+  });
+
+  return { run, done };
+}
+
 /**
  * The real runCase handler. Terminal writes (verdict + final run_status) come
  * from the kernel's settle path, so the event order matches the mock:
@@ -496,109 +655,140 @@ class RunEventBridge {
 export function createRunCaseHandler(deps: RunExecutionDeps) {
   return (call: ServerWritableStream<RunCaseRequest, Event>): void => {
     void (async () => {
-      let run: Run | undefined;
       try {
         const req = call.request;
-        deps.db.projects.getRequired(req.projectId);
-        const env = deps.db.envs.get(req.envId);
-        if (!env || env.projectId !== req.projectId) {
-          throw grpcError(status.NOT_FOUND, `env not found in project: ${req.envId}`);
-        }
-        const kase = deps.db.cases.get(req.caseId);
-        if (!kase || kase.projectId !== req.projectId) {
-          throw grpcError(status.NOT_FOUND, `case not found in project: ${req.caseId}`);
-        }
-        if (kase.status !== CaseStatus.CASE_STATUS_APPROVED) {
-          throw grpcError(status.FAILED_PRECONDITION, "only APPROVED cases can run");
-        }
-
-        // Per-agent defaults (Settings view): resolved once at run start so the
-        // run snapshots the model it actually used and gets the configured
-        // extra instructions. Empty model falls back to the default model.
-        const agentDefaults = deps.settings.agentSettings(EXECUTE_AGENT_ID);
-        const effectiveModel = agentDefaults.model ?? deps.settings.get().defaultModel;
-
-        run = {
-          id: randomUUID(),
+        const target = resolveRunTarget(deps, {
           projectId: req.projectId,
           envId: req.envId,
           caseId: req.caseId,
-          status: RunStatus.RUN_STATUS_PENDING,
-          trigger:
-            req.trigger === RunTrigger.RUN_TRIGGER_UNSPECIFIED
-              ? RunTrigger.RUN_TRIGGER_MANUAL
-              : req.trigger,
-          startedAt: new Date().toISOString(),
-          finishedAt: "",
-          durationMs: 0,
-          tokenCost: 0,
-          failReason: "",
-          model: effectiveModel,
-        };
-        deps.db.runs.create(run);
-
-        // Live view (T21): the hub dies with the run — closed and unregistered
-        // in the finally below, so WatchRun streams end once the run settles.
-        const frameHub = deps.frameHubs.create(run.id);
-        const bridge = new RunEventBridge(deps, run, call);
-        const drainPromise = bridge.drain();
-        // Project API surface (T22): proto assets parsed + materialized for
-        // this run; the temp dir dies with the run (finally below).
-        const projectApi = await buildProjectApiSurface(deps.db, deps.artifactStore, run.projectId);
-        let result: AgentRunResult;
-        try {
-          result = await deps.kernel.run({
-            agentId: EXECUTE_AGENT_ID,
-            runId: run.id,
-            input: buildRunInput(kase, projectApi?.summary ?? NO_API_SURFACE),
-            env: buildEnvBinding(env),
-            projectApi,
-            sink: bridge.createSink(),
-            frames: frameHub,
-            modelOverride: effectiveModel,
-            promptOverride: agentDefaults.prompt,
-          });
-        } finally {
-          bridge.settle();
-          frameHub.close();
-          deps.frameHubs.remove(run.id);
-          if (projectApi?.protoDir) {
-            try {
-              rmSync(projectApi.protoDir, { recursive: true, force: true });
-            } catch {
-              // A leftover temp dir is a cosmetic leak, not a run failure.
-            }
-          }
-        }
-        await drainPromise;
-
-        await bridge.uploadPendingArtifacts(result);
-        deps.db.runs.finish(run.id, {
-          status: result.status,
-          verdict: result.verdict ? mapKernelVerdict(result.verdict) : undefined,
-          finishedAt: result.finishedAt,
-          durationMs: result.durationMs,
-          tokenCost: result.tokenCost,
-          failReason: result.failReason,
-          model: result.model,
+          trigger: req.trigger,
         });
+        const writer: RunEventWriter = {
+          write: (event) => {
+            if (!call.cancelled) call.write(event);
+          },
+          get cancelled() {
+            return call.cancelled;
+          },
+        };
+        await startRun(deps, target, writer).done;
         if (!call.cancelled) call.end();
       } catch (err) {
-        // A hard failure after the run row was created must not strand a
-        // RUNNING run: settle it as failed so history stays queryable.
-        if (run) {
+        call.emit("error", toGrpcError(err));
+      }
+    })();
+  };
+}
+
+/** Server cap / default for BatchRunCase concurrency. Exceeding the pool size
+ * launches ephemeral browsers (no queuing), same as concurrent single runs. */
+export const MAX_BATCH_CONCURRENCY = 4;
+export const DEFAULT_BATCH_CONCURRENCY = 2;
+
+/** Run `worker` over `items` with at most `limit` in flight at a time. */
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      await worker(items[index]);
+    }
+  });
+  await Promise.all(runners);
+}
+
+/** Best-effort batch write: a broken client stream drops the event (the child
+ * runs keep executing and persisting server-side, matching RunCase semantics). */
+function writeBatch(
+  call: ServerWritableStream<BatchRunCaseRequest, BatchEvent>,
+  payload: BatchEvent,
+): void {
+  if (call.cancelled) return;
+  try {
+    call.write(payload);
+  } catch {
+    // The client stream is broken; child runs continue server-side.
+  }
+}
+
+/**
+ * The real batchRunCase handler: validates every target up front, then runs
+ * the cases with bounded concurrency, multiplexing the child Event streams
+ * into one BatchEvent stream (started / event / finished / done). Child runs
+ * are ordinary runs (own row, evidence, frame hub); stopping one rides the
+ * regular PauseRun/ResumeRun/CancelRun control RPCs.
+ */
+export function createBatchRunCaseHandler(deps: RunExecutionDeps) {
+  return (call: ServerWritableStream<BatchRunCaseRequest, BatchEvent>): void => {
+    void (async () => {
+      try {
+        const req = call.request;
+        // Duplicate ids would create duplicate runs and confuse the client's
+        // per-case mapping; keep the first occurrence only.
+        const caseIds = [...new Set(req.caseIds ?? [])];
+        if (caseIds.length === 0) {
+          throw grpcError(status.INVALID_ARGUMENT, "at least one case_id is required");
+        }
+        const targets = caseIds.map((caseId) =>
+          resolveRunTarget(deps, {
+            projectId: req.projectId,
+            envId: req.envId,
+            caseId,
+            trigger: req.trigger,
+          }),
+        );
+
+        const requested = req.concurrency > 0 ? req.concurrency : DEFAULT_BATCH_CONCURRENCY;
+        const limit = Math.min(requested, MAX_BATCH_CONCURRENCY);
+        const writer: RunEventWriter = {
+          write: (event) => writeBatch(call, { event }),
+          get cancelled() {
+            return call.cancelled;
+          },
+        };
+
+        let passed = 0;
+        let failed = 0;
+        let cancelled = 0;
+        await runWithConcurrency(targets, limit, async (target) => {
+          const started = startRun(deps, target, writer);
+          writeBatch(call, { started: { caseId: target.kase.id, runId: started.run.id } });
           try {
-            deps.db.runs.finish(run.id, {
-              status: RunStatus.RUN_STATUS_FAILED,
-              finishedAt: new Date().toISOString(),
-              durationMs: 0,
-              tokenCost: 0,
-              failReason: "agent_error",
+            const finalRun = await started.done;
+            if (finalRun.status === RunStatus.RUN_STATUS_PASSED) passed += 1;
+            else if (finalRun.status === RunStatus.RUN_STATUS_CANCELLED) cancelled += 1;
+            else failed += 1;
+            writeBatch(call, {
+              finished: {
+                caseId: target.kase.id,
+                runId: started.run.id,
+                status: finalRun.status,
+                reason: finalRun.failReason,
+              },
             });
           } catch {
-            // Swallowed: the original error is reported below.
+            failed += 1;
+            writeBatch(call, {
+              finished: {
+                caseId: target.kase.id,
+                runId: started.run.id,
+                status: RunStatus.RUN_STATUS_FAILED,
+                reason: "agent_error",
+              },
+            });
           }
+        });
+
+        if (!call.cancelled) {
+          call.write({ done: { passed, failed, cancelled } });
+          call.end();
         }
+      } catch (err) {
         call.emit("error", toGrpcError(err));
       }
     })();

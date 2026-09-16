@@ -1041,6 +1041,63 @@ export interface RunCaseRequest {
   trigger: RunTrigger;
 }
 
+/**
+ * Batch trigger: execute several approved cases against one env with bounded
+ * concurrency. Each case still runs through the single-run pipeline (own fresh
+ * session / browser context / storage namespace), so isolation holds; the
+ * batch only schedules and multiplexes the child streams.
+ */
+export interface BatchRunCaseRequest {
+  projectId: string;
+  envId: string;
+  caseIds: string[];
+  trigger: RunTrigger;
+  /**
+   * Bounded parallelism. 0 = server default (2); the server caps the value at
+   * MAX_BATCH_CONCURRENCY (4). Exceeding concurrency launches ephemeral
+   * browsers (no queuing), same as concurrent single runs.
+   */
+  concurrency: number;
+}
+
+/**
+ * One child run of a batch began: binds the case to the run id the client
+ * must use for live view / replay / control.
+ */
+export interface BatchRunStarted {
+  caseId: string;
+  runId: string;
+}
+
+/** One child run of a batch settled. */
+export interface BatchRunFinished {
+  caseId: string;
+  runId: string;
+  status: RunStatus;
+  /** fail reason, empty when passed */
+  reason: string;
+}
+
+/** Every child run of a batch settled. The stream ends after this event. */
+export interface BatchDone {
+  passed: number;
+  failed: number;
+  cancelled: number;
+}
+
+/**
+ * Streamed batch event: child-run bookkeeping plus the child runs' own events
+ * (the single-run Event shape, multiplexed by run_id). Clients demultiplex the
+ * `started` events into a case_id -> run_id map to attribute the interleaved
+ * Event payloads.
+ */
+export interface BatchEvent {
+  started?: BatchRunStarted | undefined;
+  event?: Event | undefined;
+  finished?: BatchRunFinished | undefined;
+  done?: BatchDone | undefined;
+}
+
 export interface ListRunsRequest {
   projectId: string;
   /** optional filter, empty = all envs */
@@ -7900,6 +7957,591 @@ export const RunCaseRequest: MessageFns<RunCaseRequest> = {
   },
 };
 
+function createBaseBatchRunCaseRequest(): BatchRunCaseRequest {
+  return { projectId: "", envId: "", caseIds: [], trigger: 0, concurrency: 0 };
+}
+
+export const BatchRunCaseRequest: MessageFns<BatchRunCaseRequest> = {
+  encode(message: BatchRunCaseRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.projectId !== "") {
+      writer.uint32(10).string(message.projectId);
+    }
+    if (message.envId !== "") {
+      writer.uint32(18).string(message.envId);
+    }
+    for (const v of message.caseIds) {
+      writer.uint32(26).string(v!);
+    }
+    if (message.trigger !== 0) {
+      writer.uint32(32).int32(message.trigger);
+    }
+    if (message.concurrency !== 0) {
+      writer.uint32(40).uint32(message.concurrency);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchRunCaseRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBatchRunCaseRequest();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.projectId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.envId = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.caseIds.push(reader.string());
+            continue;
+          }
+          case 4: {
+            if (tag !== 32) {
+              break;
+            }
+
+            message.trigger = reader.int32() as any;
+            continue;
+          }
+          case 5: {
+            if (tag !== 40) {
+              break;
+            }
+
+            message.concurrency = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): BatchRunCaseRequest {
+    return {
+      projectId: isSet(object.projectId)
+        ? globalThis.String(object.projectId)
+        : isSet(object.project_id)
+        ? globalThis.String(object.project_id)
+        : "",
+      envId: isSet(object.envId)
+        ? globalThis.String(object.envId)
+        : isSet(object.env_id)
+        ? globalThis.String(object.env_id)
+        : "",
+      caseIds: globalThis.Array.isArray(object?.caseIds)
+        ? object.caseIds.map((e: any) => globalThis.String(e))
+        : globalThis.Array.isArray(object?.case_ids)
+        ? object.case_ids.map((e: any) => globalThis.String(e))
+        : [],
+      trigger: isSet(object.trigger) ? runTriggerFromJSON(object.trigger) : 0,
+      concurrency: isSet(object.concurrency) ? globalThis.Number(object.concurrency) : 0,
+    };
+  },
+
+  toJSON(message: BatchRunCaseRequest): unknown {
+    const obj: any = {};
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
+    if (message.envId !== "") {
+      obj.envId = message.envId;
+    }
+    if (message.caseIds?.length) {
+      obj.caseIds = message.caseIds;
+    }
+    if (message.trigger !== 0) {
+      obj.trigger = runTriggerToJSON(message.trigger);
+    }
+    if (message.concurrency !== 0) {
+      obj.concurrency = Math.round(message.concurrency);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BatchRunCaseRequest>, I>>(base?: I): BatchRunCaseRequest {
+    return BatchRunCaseRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BatchRunCaseRequest>, I>>(object: I): BatchRunCaseRequest {
+    const message = createBaseBatchRunCaseRequest();
+    message.projectId = object.projectId ?? "";
+    message.envId = object.envId ?? "";
+    message.caseIds = object.caseIds?.map((e) => e) || [];
+    message.trigger = object.trigger ?? 0;
+    message.concurrency = object.concurrency ?? 0;
+    return message;
+  },
+};
+
+function createBaseBatchRunStarted(): BatchRunStarted {
+  return { caseId: "", runId: "" };
+}
+
+export const BatchRunStarted: MessageFns<BatchRunStarted> = {
+  encode(message: BatchRunStarted, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.caseId !== "") {
+      writer.uint32(10).string(message.caseId);
+    }
+    if (message.runId !== "") {
+      writer.uint32(18).string(message.runId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchRunStarted {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBatchRunStarted();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.caseId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.runId = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): BatchRunStarted {
+    return {
+      caseId: isSet(object.caseId)
+        ? globalThis.String(object.caseId)
+        : isSet(object.case_id)
+        ? globalThis.String(object.case_id)
+        : "",
+      runId: isSet(object.runId)
+        ? globalThis.String(object.runId)
+        : isSet(object.run_id)
+        ? globalThis.String(object.run_id)
+        : "",
+    };
+  },
+
+  toJSON(message: BatchRunStarted): unknown {
+    const obj: any = {};
+    if (message.caseId !== "") {
+      obj.caseId = message.caseId;
+    }
+    if (message.runId !== "") {
+      obj.runId = message.runId;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BatchRunStarted>, I>>(base?: I): BatchRunStarted {
+    return BatchRunStarted.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BatchRunStarted>, I>>(object: I): BatchRunStarted {
+    const message = createBaseBatchRunStarted();
+    message.caseId = object.caseId ?? "";
+    message.runId = object.runId ?? "";
+    return message;
+  },
+};
+
+function createBaseBatchRunFinished(): BatchRunFinished {
+  return { caseId: "", runId: "", status: 0, reason: "" };
+}
+
+export const BatchRunFinished: MessageFns<BatchRunFinished> = {
+  encode(message: BatchRunFinished, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.caseId !== "") {
+      writer.uint32(10).string(message.caseId);
+    }
+    if (message.runId !== "") {
+      writer.uint32(18).string(message.runId);
+    }
+    if (message.status !== 0) {
+      writer.uint32(24).int32(message.status);
+    }
+    if (message.reason !== "") {
+      writer.uint32(34).string(message.reason);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchRunFinished {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBatchRunFinished();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.caseId = reader.string();
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.runId = reader.string();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.status = reader.int32() as any;
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.reason = reader.string();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): BatchRunFinished {
+    return {
+      caseId: isSet(object.caseId)
+        ? globalThis.String(object.caseId)
+        : isSet(object.case_id)
+        ? globalThis.String(object.case_id)
+        : "",
+      runId: isSet(object.runId)
+        ? globalThis.String(object.runId)
+        : isSet(object.run_id)
+        ? globalThis.String(object.run_id)
+        : "",
+      status: isSet(object.status) ? runStatusFromJSON(object.status) : 0,
+      reason: isSet(object.reason) ? globalThis.String(object.reason) : "",
+    };
+  },
+
+  toJSON(message: BatchRunFinished): unknown {
+    const obj: any = {};
+    if (message.caseId !== "") {
+      obj.caseId = message.caseId;
+    }
+    if (message.runId !== "") {
+      obj.runId = message.runId;
+    }
+    if (message.status !== 0) {
+      obj.status = runStatusToJSON(message.status);
+    }
+    if (message.reason !== "") {
+      obj.reason = message.reason;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BatchRunFinished>, I>>(base?: I): BatchRunFinished {
+    return BatchRunFinished.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BatchRunFinished>, I>>(object: I): BatchRunFinished {
+    const message = createBaseBatchRunFinished();
+    message.caseId = object.caseId ?? "";
+    message.runId = object.runId ?? "";
+    message.status = object.status ?? 0;
+    message.reason = object.reason ?? "";
+    return message;
+  },
+};
+
+function createBaseBatchDone(): BatchDone {
+  return { passed: 0, failed: 0, cancelled: 0 };
+}
+
+export const BatchDone: MessageFns<BatchDone> = {
+  encode(message: BatchDone, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.passed !== 0) {
+      writer.uint32(8).uint32(message.passed);
+    }
+    if (message.failed !== 0) {
+      writer.uint32(16).uint32(message.failed);
+    }
+    if (message.cancelled !== 0) {
+      writer.uint32(24).uint32(message.cancelled);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchDone {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBatchDone();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 8) {
+              break;
+            }
+
+            message.passed = reader.uint32();
+            continue;
+          }
+          case 2: {
+            if (tag !== 16) {
+              break;
+            }
+
+            message.failed = reader.uint32();
+            continue;
+          }
+          case 3: {
+            if (tag !== 24) {
+              break;
+            }
+
+            message.cancelled = reader.uint32();
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): BatchDone {
+    return {
+      passed: isSet(object.passed) ? globalThis.Number(object.passed) : 0,
+      failed: isSet(object.failed) ? globalThis.Number(object.failed) : 0,
+      cancelled: isSet(object.cancelled) ? globalThis.Number(object.cancelled) : 0,
+    };
+  },
+
+  toJSON(message: BatchDone): unknown {
+    const obj: any = {};
+    if (message.passed !== 0) {
+      obj.passed = Math.round(message.passed);
+    }
+    if (message.failed !== 0) {
+      obj.failed = Math.round(message.failed);
+    }
+    if (message.cancelled !== 0) {
+      obj.cancelled = Math.round(message.cancelled);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BatchDone>, I>>(base?: I): BatchDone {
+    return BatchDone.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BatchDone>, I>>(object: I): BatchDone {
+    const message = createBaseBatchDone();
+    message.passed = object.passed ?? 0;
+    message.failed = object.failed ?? 0;
+    message.cancelled = object.cancelled ?? 0;
+    return message;
+  },
+};
+
+function createBaseBatchEvent(): BatchEvent {
+  return { started: undefined, event: undefined, finished: undefined, done: undefined };
+}
+
+export const BatchEvent: MessageFns<BatchEvent> = {
+  encode(message: BatchEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.started !== undefined) {
+      BatchRunStarted.encode(message.started, writer.uint32(10).fork()).join();
+    }
+    if (message.event !== undefined) {
+      Event.encode(message.event, writer.uint32(18).fork()).join();
+    }
+    if (message.finished !== undefined) {
+      BatchRunFinished.encode(message.finished, writer.uint32(26).fork()).join();
+    }
+    if (message.done !== undefined) {
+      BatchDone.encode(message.done, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchEvent {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const previousRecursionDepth = (reader as any).__tsProtoDecodeDepth ?? 0;
+    if (previousRecursionDepth >= 100) {
+      throw new globalThis.Error("protobuf decode recursion limit exceeded");
+    }
+    (reader as any).__tsProtoDecodeDepth = previousRecursionDepth + 1;
+    try {
+      const end = length === undefined ? reader.len : reader.pos + length;
+      const message = createBaseBatchEvent();
+      while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1: {
+            if (tag !== 10) {
+              break;
+            }
+
+            message.started = BatchRunStarted.decode(reader, reader.uint32());
+            continue;
+          }
+          case 2: {
+            if (tag !== 18) {
+              break;
+            }
+
+            message.event = Event.decode(reader, reader.uint32());
+            continue;
+          }
+          case 3: {
+            if (tag !== 26) {
+              break;
+            }
+
+            message.finished = BatchRunFinished.decode(reader, reader.uint32());
+            continue;
+          }
+          case 4: {
+            if (tag !== 34) {
+              break;
+            }
+
+            message.done = BatchDone.decode(reader, reader.uint32());
+            continue;
+          }
+        }
+        if ((tag & 7) === 4 || tag === 0) {
+          break;
+        }
+        reader.skip(tag & 7);
+      }
+      return message;
+    } finally {
+      (reader as any).__tsProtoDecodeDepth = previousRecursionDepth;
+    }
+  },
+
+  fromJSON(object: any): BatchEvent {
+    return {
+      started: isSet(object.started) ? BatchRunStarted.fromJSON(object.started) : undefined,
+      event: isSet(object.event) ? Event.fromJSON(object.event) : undefined,
+      finished: isSet(object.finished) ? BatchRunFinished.fromJSON(object.finished) : undefined,
+      done: isSet(object.done) ? BatchDone.fromJSON(object.done) : undefined,
+    };
+  },
+
+  toJSON(message: BatchEvent): unknown {
+    const obj: any = {};
+    if (message.started !== undefined) {
+      obj.started = BatchRunStarted.toJSON(message.started);
+    }
+    if (message.event !== undefined) {
+      obj.event = Event.toJSON(message.event);
+    }
+    if (message.finished !== undefined) {
+      obj.finished = BatchRunFinished.toJSON(message.finished);
+    }
+    if (message.done !== undefined) {
+      obj.done = BatchDone.toJSON(message.done);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<BatchEvent>, I>>(base?: I): BatchEvent {
+    return BatchEvent.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<BatchEvent>, I>>(object: I): BatchEvent {
+    const message = createBaseBatchEvent();
+    message.started = (object.started !== undefined && object.started !== null)
+      ? BatchRunStarted.fromPartial(object.started)
+      : undefined;
+    message.event = (object.event !== undefined && object.event !== null) ? Event.fromPartial(object.event) : undefined;
+    message.finished = (object.finished !== undefined && object.finished !== null)
+      ? BatchRunFinished.fromPartial(object.finished)
+      : undefined;
+    message.done = (object.done !== undefined && object.done !== null) ? BatchDone.fromPartial(object.done) : undefined;
+    return message;
+  },
+};
+
 function createBaseListRunsRequest(): ListRunsRequest {
   return { projectId: "", envId: "", caseId: "", status: 0, from: "", to: "" };
 }
@@ -10137,6 +10779,25 @@ export const HpathService = {
     responseDeserialize: (value: Buffer): Event => Event.decode(value),
   },
   /**
+   * Execute several approved cases against one env with bounded concurrency.
+   * Streams BatchEvents: one `started` + interleaved child `event`s + one
+   * `finished` per case, then a final `done`. Every listed case must be
+   * APPROVED and env_id must belong to project_id, else FAILED_PRECONDITION /
+   * NOT_FOUND (validated before any run starts). A failing child run does not
+   * affect its siblings; child runs keep executing server-side if the batch
+   * stream disconnects (same semantics as RunCase), their events persisting to
+   * SQLite and remaining reachable via ListRuns / GetRun.
+   */
+  batchRunCase: {
+    path: "/hpath.v1.Hpath/BatchRunCase" as const,
+    requestStream: false as const,
+    responseStream: true as const,
+    requestSerialize: (value: BatchRunCaseRequest): Buffer => Buffer.from(BatchRunCaseRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): BatchRunCaseRequest => BatchRunCaseRequest.decode(value),
+    responseSerialize: (value: BatchEvent): Buffer => Buffer.from(BatchEvent.encode(value).finish()),
+    responseDeserialize: (value: Buffer): BatchEvent => BatchEvent.decode(value),
+  },
+  /**
    * Runtime control of an in-flight run (see the RunStatus state machine).
    * The run keeps executing server-side even if the RunCase client that
    * started it disconnects, so control RPCs target the run id directly.
@@ -10385,6 +11046,17 @@ export interface HpathServer extends UntypedServiceImplementation {
    * Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.
    */
   runCase: handleServerStreamingCall<RunCaseRequest, Event>;
+  /**
+   * Execute several approved cases against one env with bounded concurrency.
+   * Streams BatchEvents: one `started` + interleaved child `event`s + one
+   * `finished` per case, then a final `done`. Every listed case must be
+   * APPROVED and env_id must belong to project_id, else FAILED_PRECONDITION /
+   * NOT_FOUND (validated before any run starts). A failing child run does not
+   * affect its siblings; child runs keep executing server-side if the batch
+   * stream disconnects (same semantics as RunCase), their events persisting to
+   * SQLite and remaining reachable via ListRuns / GetRun.
+   */
+  batchRunCase: handleServerStreamingCall<BatchRunCaseRequest, BatchEvent>;
   /**
    * Runtime control of an in-flight run (see the RunStatus state machine).
    * The run keeps executing server-side even if the RunCase client that

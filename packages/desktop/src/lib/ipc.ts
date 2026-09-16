@@ -376,6 +376,46 @@ export function invokeRunCase(
   return invoke<RunResult>('run_case', { projectId, envId, caseId });
 }
 
+// Tagged batch event streamed from the Rust side on the `batch-run-event`
+// channel while batch_run_cases is in flight (list multi-select execution).
+// `kind` selects which optional fields carry data: `started` binds
+// caseId <-> runId, `event` carries one child run's RunEvent, `finished`
+// reports one case's terminal outcome, `batchDone` carries the final tally.
+export type BatchRunEvent = {
+  kind: 'started' | 'event' | 'finished' | 'batchDone';
+  caseId?: string;
+  runId?: string;
+  event?: RunEvent;
+  status?: number;
+  reason?: string;
+  passed?: number;
+  failed?: number;
+  cancelled?: number;
+};
+
+// Final tally of a batch run, resolved when the stream ends.
+export type BatchRunResult = {
+  passed: number;
+  failed: number;
+  cancelled: number;
+};
+
+// Run several approved cases against one env with bounded concurrency
+// (0 = server default). Child events ride the `batch-run-event` channel.
+export function invokeBatchRunCases(
+  projectId: string,
+  envId: string,
+  caseIds: string[],
+  concurrency = 0,
+): Promise<BatchRunResult> {
+  return invoke<BatchRunResult>('batch_run_cases', {
+    projectId,
+    envId,
+    caseIds,
+    concurrency,
+  });
+}
+
 // One ephemeral live-view frame (T21): base64 jpeg body streamed by the
 // server's CDP screencast (mock: synthetic placeholder frames). Never
 // persisted — replay uses the recorded video/screenshots instead.

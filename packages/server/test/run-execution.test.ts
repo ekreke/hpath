@@ -21,7 +21,15 @@ import {
   RunTrigger,
   VerdictStatus,
 } from "@hpath/contract";
-import type { Case, Env, Event, Project, RunCaseRequest } from "@hpath/contract";
+import type {
+  BatchEvent,
+  BatchRunCaseRequest,
+  Case,
+  Env,
+  Event,
+  Project,
+  RunCaseRequest,
+} from "@hpath/contract";
 import { InMemoryEventSink } from "../src/agents/events.js";
 import type { AgentEventSink } from "../src/agents/events.js";
 import { AgentKernel } from "../src/agents/pipeline.js";
@@ -41,6 +49,7 @@ import {
   buildEnvBinding,
   buildProjectApiSurface,
   buildRunInput,
+  createBatchRunCaseHandler,
   createDownloadArtifactHandler,
   createGetRunHandler,
   createRunCaseHandler,
@@ -266,6 +275,120 @@ function fakeStream(request: RunCaseRequest): {
     },
   } as unknown as ServerWritableStream<RunCaseRequest, Event>;
   return { call, events, errors, ended: () => endCalled };
+}
+
+function fakeBatchStream(request: BatchRunCaseRequest): {
+  call: ServerWritableStream<BatchRunCaseRequest, BatchEvent>;
+  events: BatchEvent[];
+  errors: { code: number; details: string }[];
+  ended: () => boolean;
+} {
+  const events: BatchEvent[] = [];
+  const errors: { code: number; details: string }[] = [];
+  let endCalled = false;
+  const call = {
+    request,
+    cancelled: false,
+    write: (event: BatchEvent) => {
+      events.push(event);
+    },
+    end: () => {
+      endCalled = true;
+    },
+    emit: (name: string, err: { code: number; details: string }) => {
+      if (name === "error") errors.push(err);
+      return true;
+    },
+  } as unknown as ServerWritableStream<BatchRunCaseRequest, BatchEvent>;
+  return { call, events, errors, ended: () => endCalled };
+}
+
+/** An approved case with a distinct title (batch tests need more than the one
+ * case seedWorld provides). */
+function seedCase(
+  db: HpathDb,
+  projectId: string,
+  title: string,
+  caseStatus: CaseStatus = CaseStatus.CASE_STATUS_APPROVED,
+): Case {
+  const now = new Date().toISOString();
+  return db.cases.create({
+    id: randomUUID(),
+    projectId,
+    title,
+    goal: `${title} works`,
+    alignments: [{ apiPath: "/api/balance", uiAnchor: "card", rule: "equals" }],
+    creator: { type: CreatorType.CREATOR_TYPE_AGENT, name: "test", runRef: "" },
+    status: caseStatus,
+    sourcePrdRef: "",
+    version: 1,
+    changelog: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/** A kernel that records the peak number of concurrently executing runs and
+ * settles each run PASSED after a short delay. */
+function probeKernel(onRun: () => void): AgentKernel {
+  return {
+    run: async (runOptions: { runId: string; agentId: string; sink?: AgentEventSink }) => {
+      onRun();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const sink: AgentEventSink =
+        runOptions.sink ?? new InMemoryEventSink({ runId: runOptions.runId });
+      sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" });
+      sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_PASSED, reason: "" });
+      return {
+        runId: runOptions.runId,
+        agentId: runOptions.agentId,
+        model: "gpt-4.1-mini",
+        status: RunStatus.RUN_STATUS_PASSED,
+        verdict: { status: "pass", summary: "ok", alignments: [] },
+        failReason: "",
+        tokenCost: 1,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        finishedAt: "2026-01-01T00:00:01.000Z",
+        durationMs: 1,
+        events: sink.events(),
+        pendingArtifacts: [],
+      };
+    },
+  } as unknown as AgentKernel;
+}
+
+/** A kernel whose first run PASSES and every later run FAILS (deterministic
+ * with concurrency 1), to check a failing child does not affect its siblings. */
+function mixedKernel(): AgentKernel {
+  let count = 0;
+  return {
+    run: async (runOptions: { runId: string; agentId: string; sink?: AgentEventSink }) => {
+      count += 1;
+      const fail = count > 1;
+      const sink: AgentEventSink =
+        runOptions.sink ?? new InMemoryEventSink({ runId: runOptions.runId });
+      sink.append({ kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" });
+      sink.append({
+        kind: "run_status",
+        status: fail ? RunStatus.RUN_STATUS_FAILED : RunStatus.RUN_STATUS_PASSED,
+        reason: fail ? "boom" : "",
+      });
+      return {
+        runId: runOptions.runId,
+        agentId: runOptions.agentId,
+        model: "gpt-4.1-mini",
+        status: fail ? RunStatus.RUN_STATUS_FAILED : RunStatus.RUN_STATUS_PASSED,
+        verdict: fail ? undefined : { status: "pass", summary: "ok", alignments: [] },
+        failReason: fail ? "boom" : "",
+        tokenCost: 1,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        finishedAt: "2026-01-01T00:00:01.000Z",
+        durationMs: 1,
+        events: sink.events(),
+        pendingArtifacts: [],
+      };
+    },
+  } as unknown as AgentKernel;
 }
 
 async function waitFor(predicate: () => boolean, what: string): Promise<void> {
@@ -724,6 +847,204 @@ describe("real runCase handler", () => {
 // ---------------------------------------------------------------------------
 // run control handlers (PauseRun / ResumeRun / CancelRun)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// real batchRunCase handler (T26)
+// ---------------------------------------------------------------------------
+
+describe("real batchRunCase handler (T26)", () => {
+  it("rejects an empty case list and non-APPROVED cases before starting any run", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const pending = seedCase(db, project.id, "Pending case", CaseStatus.CASE_STATUS_PENDING);
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const handler = createBatchRunCaseHandler(deps);
+
+      const empty = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: [],
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 0,
+      });
+      handler(empty.call);
+      await waitFor(() => empty.errors.length > 0, "the INVALID_ARGUMENT error");
+      assert.equal(empty.errors[0].code, status.INVALID_ARGUMENT);
+
+      const bad = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: [kase.id, pending.id],
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 0,
+      });
+      handler(bad.call);
+      await waitFor(() => bad.errors.length > 0, "the FAILED_PRECONDITION error");
+      assert.equal(bad.errors[0].code, status.FAILED_PRECONDITION);
+      // Validation fails up front: the approved sibling never starts either.
+      assert.deepEqual(db.runs.list({ projectId: project.id }), []);
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("runs every case, multiplexes events by runId and reports the final tally", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const second = seedCase(db, project.id, "Second case");
+    const { deps, cleanup } = makeDeps(
+      db,
+      stubKernel({
+        payloads: [
+          { kind: "run_status", status: RunStatus.RUN_STATUS_RUNNING, reason: "" },
+          { kind: "agent_text", text: "working" },
+          { kind: "run_status", status: RunStatus.RUN_STATUS_PASSED, reason: "" },
+        ],
+      }),
+    );
+    try {
+      const handler = createBatchRunCaseHandler(deps);
+      const stream = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: [kase.id, second.id],
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 2,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the batch stream to end");
+
+      const started = stream.events.filter((event) => event.started);
+      assert.equal(started.length, 2);
+      assert.deepEqual(
+        started.map((event) => event.started!.caseId).sort(),
+        [kase.id, second.id].sort(),
+      );
+      // Every child event is attributed to one of the announced runs.
+      const runIds = new Set(started.map((event) => event.started!.runId));
+      const childEvents = stream.events.filter((event) => event.event);
+      assert.ok(childEvents.length >= 6, "both runs streamed their events");
+      for (const child of childEvents) {
+        assert.ok(runIds.has(child.event!.runId));
+      }
+      const finished = stream.events.filter((event) => event.finished);
+      assert.equal(finished.length, 2);
+      assert.ok(finished.every((event) => event.finished!.status === RunStatus.RUN_STATUS_PASSED));
+      const done = stream.events.find((event) => event.done);
+      assert.ok(done?.done);
+      assert.deepEqual(done!.done, { passed: 2, failed: 0, cancelled: 0 });
+
+      // Both runs persisted independently.
+      const runs = db.runs.list({ projectId: project.id });
+      assert.equal(runs.length, 2);
+      assert.ok(runs.every((run) => run.status === RunStatus.RUN_STATUS_PASSED));
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("caps parallelism at the requested concurrency", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env } = seedWorld(db);
+    const cases = [
+      seedCase(db, project.id, "Case A"),
+      seedCase(db, project.id, "Case B"),
+      seedCase(db, project.id, "Case C"),
+    ];
+    let inFlight = 0;
+    let peak = 0;
+    const kernel = probeKernel(() => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      setTimeout(() => {
+        inFlight -= 1;
+      }, 20);
+    });
+    const { deps, cleanup } = makeDeps(db, kernel);
+    try {
+      const handler = createBatchRunCaseHandler(deps);
+      const stream = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: cases.map((kase) => kase.id),
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 1,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the batch stream to end");
+      assert.equal(peak, 1, "concurrency 1 must serialize the runs");
+      assert.equal(stream.events.filter((event) => event.finished).length, 3);
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("keeps siblings running when one child fails and tallies the failure", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const second = seedCase(db, project.id, "Second case");
+    const { deps, cleanup } = makeDeps(db, mixedKernel());
+    try {
+      const handler = createBatchRunCaseHandler(deps);
+      const stream = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: [kase.id, second.id],
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 1,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the batch stream to end");
+
+      const started = stream.events.filter((event) => event.started);
+      const byCase = new Map(
+        started.map((event) => [event.started!.caseId, event.started!.runId]),
+      );
+      assert.equal(stream.events.filter((event) => event.finished).length, 2);
+      const firstId = byCase.get(kase.id)!;
+      const secondId = byCase.get(second.id)!;
+      assert.equal(deps.db.runs.getRequired(firstId).status, RunStatus.RUN_STATUS_PASSED);
+      assert.ok(deps.db.runs.getRequired(firstId).verdict);
+      assert.equal(deps.db.runs.getRequired(secondId).status, RunStatus.RUN_STATUS_FAILED);
+      assert.equal(deps.db.runs.getRequired(secondId).failReason, "boom");
+      assert.deepEqual(stream.events.find((event) => event.done)?.done, {
+        passed: 1,
+        failed: 1,
+        cancelled: 0,
+      });
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+
+  it("dedupes repeated case ids", async () => {
+    const db = HpathDb.inMemory();
+    const { project, env, kase } = seedWorld(db);
+    const { deps, cleanup } = makeDeps(db, stubKernel({ payloads: [] }));
+    try {
+      const handler = createBatchRunCaseHandler(deps);
+      const stream = fakeBatchStream({
+        projectId: project.id,
+        envId: env.id,
+        caseIds: [kase.id, kase.id],
+        trigger: RunTrigger.RUN_TRIGGER_MANUAL,
+        concurrency: 2,
+      });
+      handler(stream.call);
+      await waitFor(() => stream.ended(), "the batch stream to end");
+      assert.equal(stream.events.filter((event) => event.started).length, 1);
+      assert.equal(db.runs.list({ projectId: project.id }).length, 1);
+    } finally {
+      cleanup();
+      db.close();
+    }
+  });
+});
 
 describe("real run control handlers", () => {
   function invokeControl(

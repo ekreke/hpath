@@ -6,6 +6,8 @@ import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import type { Case, Env, Run } from '@hpath/contract';
 import {
+  invokeBatchRunCases,
+  invokeControlRun,
   invokeDeleteCase,
   invokeGetCase,
   invokeGetRun,
@@ -13,6 +15,8 @@ import {
   invokeListRuns,
   invokeReviewCase,
   invokeRunCase,
+  type BatchRunEvent,
+  type BatchRunResult,
   type RunDetailResult,
   type RunEvent,
   type RunResult,
@@ -60,6 +64,24 @@ function lastRunOf(runs: Run[], caseId: string): Run | undefined {
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
 }
 
+// Per-case live state of a batch execution (list multi-select): the child
+// run's id, its latest status and the events buffered so far, so the detail
+// live panel can replay them when a case is opened mid-batch.
+type BatchCaseState = {
+  runId: string;
+  status: number;
+  reason: string;
+  events: RunEvent[];
+};
+
+function isRunActive(status: number): boolean {
+  return (
+    status === RUN_STATUS.PENDING ||
+    status === RUN_STATUS.RUNNING ||
+    status === RUN_STATUS.PAUSED
+  );
+}
+
 function CasesView({
   appliedServerAddr,
   projectId,
@@ -98,6 +120,29 @@ function CasesView({
   // Manual case management (create/edit modal): null = create mode.
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Case | null>(null);
+  // Batch execution (list multi-select): selection + per-case live state.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchActive, setBatchActive] = useState(false);
+  const [batchStopping, setBatchStopping] = useState(false);
+  const [batchConcurrency, setBatchConcurrency] = useState(2);
+  const [batchSummary, setBatchSummary] = useState<BatchRunResult | null>(null);
+  const [batchRuns, setBatchRuns] = useState<Record<string, BatchCaseState>>({});
+  // Refs mirroring state for use inside event-stream / async callbacks, where
+  // the captured closure would otherwise read a stale value.
+  const batchRunsRef = useRef(batchRuns);
+  const batchEnvRef = useRef<string | null>(null);
+  const selectedCaseIdRef = useRef<string | null>(null);
+  const runToCaseRef = useRef<Map<string, string>>(new Map());
+  const headCheckRef = useRef<HTMLInputElement>(null);
+  // Set while the user asked to stop a batch: queued cases that start after
+  // the request are cancelled as soon as their run id is announced.
+  const stoppingRef = useRef(false);
+  useEffect(() => {
+    batchRunsRef.current = batchRuns;
+  }, [batchRuns]);
+  useEffect(() => {
+    selectedCaseIdRef.current = selectedCaseId;
+  }, [selectedCaseId]);
   useEffect(() => {
     setSelectedCaseId(null);
     setDetail(null);
@@ -111,6 +156,13 @@ function CasesView({
     setRunEnvId(null);
     replaySeq.current += 1;
     caseSeq.current += 1;
+    setSelectedIds(new Set());
+    setBatchRuns({});
+    setBatchSummary(null);
+    setBatchActive(false);
+    setBatchStopping(false);
+    batchEnvRef.current = null;
+    runToCaseRef.current = new Map();
     if (!projectId) {
       setCases([]);
       setRuns([]);
@@ -145,6 +197,16 @@ function CasesView({
       // response must not repopulate it.
       replaySeq.current += 1;
       setSelectedCaseId(caseId);
+      // A case in an in-flight batch opens with its live run panel: buffered
+      // events seed the feed and the batch stream appends later ones.
+      const batchState = batchRunsRef.current[caseId];
+      const batchEnv = batchEnvRef.current;
+      const live = batchState && isRunActive(batchState.status) ? batchState : undefined;
+      setRunOpen(Boolean(live));
+      setRunEnvId(live && batchEnv ? batchEnv : null);
+      setRunEvents(live ? live.events : []);
+      setRunFinal(null);
+      setRunBusy(Boolean(live));
       setRunResult(null);
       setReplayRun(null);
       setReplayDetail(null);
@@ -283,6 +345,216 @@ function CasesView({
     }
   };
 
+  // ── batch execution (list multi-select) ──────────────────────────────
+  const runnableIds = cases
+    .filter((c) => c.status === CASE_STATUS.APPROVED)
+    .map((c) => c.id);
+  const selectedRunnableIds = runnableIds.filter((id) => selectedIds.has(id));
+  const allRunnableSelected =
+    runnableIds.length > 0 && selectedRunnableIds.length === runnableIds.length;
+
+  useEffect(() => {
+    if (headCheckRef.current) {
+      headCheckRef.current.indeterminate = selectedIds.size > 0 && !allRunnableSelected;
+    }
+  }, [selectedIds, allRunnableSelected]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allRunnableSelected ? new Set() : new Set(runnableIds));
+  };
+
+  // Cancel a run that started after the user hit Stop. Stop may land before
+  // the child run registers its kernel controller (the startRun -> kernel.run
+  // window reports FAILED_PRECONDITION), so retry once shortly after.
+  const cancelQueuedRun = (runId: string) => {
+    const attempt = (last: boolean) => {
+      void invokeControlRun('cancel', runId).catch(() => {
+        if (!last) setTimeout(() => attempt(true), 400);
+      });
+    };
+    attempt(false);
+  };
+
+  const handleBatchEvent = (ev: BatchRunEvent) => {
+    if (ev.kind === 'started' && ev.caseId && ev.runId) {
+      const caseId = ev.caseId;
+      const runId = ev.runId;
+      runToCaseRef.current.set(runId, caseId);
+      setBatchRuns((prev) => ({
+        ...prev,
+        [caseId]: { runId, status: RUN_STATUS.RUNNING, reason: '', events: [] },
+      }));
+      // Stopping: a queued case that only starts now is cancelled immediately.
+      if (stoppingRef.current) cancelQueuedRun(runId);
+    } else if (ev.kind === 'event' && ev.event) {
+      const child = ev.event;
+      const caseId = runToCaseRef.current.get(child.runId);
+      if (!caseId) return;
+      setBatchRuns((prev) => {
+        const cur = prev[caseId];
+        if (!cur) return prev;
+        const status =
+          child.kind === 'runStatus' && child.status !== undefined ? child.status : cur.status;
+        return { ...prev, [caseId]: { ...cur, status, events: [...cur.events, child] } };
+      });
+      // Mirror into the open detail's live panel when it is this case.
+      if (selectedCaseIdRef.current === caseId && batchEnvRef.current) {
+        setRunEvents((prev) => [...prev, child]);
+      }
+    } else if (ev.kind === 'finished' && ev.caseId) {
+      const caseId = ev.caseId;
+      setBatchRuns((prev) => {
+        const cur = prev[caseId];
+        if (!cur) return prev;
+        return {
+          ...prev,
+          [caseId]: { ...cur, status: ev.status ?? RUN_STATUS.FAILED, reason: ev.reason ?? '' },
+        };
+      });
+      if (selectedCaseIdRef.current === caseId) setRunBusy(false);
+    }
+  };
+
+  const triggerBatch = async () => {
+    if (!projectId || !selectedEnvId || selectedRunnableIds.length === 0 || batchActive) return;
+    setBatchActive(true);
+    setBatchStopping(false);
+    setBatchSummary(null);
+    setBatchRuns({});
+    runToCaseRef.current = new Map();
+    batchEnvRef.current = selectedEnvId;
+    stoppingRef.current = false;
+    let unlisten: (() => void) | undefined;
+    try {
+      unlisten = await listen<BatchRunEvent>('batch-run-event', (e) => handleBatchEvent(e.payload));
+      const summary = await invokeBatchRunCases(
+        projectId,
+        selectedEnvId,
+        selectedRunnableIds,
+        batchConcurrency,
+      );
+      setBatchSummary(summary);
+    } catch (err) {
+      onToast(String(err), true);
+    } finally {
+      unlisten?.();
+      stoppingRef.current = false;
+      setBatchActive(false);
+      setBatchStopping(false);
+      setSelectedIds(new Set());
+      // Drop the transient per-case batch state: the refreshed run list below
+      // carries the final results (health / last-run columns).
+      setBatchRuns({});
+      // Refresh so health / last-run / count columns reflect the new runs.
+      try {
+        const [caseList, runList] = await Promise.all([
+          invokeListCases(projectId),
+          invokeListRuns(projectId),
+        ]);
+        setCases(caseList);
+        setRuns(runList);
+        onCountChange(caseList.length);
+      } catch (err) {
+        onToast(String(err), true);
+      }
+      if (selectedCaseIdRef.current) void openCase(selectedCaseIdRef.current);
+    }
+  };
+
+  const stopBatch = async () => {
+    if (!batchActive) return;
+    // Mark the batch as stopping first: queued cases that start afterwards are
+    // cancelled on their `started` event (the server keeps scheduling them).
+    stoppingRef.current = true;
+    setBatchStopping(true);
+    const runIds = Object.values(batchRunsRef.current)
+      .filter((state) => isRunActive(state.status))
+      .map((state) => state.runId);
+    await Promise.all(
+      runIds.map((runId) => invokeControlRun('cancel', runId).catch(() => undefined)),
+    );
+  };
+
+  // Batch bar: rendered in both the list and the detail view, so a batch can
+  // still be stopped (and its tally seen) while a case is open mid-batch.
+  const batchBar = (selectedIds.size > 0 || batchActive || batchSummary) && (
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        padding: '10px 16px',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        marginBottom: 12,
+      }}
+    >
+      {selectedRunnableIds.length > 0 && (
+        <span className="mono">
+          {t('cases.batchSelected', { n: selectedRunnableIds.length })}
+        </span>
+      )}
+      {envs.length > 0 ? (
+        <Select
+          ariaLabel={t('cases.runEnv')}
+          value={selectedEnvId}
+          placeholder={t('cases.pickEnv')}
+          options={envs.map((e) => ({ value: e.id, label: e.name }))}
+          onChange={(v) => onSelectEnv(v || null)}
+        />
+      ) : (
+        <button className="btn sm" onClick={onOpenEnvs}>
+          {t('cases.pickEnv')}
+        </button>
+      )}
+      <span className="dim" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        {t('cases.batchConcurrency')}
+        <Select
+          ariaLabel={t('cases.batchConcurrency')}
+          value={String(batchConcurrency)}
+          options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
+          onChange={(v) => setBatchConcurrency(Number(v) || 2)}
+        />
+      </span>
+      {!batchActive ? (
+        <button
+          className="btn w sm"
+          disabled={!selectedEnvId || selectedRunnableIds.length === 0}
+          onClick={() => void triggerBatch()}
+        >
+          ▶ {t('cases.batchRun', { n: selectedRunnableIds.length })}
+        </button>
+      ) : (
+        <button
+          className="btn ghost sm"
+          disabled={batchStopping}
+          onClick={() => void stopBatch()}
+        >
+          ■ {t('cases.batchStop')}
+        </button>
+      )}
+      {batchSummary && !batchActive && (
+        <span className="dim mono">
+          {t('cases.batchSummary', {
+            pass: batchSummary.passed,
+            fail: batchSummary.failed,
+            cancel: batchSummary.cancelled,
+          })}
+        </span>
+      )}
+    </div>
+  );
+
   const lastRun = selectedCaseId ? detailRuns[0] : null;
 
   if (!projectId) {
@@ -312,10 +584,21 @@ function CasesView({
               </button>
             </div>
           </div>
+          {batchBar}
           <section className="sec">
             <table className="tbl">
               <thead>
                 <tr>
+                  <th style={{ width: '36px' }}>
+                    <input
+                      ref={headCheckRef}
+                      type="checkbox"
+                      aria-label={t('cases.selectAll')}
+                      checked={allRunnableSelected}
+                      disabled={runnableIds.length === 0}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
                   <th>{t('cases.colCase')}</th>
                   <th style={{ width: '14%' }}>{t('cases.colStatus')}</th>
                   <th className="col-3" style={{ width: '18%' }}>{t('cases.colCreator')}</th>
@@ -328,8 +611,18 @@ function CasesView({
                 {cases.map((kase) => {
                   const lr = lastRunOf(runs, kase.id);
                   const caseRuns = runs.filter((r) => r.caseId === kase.id);
+                  const batchState = batchRuns[kase.id];
                   return (
                     <tr key={kase.id} className="clickable" onClick={() => void openCase(kase.id)}>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={kase.title}
+                          checked={selectedIds.has(kase.id)}
+                          disabled={kase.status !== CASE_STATUS.APPROVED}
+                          onChange={() => toggleSelect(kase.id)}
+                        />
+                      </td>
                       <td className="mono case-title">{kase.title}</td>
                       <td>
                         <CaseStatusBadge status={kase.status} />
@@ -339,7 +632,14 @@ function CasesView({
                         <HealthStrip results={sortRunsDesc(caseRuns)} />
                       </td>
                       <td className="col-2 ellip">
-                        {lr ? (
+                        {batchState ? (
+                          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                            <RunStatusTag status={batchState.status} />
+                            {isRunActive(batchState.status) && (
+                              <span className="dim num">{t('cases.batchLive')}</span>
+                            )}
+                          </span>
+                        ) : lr ? (
                           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', maxWidth: '100%', minWidth: 0 }}>
                             <RunStatusTag status={lr.status} />
                             <span className="dim num">{formatTime(lr.startedAt, t)}</span>
@@ -354,7 +654,7 @@ function CasesView({
                 })}
                 {cases.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="empty">{t('cases.empty')}</td>
+                    <td colSpan={7} className="empty">{t('cases.empty')}</td>
                   </tr>
                 )}
               </tbody>
@@ -386,6 +686,8 @@ function CasesView({
               </button>
             </div>
           </div>
+
+          {batchBar}
 
           {detail && (
             <>

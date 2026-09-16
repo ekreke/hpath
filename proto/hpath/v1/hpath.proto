@@ -549,6 +549,56 @@ message RunCaseRequest {
   RunTrigger trigger = 4;
 }
 
+// Batch trigger: execute several approved cases against one env with bounded
+// concurrency. Each case still runs through the single-run pipeline (own fresh
+// session / browser context / storage namespace), so isolation holds; the
+// batch only schedules and multiplexes the child streams.
+message BatchRunCaseRequest {
+  string project_id = 1;
+  string env_id = 2;
+  repeated string case_ids = 3;
+  RunTrigger trigger = 4;
+  // Bounded parallelism. 0 = server default (2); the server caps the value at
+  // MAX_BATCH_CONCURRENCY (4). Exceeding concurrency launches ephemeral
+  // browsers (no queuing), same as concurrent single runs.
+  uint32 concurrency = 5;
+}
+
+// One child run of a batch began: binds the case to the run id the client
+// must use for live view / replay / control.
+message BatchRunStarted {
+  string case_id = 1;
+  string run_id = 2;
+}
+
+// One child run of a batch settled.
+message BatchRunFinished {
+  string case_id = 1;
+  string run_id = 2;
+  RunStatus status = 3;
+  string reason = 4; // fail reason, empty when passed
+}
+
+// Every child run of a batch settled. The stream ends after this event.
+message BatchDone {
+  uint32 passed = 1;
+  uint32 failed = 2;
+  uint32 cancelled = 3;
+}
+
+// Streamed batch event: child-run bookkeeping plus the child runs' own events
+// (the single-run Event shape, multiplexed by run_id). Clients demultiplex the
+// `started` events into a case_id -> run_id map to attribute the interleaved
+// Event payloads.
+message BatchEvent {
+  oneof payload {
+    BatchRunStarted started = 1;
+    Event event = 2;
+    BatchRunFinished finished = 3;
+    BatchDone done = 4;
+  }
+}
+
 message ListRunsRequest {
   string project_id = 1;
   string env_id = 2;    // optional filter, empty = all envs
@@ -770,6 +820,16 @@ service Hpath {
   // Execute an approved case against an env. Streams run events in order.
   // Requires CASE_STATUS_APPROVED, else FAILED_PRECONDITION.
   rpc RunCase(RunCaseRequest) returns (stream Event);
+
+  // Execute several approved cases against one env with bounded concurrency.
+  // Streams BatchEvents: one `started` + interleaved child `event`s + one
+  // `finished` per case, then a final `done`. Every listed case must be
+  // APPROVED and env_id must belong to project_id, else FAILED_PRECONDITION /
+  // NOT_FOUND (validated before any run starts). A failing child run does not
+  // affect its siblings; child runs keep executing server-side if the batch
+  // stream disconnects (same semantics as RunCase), their events persisting to
+  // SQLite and remaining reachable via ListRuns / GetRun.
+  rpc BatchRunCase(BatchRunCaseRequest) returns (stream BatchEvent);
 
   // Runtime control of an in-flight run (see the RunStatus state machine).
   // The run keeps executing server-side even if the RunCase client that

@@ -55,6 +55,8 @@ import type {
   UploadAssetRequest,
   UpsertEnvRequest,
   ReviewCaseRequest,
+  BatchEvent,
+  BatchRunCaseRequest,
   RunCaseRequest,
   RunFrame,
   WatchRunRequest,
@@ -82,6 +84,27 @@ import type { Run } from "@hpath/contract";
 
 function grpcError(code: status, message: string): ServiceError {
   return { code, details: message, message, name: "ServiceError" } as ServiceError;
+}
+
+/** BatchRunCase scheduling limits (mirrors the real handler). */
+const MAX_BATCH_CONCURRENCY = 4;
+const DEFAULT_BATCH_CONCURRENCY = 2;
+
+/** Run `worker` over `items` with at most `limit` in flight at a time. */
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      await worker(items[index]);
+    }
+  });
+  await Promise.all(runners);
 }
 
 function requireProject(store: MockStore, projectId: string): Project {
@@ -789,6 +812,90 @@ export function createMockHandlers(store: MockStore): HpathServer {
             },
           });
           call.end();
+        } catch (err) {
+          call.emit("error", err as ServiceError);
+        }
+      })();
+    },
+
+    // Batch execution (mock parity with the real handler): validate every
+    // target up front, then run the scripted streams with bounded concurrency,
+    // multiplexing them into one BatchEvent stream.
+    batchRunCase: (call: ServerWritableStream<BatchRunCaseRequest, BatchEvent>) => {
+      void (async () => {
+        try {
+          const req = call.request;
+          // Validate the empty list before touching the store (same order as
+          // the real handler) and dedupe so duplicate ids cannot create
+          // duplicate runs.
+          const caseIds = [...new Set(req.caseIds ?? [])];
+          if (caseIds.length === 0) {
+            throw grpcError(status.INVALID_ARGUMENT, "at least one case_id is required");
+          }
+          const project = requireProject(store, req.projectId);
+          const env = store.envs.get(req.envId);
+          if (!env || env.projectId !== req.projectId) {
+            throw grpcError(status.NOT_FOUND, `env not found in project: ${req.envId}`);
+          }
+          const targets = caseIds.map((caseId) => {
+            const kase = store.cases.get(caseId);
+            if (!kase || kase.projectId !== req.projectId) {
+              throw grpcError(status.NOT_FOUND, `case not found in project: ${caseId}`);
+            }
+            if (kase.status !== CaseStatus.CASE_STATUS_APPROVED) {
+              throw grpcError(status.FAILED_PRECONDITION, "only APPROVED cases can run");
+            }
+            return kase;
+          });
+
+          const requested = req.concurrency > 0 ? req.concurrency : DEFAULT_BATCH_CONCURRENCY;
+          const limit = Math.min(requested, MAX_BATCH_CONCURRENCY);
+          const trigger =
+            req.trigger === RunTrigger.RUN_TRIGGER_UNSPECIFIED
+              ? RunTrigger.RUN_TRIGGER_MANUAL
+              : req.trigger;
+          const write = (payload: BatchEvent): void => {
+            if (call.cancelled) return;
+            try {
+              call.write(payload);
+            } catch {
+              // Broken client stream: the scripted runs keep going locally.
+            }
+          };
+
+          let passed = 0;
+          let failed = 0;
+          let cancelled = 0;
+          await runWithConcurrency(targets, limit, async (kase) => {
+            const finalRun = await simulateRun({
+              store,
+              project,
+              env,
+              kase,
+              trigger,
+              outcome: outcomeForTitle(kase.title),
+              delayMs: 400,
+              control: { registry: runControllers },
+              onRunCreated: (run) => write({ started: { caseId: kase.id, runId: run.id } }),
+              onEvent: (event) => write({ event }),
+            });
+            if (finalRun.status === RunStatus.RUN_STATUS_PASSED) passed += 1;
+            else if (finalRun.status === RunStatus.RUN_STATUS_CANCELLED) cancelled += 1;
+            else failed += 1;
+            write({
+              finished: {
+                caseId: kase.id,
+                runId: finalRun.id,
+                status: finalRun.status,
+                reason: finalRun.failReason,
+              },
+            });
+          });
+
+          if (!call.cancelled) {
+            call.write({ done: { passed, failed, cancelled } });
+            call.end();
+          }
         } catch (err) {
           call.emit("error", err as ServiceError);
         }

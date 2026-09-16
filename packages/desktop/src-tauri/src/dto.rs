@@ -684,6 +684,72 @@ impl From<&pb::Event> for RunEventDto {
     }
 }
 
+/// Tagged batch event for the webview (list multi-select execution): `kind`
+/// selects which optional fields carry data (mirrors the proto BatchEvent
+/// oneof). Emitted on the `batch-run-event` channel while `batch_run_cases` is
+/// in flight. Child-run events arrive as kind = "event" and carry the full
+/// tagged RunEventDto (its run_id attributes it; the preceding "started" event
+/// binds case_id <-> run_id).
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEventDto {
+    pub kind: String, // started | event | finished | batchDone
+    pub case_id: Option<String>,
+    pub run_id: Option<String>,
+    pub event: Option<RunEventDto>,
+    pub status: Option<i32>,
+    pub reason: Option<String>,
+    pub passed: Option<u32>,
+    pub failed: Option<u32>,
+    pub cancelled: Option<u32>,
+}
+
+impl From<&pb::BatchEvent> for BatchEventDto {
+    fn from(e: &pb::BatchEvent) -> Self {
+        use pb::batch_event::Payload;
+
+        let mut dto = BatchEventDto::default();
+        match &e.payload {
+            Some(Payload::Started(s)) => {
+                dto.kind = "started".into();
+                dto.case_id = Some(s.case_id.clone());
+                dto.run_id = Some(s.run_id.clone());
+            }
+            Some(Payload::Event(ev)) => {
+                dto.kind = "event".into();
+                dto.run_id = Some(ev.run_id.clone());
+                dto.event = Some(RunEventDto::from(ev));
+            }
+            Some(Payload::Finished(f)) => {
+                dto.kind = "finished".into();
+                dto.case_id = Some(f.case_id.clone());
+                dto.run_id = Some(f.run_id.clone());
+                dto.status = Some(f.status);
+                dto.reason = Some(f.reason.clone());
+            }
+            Some(Payload::Done(d)) => {
+                dto.kind = "batchDone".into();
+                dto.passed = Some(d.passed);
+                dto.failed = Some(d.failed);
+                dto.cancelled = Some(d.cancelled);
+            }
+            None => dto.kind = "batchDone".into(),
+        }
+        dto
+    }
+}
+
+/// Final tally of a batch run, resolved when `batch_run_cases` returns (the
+/// batch stream ended). The per-case outcomes ride the `batch-run-event`
+/// channel as `finished` events.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchRunResultDto {
+    pub passed: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+}
+
 /// Model provider settings (Settings view): the provider document travels as
 /// an opaque JSON string; the server validates it and the default model.
 /// `browser_pool_size` is the warm browser pool (T23): 0 disables the pool,
